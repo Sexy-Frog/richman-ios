@@ -1,0 +1,3 @@
+[submodule "crypto/third_party/libsignal"]
+	path = crypto/third_party/libsignal
+	url = https://github.com/signalapp/libsignal

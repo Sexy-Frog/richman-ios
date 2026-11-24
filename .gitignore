@@ -1,0 +1,15 @@
+# SwiftPM / Xcode build output
+.build/
+crypto/.build/
+.swiftpm/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
+
+# libsignal FFI build artifacts (inside the submodule) — never commit binaries
+crypto/third_party/libsignal/target/
+**/libsignal_ffi.a
+
+# OS / editor
+.DS_Store
+*.swp
