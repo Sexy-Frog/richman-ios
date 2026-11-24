@@ -31,7 +31,7 @@ jobs:
   # repo is private to control cost; make the repo public for free macOS minutes.
   crypto:
     name: RichManCrypto (macOS, libsignal FFI)
-    runs-on: macos-14
+    runs-on: macos-13
     if: github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@v4
