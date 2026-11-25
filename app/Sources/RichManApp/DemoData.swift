@@ -53,5 +53,22 @@ enum DemoData {
             contacts: [alice, bob],
             messages: [alice.id: aliceMessages, bob.id: bobMessages]
         )
+
+        let group = ChatGroup(id: "demo-group", name: "週末の予定", memberIds: [alice.id, bob.id])
+        let groupMessages = [
+            ChatMessage(
+                id: "g1", body: "土曜の夜、空いてる？", mine: false,
+                ts: now.addingTimeInterval(-90 * 60), senderName: "アリス"
+            ),
+            ChatMessage(
+                id: "g2", body: "空いてる！", mine: true,
+                ts: now.addingTimeInterval(-88 * 60)
+            ),
+            ChatMessage(
+                id: "g3", body: "じゃあ19時に渋谷で", mine: false,
+                ts: now.addingTimeInterval(-86 * 60), senderName: "ボブ"
+            ),
+        ]
+        store.seedGroups([group], messages: [group.id: groupMessages])
     }
 }

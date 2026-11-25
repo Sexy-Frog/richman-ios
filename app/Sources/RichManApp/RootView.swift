@@ -19,7 +19,9 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if let peer = debugChatPeer, let contact = store.contact(peer) {
+            if let gid = debugGroupId, let group = store.group(gid) {
+                NavigationStack { GroupChatView(group: group) }
+            } else if let peer = debugChatPeer, let contact = store.contact(peer) {
                 NavigationStack { ChatView(contact: contact) }
             } else if onboarded || skipOnboarding {
                 HubView()
@@ -41,6 +43,15 @@ struct RootView: View {
     private var debugChatPeer: String? {
         #if DEBUG
         return UserDefaults.standard.string(forKey: "rm.chat")
+        #else
+        return nil
+        #endif
+    }
+
+    /// Screenshot/CI hook: `-rm.group <gid>` opens that group conversation.
+    private var debugGroupId: String? {
+        #if DEBUG
+        return UserDefaults.standard.string(forKey: "rm.group")
         #else
         return nil
         #endif

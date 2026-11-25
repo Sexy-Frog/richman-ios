@@ -4,25 +4,56 @@ import SwiftUI
 
 struct TalksView: View {
     @EnvironmentObject private var store: ChatStore
+    @State private var showCreateGroup = false
 
     var body: some View {
         NavigationStack {
             Group {
-                if store.contacts.isEmpty {
+                if store.contacts.isEmpty && store.groups.isEmpty {
                     EmptyState(
                         icon: "bubble.left.and.bubble.right",
                         title: "まだトークがありません",
                         message: "「友だち」から相手を追加すると、ここにトークが表示されます。"
                     )
                 } else {
-                    List(store.contacts) { c in
-                        NavigationLink(value: c) { ContactRow(contact: c) }
+                    List {
+                        if !store.groups.isEmpty {
+                            Section("グループ") {
+                                ForEach(store.groups) { group in
+                                    NavigationLink(value: group) { GroupRow(group: group) }
+                                }
+                            }
+                        }
+                        if !store.contacts.isEmpty {
+                            Section("友だち") {
+                                ForEach(store.contacts) { contact in
+                                    NavigationLink(value: contact) {
+                                        ContactRow(contact: contact)
+                                    }
+                                }
+                            }
+                        }
                     }
                     .listStyle(.plain)
+                    .navigationDestination(for: Contact.self) { ChatView(contact: $0) }
+                    .navigationDestination(for: ChatGroup.self) { GroupChatView(group: $0) }
                 }
             }
             .navigationTitle("トーク")
-            .navigationDestination(for: Contact.self) { ChatView(contact: $0) }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button("グループを作成", systemImage: "person.3") {
+                            showCreateGroup = true
+                        }
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                }
+            }
+            .sheet(isPresented: $showCreateGroup) {
+                CreateGroupView().environmentObject(store)
+            }
         }
     }
 }

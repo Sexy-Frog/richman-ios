@@ -56,6 +56,7 @@ struct ChatView: View {
                         proxy.scrollTo(last.id, anchor: .bottom)
                     }
                 }
+                .defaultScrollAnchor(.bottom)
             }
 
             if let replyTo { replyBar(replyTo) }
@@ -272,14 +273,18 @@ private struct MessageBubble: View {
 
     @ViewBuilder
     private var deliveryIcon: some View {
-        switch message.delivery {
-        case .sent:
-            Image(systemName: "checkmark")
-        case .delivered:
-            Image(systemName: "checkmark.circle")
-        case .read:
-            Image(systemName: "checkmark.circle.fill")
+        Group {
+            switch message.delivery {
+            case .sent:
+                Image(systemName: "checkmark")
+            case .delivered:
+                Image(systemName: "checkmark.circle")
+            case .read:
+                Image(systemName: "checkmark.circle.fill")
+            }
         }
+        .font(.caption2)
+        .foregroundStyle(Color.white.opacity(0.85))
     }
 }
 

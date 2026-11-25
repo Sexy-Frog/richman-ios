@@ -11,7 +11,9 @@ import RichManCore
 final class ChatStore: ObservableObject {
     @Published var displayName: String
     @Published var contacts: [Contact] = []
+    @Published var groups: [ChatGroup] = []
     @Published private(set) var messagesByPeer: [String: [ChatMessage]] = [:]
+    @Published private(set) var groupMessages: [String: [ChatMessage]] = [:]
     /// Blocked contact ids (App Store UGC requirement — blocked peers can't be
     /// messaged and their inbound messages are dropped). Persisted in UserDefaults.
     @Published private(set) var blockedIds: Set<String> = []
@@ -121,6 +123,57 @@ final class ChatStore: ObservableObject {
         messagesByPeer.removeValue(forKey: peerId)
     }
 
+    // MARK: groups (hub fan-out lands with the relay loop)
+
+    func group(_ id: String) -> ChatGroup? { groups.first { $0.id == id } }
+
+    func messages(forGroup id: String) -> [ChatMessage] { groupMessages[id] ?? [] }
+
+    func memberNames(of group: ChatGroup) -> [String] {
+        group.memberIds.map { id in contacts.first { $0.id == id }?.name ?? "メンバー" }
+    }
+
+    @discardableResult
+    func createGroup(name: String, memberIds: [String]) -> ChatGroup {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let group = ChatGroup(
+            id: "group-\(UUID().uuidString.prefix(8))",
+            name: trimmed.isEmpty ? "グループ" : trimmed,
+            memberIds: memberIds
+        )
+        groups.append(group)
+        groupMessages[group.id] = []
+        return group
+    }
+
+    func send(toGroup id: String, text: String) {
+        let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else { return }
+        groupMessages[id, default: []].append(
+            ChatMessage(id: UUID().uuidString, body: body, mine: true, ts: Date())
+        )
+    }
+
+    func receive(inGroup id: String, from sender: String, text: String) {
+        let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else { return }
+        groupMessages[id, default: []].append(
+            ChatMessage(
+                id: UUID().uuidString, body: body, mine: false, ts: Date(), senderName: sender
+            )
+        )
+    }
+
+    func deleteGroup(_ id: String) {
+        groups.removeAll { $0.id == id }
+        groupMessages.removeValue(forKey: id)
+    }
+
+    func seedGroups(_ groups: [ChatGroup], messages: [String: [ChatMessage]]) {
+        self.groups = groups
+        self.groupMessages = messages
+    }
+
     /// Seed deterministic content for screenshots/demo builds (DEBUG only).
     func seed(contacts: [Contact], messages: [String: [ChatMessage]]) {
         var list = contacts
@@ -163,6 +216,12 @@ struct Contact: Identifiable, Hashable {
     var unread: Int = 0
 }
 
+struct ChatGroup: Identifiable, Hashable {
+    let id: String
+    var name: String
+    var memberIds: [String]
+}
+
 struct ChatMessage: Identifiable, Hashable {
     enum Kind: String, Hashable {
         case text, image, file
@@ -179,4 +238,6 @@ struct ChatMessage: Identifiable, Hashable {
     var kind: Kind = .text
     var replyTo: String? = nil
     var delivery: Delivery = .sent
+    /// Set for incoming group messages (nil in 1:1 chats).
+    var senderName: String? = nil
 }
