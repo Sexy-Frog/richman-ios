@@ -100,6 +100,11 @@ CI（`iOS Crypto`）では `secrets.RM_RELAY_HOST` を xcodegen に渡してい�
 `Documents/e2e.json` に書く（`E2E.swift`, DEBUG のみ）。Apple Developer
 アカウントは不要。
 
+CI ではホスト Mac の Tor（`127.0.0.1:9050`）を共有し、アプリは
+`-rm.tor off -rm.socksPort 9050` でそれを使う。埋め込み Tor の起動・
+ブートストラップは実機（または別のスモークテスト）で担保する。地図プロキシも
+同じ SOCKS を通るため、Tor 経由のタイル取得まで検証される。
+
 ## 端末内の保存
 
 `LocalStore` が Application Support の `state.bin` に
