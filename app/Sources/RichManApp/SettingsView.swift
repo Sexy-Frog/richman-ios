@@ -9,6 +9,7 @@ struct SettingsView: View {
     @EnvironmentObject private var lock: LockStore
     @EnvironmentObject private var location: LocationProvider
     @EnvironmentObject private var tor: TorSession
+    @EnvironmentObject private var mapPresenter: MapPresenter
     @AppStorage("rm.displayName") private var savedName = ""
     @AppStorage("rm.preview") private var previewInNotifications = false
     @AppStorage("rm.autoLockSeconds") private var autoLockSeconds = 0
@@ -22,6 +23,7 @@ struct SettingsView: View {
     @State private var confirmClearChats = false
     @State private var confirmClearFriends = false
     @State private var showZoneEditor = false
+    @State private var showLocationPrimer = false
     @State private var zone: SecurityZone? = SecurityZoneStore.current
 
     var body: some View {
@@ -88,12 +90,15 @@ struct SettingsView: View {
                     if location.hasPermission {
                         LabeledContent("位置情報の権限", value: "許可済み")
                     } else {
-                        Button("位置情報を許可") { location.requestPermission() }
+                        Button("位置情報を許可") { showLocationPrimer = true }
+                    }
+                    Button("友だちの位置を地図で見る") {
+                        mapPresenter.show()
                     }
                 } header: {
                     Text("位置情報")
                 } footer: {
-                    Text("共有はTor・リレー実装後に有効になります。現在は地図の現在地表示のみです。")
+                    Text("位置情報は、現在地を友だちに送るとき・届いた位置を地図で確認するとき・セキュリティゾーンの判定にだけ使います。バックグラウンドでは取得しません。")
                 }
 
                 Section {
@@ -219,6 +224,9 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $showDuress) {
                 DuressView().environmentObject(lock)
+            }
+            .sheet(isPresented: $showLocationPrimer) {
+                LocationPrimer().environmentObject(location)
             }
             .sheet(isPresented: $showZoneEditor, onDismiss: {
                 zone = SecurityZoneStore.current

@@ -20,10 +20,12 @@ struct RootView: View {
     @StateObject private var lock = LockStore()
     @StateObject private var location = LocationProvider()
     @StateObject private var tor = TorSession()
+    @StateObject private var mapPresenter = MapPresenter()
     @State private var backgroundedAt: Date?
     @State private var privacyCover = false
     @State private var screenCaptured = UIScreen.main.isCaptured
     @State private var notificationChat: NotificationChat?
+    @State private var showDebugLocationPrimer = false
 
     /// Screenshot/CI hook: launch with `-rm.skipOnboarding 1` to bypass setup.
     /// DEBUG only, so release builds always start at onboarding.
@@ -60,6 +62,7 @@ struct RootView: View {
         .environmentObject(lock)
         .environmentObject(location)
         .environmentObject(tor)
+        .environmentObject(mapPresenter)
         .tint(RM.primary)
         .onAppear {
             if !savedName.isEmpty { store.displayName = savedName }
@@ -75,6 +78,23 @@ struct RootView: View {
             tor.start()
             store.attachRelay(tor.readyTransport)
             wireCalls()
+            store.onLocationReceived = { [weak mapPresenter] peer in
+                mapPresenter?.show(focusPeer: peer)
+            }
+            #if DEBUG
+            if UserDefaults.standard.bool(forKey: "rm.openMap") {
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    mapPresenter.show(focusPeer: MapConfig.initialFocus)
+                }
+            }
+            if UserDefaults.standard.bool(forKey: "rm.locationPrimer") {
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 400_000_000)
+                    showDebugLocationPrimer = true
+                }
+            }
+            #endif
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
@@ -118,7 +138,18 @@ struct RootView: View {
                     .environmentObject(calls)
                     .environmentObject(location)
                     .environmentObject(tor)
+                    .environmentObject(mapPresenter)
             }
+        }
+        .sheet(item: $mapPresenter.route) { route in
+            MapHomeView(initialFocus: route.focusPeer)
+                .environmentObject(store)
+                .environmentObject(location)
+                .environmentObject(tor)
+                .environmentObject(mapPresenter)
+        }
+        .sheet(isPresented: $showDebugLocationPrimer) {
+            LocationPrimer().environmentObject(location)
         }
         .onChange(of: location.location?.timestamp) { _, _ in
             if scenePhase == .active { applySecurityZoneIfNeeded() }
@@ -254,20 +285,19 @@ struct HubView: View {
     }()
 
     var body: some View {
+        // No map tab (Android parity): the map is presented on demand from
+        // `/locate` answers, location bubbles, or the menu.
         TabView(selection: $tab) {
-            MapHomeView()
-                .tabItem { Label("マップ", systemImage: "map.fill") }
-                .tag(0)
             TalksView()
                 .tabItem { Label("トーク", systemImage: "bubble.left.and.bubble.right.fill") }
                 .badge(store.totalUnread)
-                .tag(1)
+                .tag(0)
             FriendsView()
                 .tabItem { Label("友だち", systemImage: "person.2.fill") }
-                .tag(2)
+                .tag(1)
             SettingsView()
                 .tabItem { Label("設定", systemImage: "gearshape.fill") }
-                .tag(3)
+                .tag(2)
         }
         .onChange(of: store.totalUnread) { _, count in
             UNUserNotificationCenter.current().setBadgeCount(

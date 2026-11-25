@@ -11,6 +11,7 @@ struct ChatView: View {
     @EnvironmentObject private var store: ChatStore
     @EnvironmentObject private var calls: CallStore
     @EnvironmentObject private var locationProvider: LocationProvider
+    @EnvironmentObject private var mapPresenter: MapPresenter
 
     @State private var draft = ""
     @State private var replyTo: ChatMessage?
@@ -24,6 +25,7 @@ struct ChatView: View {
     @State private var showLocationError = false
     @State private var imagePreview: ImagePreview?
     @State private var confirmClearChat = false
+    @State private var showLocationPrimer = false
 
     private var messages: [ChatMessage] { store.messages(for: contact.id) }
     private var isBlocked: Bool { store.isBlocked(contact.id) }
@@ -68,6 +70,11 @@ struct ChatView: View {
                                 },
                                 onOpenImage: {
                                     imagePreview = ImagePreview(image: $0)
+                                },
+                                onOpenLocation: { target in
+                                    mapPresenter.show(
+                                        focusPeer: target.mine ? nil : contact.id
+                                    )
                                 }
                             )
                             .id(message.id)
@@ -137,6 +144,9 @@ struct ChatView: View {
                         Button("位置情報をリクエスト", systemImage: "location") {
                             store.requestLocation(from: contact.id)
                         }
+                        Button("友だちの位置を地図で見る", systemImage: "map") {
+                            mapPresenter.show()
+                        }
                     } label: {
                         Image(systemName: "ellipsis.circle")
                     }
@@ -188,6 +198,9 @@ struct ChatView: View {
             Button("ファイル") { showFiles = true }
             Button("現在地") { sendCurrentLocation() }
             Button("キャンセル", role: .cancel) {}
+        }
+        .sheet(isPresented: $showLocationPrimer) {
+            LocationPrimer().environmentObject(locationProvider)
         }
         .sheet(item: $imagePreview) { preview in
             NavigationStack {
@@ -365,8 +378,11 @@ struct ChatView: View {
 
     /// One-shot, user-initiated position share (never background tracking).
     private func sendCurrentLocation() {
+        guard locationProvider.hasPermission else {
+            showLocationPrimer = true
+            return
+        }
         guard let fix = locationProvider.location else {
-            locationProvider.requestPermission()
             showLocationError = true
             return
         }
@@ -393,6 +409,7 @@ private struct MessageBubble: View {
     let onDelete: (ChatMessage) -> Void
     let onDeleteEveryone: (ChatMessage) -> Void
     let onOpenImage: (UIImage) -> Void
+    let onOpenLocation: (ChatMessage) -> Void
 
     var body: some View {
         HStack(alignment: .bottom) {
@@ -468,6 +485,7 @@ private struct MessageBubble: View {
             }
         case .location:
             bubbleLabel("位置情報", icon: "location.fill")
+                .onTapGesture { onOpenLocation(message) }
         case .file:
             VStack(alignment: .leading, spacing: 2) {
                 Label(message.body, systemImage: "doc")

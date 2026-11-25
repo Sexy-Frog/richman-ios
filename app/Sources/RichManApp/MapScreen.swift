@@ -65,10 +65,16 @@ struct MapHomeView: View {
     @EnvironmentObject private var store: ChatStore
     @EnvironmentObject private var location: LocationProvider
     @EnvironmentObject private var tor: TorSession
+    @Environment(\.dismiss) private var dismiss
     @StateObject private var actions = MapActions()
-    @State private var selectedId: String? = MapConfig.initialFocus
+    @State private var selectedId: String?
     @State private var chatTarget: Contact?
     @State private var styleURL: URL? = MapConfig.styleURL
+    @State private var showLocationPrimer = false
+
+    init(initialFocus: String? = nil) {
+        _selectedId = State(initialValue: initialFocus ?? MapConfig.initialFocus)
+    }
 
     /// Real positions come from shared `loc` messages. The demo seed is only a
     /// fallback for DEBUG screenshot builds (and when nothing is shared yet).
@@ -128,7 +134,7 @@ struct MapHomeView: View {
                             }
                         }
                     } else {
-                        Button { location.requestPermission() } label: {
+                        Button { showLocationPrimer = true } label: {
                             pill {
                                 HStack(spacing: 6) {
                                     Image(systemName: "location.fill")
@@ -142,6 +148,14 @@ struct MapHomeView: View {
                     pill {
                         Text("共有中 \(people.count)人").font(.caption.weight(.semibold))
                     }
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(RM.onSurface)
+                            .frame(width: 32, height: 32)
+                            .background(.ultraThinMaterial, in: Circle())
+                    }
+                    .accessibilityLabel("地図を閉じる")
                 }
                 .padding(.horizontal, 12)
                 .padding(.top, 8)
@@ -177,6 +191,11 @@ struct MapHomeView: View {
         .sheet(item: $chatTarget) { contact in
             NavigationStack { ChatView(contact: contact) }
                 .environmentObject(store)
+                .environmentObject(location)
+                .environmentObject(tor)
+        }
+        .sheet(isPresented: $showLocationPrimer) {
+            LocationPrimer().environmentObject(location)
         }
         .task {
             if let proxied = tor.mapStyleURL {

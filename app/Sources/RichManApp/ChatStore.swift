@@ -121,6 +121,9 @@ final class ChatStore: ObservableObject {
     private var sentReceipts: Set<String> = []
     /// Wired by RootView: current one-shot position for `/locate` replies.
     var currentLocationProvider: (() -> (latitude: Double, longitude: Double, accuracy: Double?)?)?
+    /// Wired by RootView: open the map when a pending `/locate` is answered.
+    var onLocationReceived: ((String) -> Void)?
+    private var pendingLocate: Set<String> = []
 
     /// True while the app has a working Tor → relay path.
     var relayReady: Bool { relayTransport != nil }
@@ -307,6 +310,7 @@ final class ChatStore: ObservableObject {
                 transmit(json, to: opened.senderId, markMid: "")
             }
         case .locDenied?:
+            pendingLocate.remove(opened.senderId)
             appendSystem(
                 opened.senderId,
                 text: "相手は位置情報を共有していません"
@@ -327,6 +331,10 @@ final class ChatStore: ObservableObject {
                 text: "位置情報",
                 remoteId: loc.id
             )
+            // The user asked for this position: pop the map immediately.
+            if pendingLocate.remove(opened.senderId) != nil {
+                onLocationReceived?(opened.senderId)
+            }
         case .locStop?:
             places.removeValue(forKey: opened.senderId)
             appendIncomingPlace(
@@ -996,6 +1004,7 @@ final class ChatStore: ObservableObject {
             return
         }
         let mid = UUID().uuidString
+        pendingLocate.insert(peerId)
         messagesByPeer[peerId, default: []].append(
             ChatMessage(
                 id: mid, body: "位置情報をリクエストしました", mine: true, ts: Date()
