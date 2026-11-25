@@ -176,8 +176,10 @@ final class CallStore: ObservableObject {
             }
             do {
                 let engine = CallAudioEngine(rate: self.negotiatedRate)
+                // The tap fires on the realtime audio thread; hop back to the
+                // main actor before touching @Published state or the relay.
                 engine.onChunk = { [weak self] chunk in
-                    self?.sendAudio(chunk)
+                    Task { @MainActor in self?.sendAudio(chunk) }
                 }
                 try engine.start(speaker: self.speaker)
                 self.audio = engine

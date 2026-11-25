@@ -8,7 +8,6 @@ import RichManCore
 final class CallAudioEngine {
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
-    private let rate: Int
     private let format: AVAudioFormat
     private let chunkSamples: Int
     private var converter: AVAudioConverter?
@@ -22,7 +21,6 @@ final class CallAudioEngine {
     var onChunk: ((Data) -> Void)?
 
     init(rate: Int) {
-        self.rate = rate
         self.format = AVAudioFormat(
             commonFormat: .pcmFormatInt16,
             sampleRate: Double(rate),
