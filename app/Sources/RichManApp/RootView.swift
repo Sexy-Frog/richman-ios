@@ -100,8 +100,9 @@ struct RootView: View {
         }
         .onChange(of: tor.phase) { _, _ in
             // Tor becomes usable some seconds after launch; attach then so the
-            // send/receive loop only runs over a live circuit.
-            if scenePhase == .active { store.attachRelay(tor.readyTransport) }
+            // send/receive loop only runs over a live circuit. (The background
+            // transition detaches again, so this cannot poll while hidden.)
+            store.attachRelay(tor.readyTransport)
         }
         .task {
             #if DEBUG

@@ -74,7 +74,12 @@ jobs:
         run: |
           set -euo pipefail
           RUNTIME=$(xcrun simctl list runtimes -j | jq -r '[.runtimes[] | select(.platform=="iOS" and .isAvailable==true)][-1].identifier')
-          DEVICE=$(xcrun simctl list devicetypes -j | jq -r '[.devicetypes[] | select(.name|test("^iPhone"))][0].identifier')
+          # Prefer a modern iPhone; fall back to any iPhone on older runners.
+          DEVICE=$(xcrun simctl list devicetypes -j | jq -r '[.devicetypes[] | select(.name|test("^iPhone (1[5-9]|Air)"))][0].identifier // empty')
+          if [ -z "$DEVICE" ]; then
+            DEVICE=$(xcrun simctl list devicetypes -j | jq -r '[.devicetypes[] | select(.name|test("^iPhone"))][0].identifier')
+          fi
+          test -n "$RUNTIME" -a -n "$DEVICE"
           echo "runtime=$RUNTIME device=$DEVICE"
           UDID1=$(xcrun simctl create rm-e2e-host "$DEVICE" "$RUNTIME")
           UDID2=$(xcrun simctl create rm-e2e-join "$DEVICE" "$RUNTIME")
