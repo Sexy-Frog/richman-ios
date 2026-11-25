@@ -149,7 +149,9 @@ Android 版 RichMan（`D:\LINE_pt2\android`、稼働中 1.0.21）とバイト単
 ## 8. 未決事項・TODO
 
 - [ ] **Apple Developer** 登録完了 → Team ID / 証明書 / プロファイルを Secrets に。
-- [ ] **バンドルID** 確定（仮 `works.kelvins.richman`）。
+  - [ ] **登録前に**アカウント種別（Organization 推奨）と**名義**を決める（§9 運営者プライバシー：
+        署名CN/販売者名が露出する）。配布は TestFlight / ad-hoc に限定するか要検討。
+- [ ] **バンドルID** 確定（仮 `works.kelvins.richman`、運営者を示唆しない中立な値に）。
 - [ ] crypto FFI ビルドが CI で通るか（初回ログ対応：protoc/cmake 等）。
 - [ ] 端末内DB：SQLite + SealedBox、鍵は Keychain/Secure Enclave（iOS BFU 相当）。
 - [ ] Tor 組み込み方式（Tor.framework vs Arti）。
@@ -158,7 +160,41 @@ Android 版 RichMan（`D:\LINE_pt2\android`、稼働中 1.0.21）とバイト単
 
 ---
 
-## 9. 参照
+## 9. 運営者（オペレータ）プライバシー
+
+利用者の匿名性に加え、**このアプリ/リレーを運営する側（オペレータ）の身元も露出しない**ことを
+設計目標とする。実装・運用のあらゆる判断でこれを基準にする。
+
+### コード・リポジトリ
+- サーバのオニオンアドレス/ホストは**ソースに持たせない**（実行時注入）。✅ 現状コアに無し。
+- コミット作者は noreply（`Sexy-Frog@users.noreply.github.com`）。実メール/実名を履歴に残さない。✅
+- GitHub は擬名アカウント（Sexy-Frog）。README/doc からライブサービス（kelvins.works）への
+  紐付けを除去済み。✅ 公開リポは説明・topics を空にして検索ヒットを下げる。✅
+- **CI（GitHubランナー）でビルド**＝バイナリに運営者のローカルPCのパス/ユーザ名が焼き込まれない
+  （`/Users/runner/...` になる）。ローカルMacビルドより露出が少ない副次効果。✅
+
+### 署名・Apple Developer（最重要の露出点）
+- `.ipa` には署名証明書の CN（＝Apple アカウントの名義）と Team ID が埋め込まれ、
+  **`.ipa` を入手した誰でも読める**。App Store 公開は「販売者名」も公開される。
+- 対策:
+  - できれば **Organization アカウント＋中立的な名義**で登録し個人名を出さない（法人/団体と
+    D-U-N-S 番号が必要）。
+  - **公開 App Store を避け、TestFlight か 直接インストール（ad-hoc）**に配布を限定して露出範囲を絞る。
+  - Individual アカウントだと署名 CN＝個人名になるので、`.ipa` は信頼できる相手にのみ渡す。
+  - Apple 自身は実身元を必ず把握する（避けられない第三者信頼点）。ここでの目的は「公開/第三者
+    からの秘匿」。
+  - → **登録前にアカウント種別と名義を決める**（§8 TODO）。
+
+### インフラ・配布
+- リレーはオニオンのみ（クリアネット無し）、リクエストログ無し（PROTOCOL.md §4）。
+- デプロイ鍵/サーバ資格情報はリポジトリに入れない。✅（`server/` 配下は `ios/` 外）。
+- ドメイン/ホスティング/支払いは匿名で（運営者の運用判断領域）。
+
+### バイナリ・メタデータ
+- Info.plist/バンドルに運営者 PII を入れない。バンドルIDも中立に（仮 `works.kelvins.richman`）。
+- クラッシュレポート/解析 SDK は入れない（運営者にもデータを送らない）。
+
+## 10. 参照
 
 - `README.md` … リポジトリ概要
 - `CI_SETUP.md` … GitHub Actions / submodule / 公開・コストの手順
