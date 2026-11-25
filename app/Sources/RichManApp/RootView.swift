@@ -77,10 +77,12 @@ struct RootView: View {
                 }
                 backgroundedAt = nil
                 location.startIfAuthorized()
+                store.attachRelay(tor.readyTransport)
                 applySecurityZoneIfNeeded()
             case .background:
                 privacyCover = true
                 backgroundedAt = Date()
+                store.attachRelay(nil)
             case .inactive:
                 privacyCover = true
             @unknown default:
@@ -94,6 +96,11 @@ struct RootView: View {
         }
         .onChange(of: location.location?.timestamp) { _, _ in
             if scenePhase == .active { applySecurityZoneIfNeeded() }
+        }
+        .onChange(of: tor.phase) { _, _ in
+            // Tor becomes usable some seconds after launch; attach then so the
+            // send/receive loop only runs over a live circuit.
+            if scenePhase == .active { store.attachRelay(tor.readyTransport) }
         }
         .fullScreenCover(
             isPresented: Binding(

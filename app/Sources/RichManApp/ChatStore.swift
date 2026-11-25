@@ -23,16 +23,18 @@ final class ChatStore: ObservableObject {
     private let blockedKey = "rm.blocked"
 
     let crypto: CryptoProvider
-    /// Real relay pipeline (seal/send, fetch/open). Transport is a Simulator stub
-    /// for now; the Tor transport + box plumbing activate it on device.
-    let relay: RelayService
+    /// Non-nil only when Tor is up and the app is foreground. Every send/poll
+    /// goes through this; nil means the chat stays local (Simulator/demo).
+    private var relayTransport: RelayTransport?
+    private var pollTask: Task<Void, Never>?
+    /// Invite mailboxes waiting for the first message (inviter side). When one
+    /// is claimed, the sender becomes a contact and this box is dropped.
+    private var pendingBoxes: Set<String> = []
 
     init(displayName: String,
-         crypto: CryptoProvider = CryptoProviderFactory.make(),
-         transport: RelayTransport = StubRelayTransport()) {
+         crypto: CryptoProvider = CryptoProviderFactory.make()) {
         self.displayName = displayName
         self.crypto = crypto
-        self.relay = RelayService(transport: transport, crypto: crypto)
         if let saved = UserDefaults.standard.stringArray(forKey: blockedKey) {
             self.blockedIds = Set(saved)
         }
@@ -45,6 +47,113 @@ final class ChatStore: ObservableObject {
     var myId: String { crypto.myId }
 
     var totalUnread: Int { contacts.reduce(0) { $0 + $1.unread } }
+
+    /// True while the app has a working Tor → relay path.
+    var relayReady: Bool { relayTransport != nil }
+
+    /// Attach/detach the Tor transport (called on foreground and when Tor
+    /// finishes bootstrapping). Detaching stops the receive loop.
+    func attachRelay(_ transport: RelayTransport?) {
+        guard (relayTransport == nil) != (transport == nil) || transport != nil else {
+            return
+        }
+        relayTransport = transport
+        pollTask?.cancel()
+        pollTask = nil
+        guard transport != nil else { return }
+        startPolling()
+    }
+
+    private func relayService() -> RelayService? {
+        guard let relayTransport else { return nil }
+        return RelayService(transport: relayTransport, crypto: crypto)
+    }
+
+    private func startPolling() {
+        pollTask?.cancel()
+        pollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                await self.pollOnce()
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+            }
+        }
+    }
+
+    /// One pass over every mailbox we own: per-contact receive boxes plus
+    /// invite boxes that no scanner has claimed yet.
+    func pollOnce() async {
+        guard let service = relayService() else { return }
+
+        for peer in contacts where !peer.official {
+            guard let text = peer.recvBox,
+                  let box = try? Base64URL.decode(text), box.count == 32 else { continue }
+            guard let opened = try? await service.poll(box: box, knownSender: peer.id) else {
+                continue
+            }
+            for message in opened { apply(message) }
+        }
+
+        for text in pendingBoxes {
+            guard let box = try? Base64URL.decode(text), box.count == 32 else {
+                pendingBoxes.remove(text)
+                continue
+            }
+            guard let opened = try? await service.poll(box: box, knownSender: nil) else {
+                continue
+            }
+            if !opened.isEmpty {
+                pendingBoxes.remove(text)
+                for message in opened { apply(message) }
+            }
+        }
+    }
+
+    /// Apply a decrypted inbound message: learn the peer's reply mailbox,
+    /// create a contact for a first message arriving on an invite box, then
+    /// dispatch on the payload type.
+    private func apply(_ opened: OpenedMessage) {
+        if !contacts.contains(where: { $0.id == opened.senderId }) {
+            contacts.append(
+                Contact(
+                    id: opened.senderId,
+                    name: "新規",
+                    tag: nil,
+                    box: opened.replyBox,
+                    recvBox: Base64URL.encode(Self.randomBytes(32))
+                )
+            )
+        }
+        guard let index = contacts.firstIndex(where: { $0.id == opened.senderId }) else {
+            return
+        }
+        if let reply = opened.replyBox, !reply.isEmpty {
+            contacts[index].box = reply
+        }
+
+        switch opened.type {
+        case .text?:
+            guard let text = try? JSONDecoder().decode(TextMessage.self, from: opened.payload) else {
+                return
+            }
+            if contacts[index].name == "新規", let name = text.n, !name.isEmpty {
+                contacts[index].name = name
+            }
+            receive(from: opened.senderId, text: text.b, remoteId: text.mid)
+        case .read?:
+            markMyMessagesRead(opened.senderId)
+        case .del?:
+            guard let del = try? JSONDecoder().decode(DeleteMessage.self, from: opened.payload) else {
+                return
+            }
+            messagesByPeer[opened.senderId]?.removeAll { message in
+                del.ids.contains(message.id)
+                    || (message.remoteId.map(del.ids.contains) ?? false)
+            }
+        default:
+            break
+        }
+    }
 
     private func updateBadge() {
         UNUserNotificationCenter.current().setBadgeCount(
@@ -66,21 +175,70 @@ final class ChatStore: ObservableObject {
 
     func contact(_ peerId: String) -> Contact? { contacts.first { $0.id == peerId } }
 
-    /// Append an outgoing message. TODO: stamp rb → crypto.encrypt →
-    /// OutgoingSealer.seal → RelayClient.send(to: peer.box).
+    /// Append an outgoing message, then (on device, over Tor) seal it with
+    /// libsignal and POST it to the peer's mailbox. Without a relay the message
+    /// stays local, which is the Simulator/demo behaviour.
     func send(to peerId: String, text: String,
               kind: ChatMessage.Kind = .text,
               replyTo: String? = nil) {
         let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty, !isBlocked(peerId) else { return }
+        let mid = UUID().uuidString
         messagesByPeer[peerId, default: []].append(
-            ChatMessage(id: UUID().uuidString, body: body, mine: true, ts: Date(),
+            ChatMessage(id: mid, body: body, mine: true, ts: Date(),
                         kind: kind, replyTo: replyTo)
         )
         if let i = contacts.firstIndex(where: { $0.id == peerId }) {
             contacts[i].lastMessage = kind == .text ? body : (kind == .image ? "画像" : "ファイル")
         }
         objectWillChange.send()
+
+        guard kind == .text,
+              let peer = contact(peerId),
+              let boxText = peer.box,
+              let box = try? Base64URL.decode(boxText), box.count == 32,
+              let service = relayService() else { return }
+        let replyBox = ensureRecvBox(peerId)
+        let ttl = ttl(for: peerId)
+        let exp = ttl > 0
+            ? Int64((Date().addingTimeInterval(Double(ttl)).timeIntervalSince1970) * 1000)
+            : nil
+        let payload = TextMessage(
+            b: body, n: displayName, ts: Int64(Date().timeIntervalSince1970 * 1000),
+            mid: mid, exp: exp
+        )
+        Task { [weak self] in
+            do {
+                let json = try payload.toPayloadJSON()
+                try await service.send(
+                    payload: json, to: peerId, box: box, replyBox: replyBox
+                )
+                self?.markMessage(peerId, mid: mid, delivery: .delivered)
+            } catch {
+                self?.markMessage(peerId, mid: mid, delivery: .sent)
+            }
+        }
+    }
+
+    private func markMessage(
+        _ peerId: String, mid: String, delivery: ChatMessage.Delivery
+    ) {
+        guard var list = messagesByPeer[peerId],
+              let index = list.firstIndex(where: { $0.id == mid }) else { return }
+        list[index].delivery = delivery
+        messagesByPeer[peerId] = list
+    }
+
+    /// My receive mailbox for this peer (32 random bytes, base64url). The peer
+    /// learns it from the `rb` stamped on my messages.
+    private func ensureRecvBox(_ peerId: String) -> String? {
+        guard let index = contacts.firstIndex(where: { $0.id == peerId }) else {
+            return nil
+        }
+        if let existing = contacts[index].recvBox { return existing }
+        let box = Base64URL.encode(Self.randomBytes(32))
+        contacts[index].recvBox = box
+        return box
     }
 
     /// Simulated transport acknowledgements (the relay loop will drive these).
@@ -101,10 +259,13 @@ final class ChatStore: ObservableObject {
     }
 
     /// Record an inbound message (will be called by the relay receive loop).
-    func receive(from peerId: String, text: String) {
+    func receive(from peerId: String, text: String, remoteId: String? = nil) {
         guard !isBlocked(peerId) else { return }   // drop messages from blocked peers
         messagesByPeer[peerId, default: []].append(
-            ChatMessage(id: UUID().uuidString, body: text, mine: false, ts: Date())
+            ChatMessage(
+                id: UUID().uuidString, body: text, mine: false, ts: Date(),
+                remoteId: remoteId
+            )
         )
         if let i = contacts.firstIndex(where: { $0.id == peerId }) {
             contacts[i].lastMessage = text
@@ -342,6 +503,7 @@ final class ChatStore: ObservableObject {
             withJSONObject: ["e": Base64URL.encode(sealed)]
         )
         let token = try await RelayClient(transport: transport).putInvite(bundle: envelope)
+        pendingBoxes.insert(material.box)
         let qr = QRInvite(
             id: material.id,
             n: material.n,
@@ -408,10 +570,13 @@ struct Contact: Identifiable, Hashable {
     var lastMessage: String = ""
     var unread: Int = 0
     var official: Bool = false
-    /// base64url routing tag (16B) and send mailbox (32B) from the invite.
-    /// Present for contacts added through a real invite.
+    /// base64url routing tag (16B) and the peer's send mailbox (32B) from the
+    /// invite (updated from the `rb` on their messages).
     var tag: String? = nil
     var box: String? = nil
+    /// My receive mailbox for this peer (32B, base64url); polled and stamped as
+    /// `rb` on every message I send them.
+    var recvBox: String? = nil
 }
 
 struct ChatGroup: Identifiable, Hashable {
@@ -438,6 +603,8 @@ struct ChatMessage: Identifiable, Hashable {
     var delivery: Delivery = .sent
     /// Set for incoming group messages (nil in 1:1 chats).
     var senderName: String? = nil
+    /// The sender's wire message id, kept for delete-for-everyone receipts.
+    var remoteId: String? = nil
     /// Local media file name (image/file messages).
     var mediaName: String? = nil
     var fileSize: Int? = nil

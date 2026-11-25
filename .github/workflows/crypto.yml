@@ -60,6 +60,9 @@ jobs:
           test -n "$FFI_DIR"
           swift test -v -Xlinker -L"$FFI_DIR"
 
+      - name: Install Rust iOS simulator target
+        run: rustup target add aarch64-apple-ios-sim
+
       - name: Build libsignal FFI (iOS Simulator)
         working-directory: crypto
         run: CARGO_BUILD_TARGET=aarch64-apple-ios-sim ./third_party/libsignal/swift/build_ffi.sh --release
