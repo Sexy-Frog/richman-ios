@@ -274,6 +274,11 @@ public struct CallSignal: Codable, Equatable {
     public var n: String?          // display name (offer)
     public var sr: Int?            // negotiated sample rate (offer/answer)
     public var why: String?        // end reason (end)
+
+    public init(t: String, id: String, n: String? = nil, sr: Int? = nil,
+                why: String? = nil) {
+        self.t = t; self.id = id; self.n = n; self.sr = sr; self.why = why
+    }
 }
 
 /// `{"t":"call_audio","id":"...","seq":N,"d":"<ADPCM base64>"}`
@@ -283,6 +288,10 @@ public struct CallAudio: Codable, Equatable {
     public var peer: String?
     public var seq: Int64
     public var d: String           // ADPCM, base64
+
+    public init(id: String, peer: String? = nil, seq: Int64, d: String) {
+        self.id = id; self.peer = peer; self.seq = seq; self.d = d
+    }
 }
 
 public extension Encodable {

@@ -92,7 +92,9 @@ struct ChatView: View {
         .toolbar {
             if !isOfficial {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { calls.start(contact.name) } label: {
+                    Button {
+                    calls.startCall(peerId: contact.id, name: contact.name)
+                } label: {
                         Image(systemName: "phone.fill")
                     }
                 }

@@ -1,0 +1,173 @@
+name: iOS E2E (Tor relay, two simulators)
+
+# Full stack on two iOS Simulators: real libsignal, embedded Tor, the live
+# .onion relay, invite handshake, 1:1 text, encrypted image, location, group
+# fan-out, and the Tor-backed map proxy. No Apple Developer account needed.
+# Slow (~45 min: Rust FFI + two Tor bootstraps), so it runs on demand and when
+# the E2E driver itself changes.
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'app/Sources/RichManApp/E2E.swift'
+      - '.github/workflows/e2e.yml'
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: Tor E2E (host + joiner)
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install tools
+        run: brew install protobuf xcodegen
+
+      - name: Install Rust iOS simulator target
+        working-directory: crypto/third_party/libsignal
+        run: rustup target add aarch64-apple-ios-sim --toolchain "$(cat rust-toolchain)"
+
+      - name: Build libsignal FFI (iOS Simulator)
+        working-directory: crypto
+        run: CARGO_BUILD_TARGET=aarch64-apple-ios-sim ./third_party/libsignal/swift/build_ffi.sh --release
+
+      - name: Fetch Tor xcframework
+        working-directory: tor
+        run: bash scripts/fetch-tor.sh
+
+      - name: Generate app project
+        working-directory: app
+        env:
+          RM_RELAY_HOST: ${{ secrets.RM_RELAY_HOST }}
+        run: xcodegen generate --spec project-crypto.yml
+
+      - name: Build real-crypto app (Simulator)
+        working-directory: app
+        run: |
+          FFI_ROOT="$(cd ../crypto && pwd)"
+          FFI_DIR=$(dirname "$(find "$FFI_ROOT/third_party/libsignal/target/aarch64-apple-ios-sim" -name libsignal_ffi.a | head -n1)")
+          test -n "$FFI_DIR"
+          xcodebuild \
+            -project RichManCrypto.xcodeproj \
+            -scheme RichManCryptoApp \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Debug \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            LIBRARY_SEARCH_PATHS="$FFI_DIR" \
+            OTHER_LDFLAGS="-lsignal_ffi" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
+            EXCLUDED_ARCHS=x86_64 \
+            build
+
+      - name: Boot two simulators and install
+        working-directory: app
+        run: |
+          set -euo pipefail
+          RUNTIME=$(xcrun simctl list runtimes -j | jq -r '[.runtimes[] | select(.platform=="iOS" and .isAvailable==true)][-1].identifier')
+          DEVICE=$(xcrun simctl list devicetypes -j | jq -r '[.devicetypes[] | select(.name|test("^iPhone"))][0].identifier')
+          echo "runtime=$RUNTIME device=$DEVICE"
+          UDID1=$(xcrun simctl create rm-e2e-host "$DEVICE" "$RUNTIME")
+          UDID2=$(xcrun simctl create rm-e2e-join "$DEVICE" "$RUNTIME")
+          echo "UDID1=$UDID1" >> "$GITHUB_ENV"
+          echo "UDID2=$UDID2" >> "$GITHUB_ENV"
+          APP="build/Build/Products/Debug-iphonesimulator/RichManCryptoApp.app"
+          test -d "$APP"
+          xcrun simctl boot "$UDID1"
+          xcrun simctl boot "$UDID2"
+          xcrun simctl bootstatus "$UDID1" -b
+          xcrun simctl bootstatus "$UDID2" -b
+          BUNDLE=works.kelvins.richman.crypto
+          xcrun simctl install "$UDID1" "$APP"
+          xcrun simctl install "$UDID2" "$APP"
+          xcrun simctl privacy "$UDID1" grant location "$BUNDLE" || true
+          xcrun simctl privacy "$UDID2" grant location "$BUNDLE" || true
+
+      - name: Run Tor E2E
+        working-directory: app
+        run: |
+          set -euo pipefail
+          BUNDLE=works.kelvins.richman.crypto
+          xcrun simctl launch "$UDID1" "$BUNDLE" -rm.skipOnboarding 1 -rm.e2eRole host
+          HOST_DATA=$(xcrun simctl get_app_container "$UDID1" "$BUNDLE" data)
+          HOST_JSON="$HOST_DATA/Documents/e2e.json"
+          echo "HOST_DATA=$HOST_DATA" >> "$GITHUB_ENV"
+
+          INVITE=""
+          for i in $(seq 1 300); do
+            if [ -f "$HOST_JSON" ]; then
+              INVITE=$(jq -r '.invite // empty' "$HOST_JSON" 2>/dev/null || true)
+              [ -n "$INVITE" ] && break
+            fi
+            sleep 2
+          done
+          if [ -z "$INVITE" ]; then
+            echo "::error::host never produced an invite"
+            cat "$HOST_JSON" 2>/dev/null || true
+            exit 1
+          fi
+
+          INVITE_B64=$(printf '%s' "$INVITE" | base64 | tr -d '\n' | tr '+/' '-_' | tr -d '=')
+          xcrun simctl launch "$UDID2" "$BUNDLE" -rm.skipOnboarding 1 \
+            -rm.e2eRole join -rm.e2eInvite "$INVITE_B64"
+          JOIN_DATA=$(xcrun simctl get_app_container "$UDID2" "$BUNDLE" data)
+          JOIN_JSON="$JOIN_DATA/Documents/e2e.json"
+          echo "JOIN_DATA=$JOIN_DATA" >> "$GITHUB_ENV"
+
+          for i in $(seq 1 420); do
+            H=$(jq -r '.done // false' "$HOST_JSON" 2>/dev/null || echo false)
+            J=$(jq -r '.done // false' "$JOIN_JSON" 2>/dev/null || echo false)
+            [ "$H" = "true" ] && [ "$J" = "true" ] && break
+            sleep 2
+          done
+
+          echo "--- host ---"
+          cat "$HOST_JSON" 2>/dev/null || true
+          echo
+          echo "--- join ---"
+          cat "$JOIN_JSON" 2>/dev/null || true
+          echo
+
+          jq -e '.done==true and .image==true and .place==true and .group==true and .map==true' "$HOST_JSON"
+          jq -e '.done==true and .text==true and .image==true and .place==true and .group==true' "$JOIN_JSON"
+
+      - name: Collect artifacts
+        if: always()
+        working-directory: app
+        run: |
+          set +e
+          mkdir -p e2e-artifacts
+          BUNDLE=works.kelvins.richman.crypto
+          xcrun simctl io "$UDID1" screenshot e2e-artifacts/host.png
+          xcrun simctl io "$UDID2" screenshot e2e-artifacts/join.png
+          for n in 1 2; do
+            u=$(eval echo \$UDID$n)
+            d=$(xcrun simctl get_app_container "$u" "$BUNDLE" data 2>/dev/null)
+            [ -n "$d" ] && cp "$d/Documents/e2e.json" "e2e-artifacts/e2e-$n.json"
+            [ -n "$d" ] && cp "$d/Library/Application Support/tor/tor.log" "e2e-artifacts/tor-$n.log"
+          done
+          ls -la e2e-artifacts
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-e2e
+          path: app/e2e-artifacts
+          if-no-files-found: warn
+
+      - name: Cleanup simulators
+        if: always()
+        run: |
+          xcrun simctl shutdown "$UDID1" 2>/dev/null || true
+          xcrun simctl shutdown "$UDID2" 2>/dev/null || true
+          xcrun simctl delete "$UDID1" 2>/dev/null || true
+          xcrun simctl delete "$UDID2" 2>/dev/null || true

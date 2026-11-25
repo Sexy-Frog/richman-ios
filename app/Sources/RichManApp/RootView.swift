@@ -66,6 +66,7 @@ struct RootView: View {
             applySecurityZoneIfNeeded()
             // No-op in the mock build (TorSupport not linked).
             tor.start()
+            wireCalls()
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
@@ -102,6 +103,11 @@ struct RootView: View {
             // send/receive loop only runs over a live circuit.
             if scenePhase == .active { store.attachRelay(tor.readyTransport) }
         }
+        .task {
+            #if DEBUG
+            await E2E.runIfRequested(store: store, tor: tor)
+            #endif
+        }
         .fullScreenCover(
             isPresented: Binding(
                 get: { calls.phase != .idle },
@@ -137,6 +143,26 @@ struct RootView: View {
     }
 
     /// Local wipe after repeated wrong PINs. Remote copies are unaffected.
+    /// Call signaling and ADPCM audio ride the same encrypted 1:1 path as
+    /// messages; the call layer only gets the store's transport hooks.
+    private func wireCalls() {
+        store.onCallSignal = { [weak calls] peer, signal in
+            calls?.handleSignal(from: peer, signal: signal)
+        }
+        store.onCallAudio = { [weak calls] peer, packet in
+            calls?.handleAudio(from: peer, packet: packet)
+        }
+        calls.sendPayload = { [weak store] peer, data in
+            store?.sendCallPayload(data, to: peer)
+        }
+        calls.onFastPolling = { [weak store] on, peer in
+            store?.setFastPolling(on, peerId: peer)
+        }
+        calls.nameResolver = { [weak store] peer in
+            store?.contact(peer)?.name
+        }
+    }
+
     private func wipeLocalData() {
         store.wipeAllLocal()
         MediaStore.clearAll()

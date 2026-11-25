@@ -33,10 +33,20 @@ struct CallOverlay: View {
                         callButton("phone.down.fill", "拒否", .red) { calls.decline() }
                         callButton("phone.fill", "応答", .green) { calls.accept() }
                     }
+                } else if calls.phase == .calling {
+                    callButton("phone.down.fill", "キャンセル", .red) { calls.end() }
                 } else {
                     HStack(spacing: 36) {
-                        callButton("mic.slash.fill", "ミュート", Color.white.opacity(0.18)) {}
-                        callButton("speaker.wave.2.fill", "スピーカー", Color.white.opacity(0.18)) {}
+                        callButton(
+                            "mic.slash.fill",
+                            "ミュート",
+                            calls.muted ? RM.primary : Color.white.opacity(0.18)
+                        ) { calls.toggleMute() }
+                        callButton(
+                            "speaker.wave.2.fill",
+                            "スピーカー",
+                            calls.speaker ? RM.primary : Color.white.opacity(0.18)
+                        ) { calls.toggleSpeaker() }
                         callButton("phone.down.fill", "終了", .red) { calls.end() }
                     }
                 }
@@ -55,9 +65,11 @@ struct CallOverlay: View {
         switch calls.phase {
         case .incoming:
             return "着信"
+        case .calling:
+            return "発信しています…"
         case .active:
             return "通話中 " + timeLabel
-        case .idle:
+        case .idle, .ended:
             return ""
         }
     }

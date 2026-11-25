@@ -26,8 +26,8 @@ actor RelayService {
     /// Poll one mailbox once, open what's there, and ack it. `knownSender` is the
     /// contact that owns this mailbox (nil for an invite mailbox → PreKey peek).
     @discardableResult
-    func poll(box: Data, knownSender: String?) async throws -> [OpenedMessage] {
-        let fetched = try await client.fetch(box: box, wait: 0)
+    func poll(box: Data, knownSender: String?, wait: Int = 0) async throws -> [OpenedMessage] {
+        let fetched = try await client.fetch(box: box, wait: wait)
         guard !fetched.isEmpty else { return [] }
         var opened: [OpenedMessage] = []
         for m in fetched {

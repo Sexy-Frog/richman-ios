@@ -31,6 +31,11 @@ final class ChatStore: ObservableObject {
     /// goes through this; nil means the chat stays local (Simulator/demo).
     private var relayTransport: RelayTransport?
     private var pollTask: Task<Void, Never>?
+    /// During a call the active peer is long-polled first for low latency.
+    private var fastPeer: String?
+    /// Call signaling/audio hooks, wired by RootView to `CallStore`.
+    var onCallSignal: ((String, CallSignal) -> Void)?
+    var onCallAudio: ((String, CallAudio) -> Void)?
     /// Invite mailboxes waiting for the first message (inviter side). When one
     /// is claimed, the sender becomes a contact and this box is dropped.
     private var pendingBoxes: Set<String> = []
@@ -119,22 +124,46 @@ final class ChatStore: ObservableObject {
             while !Task.isCancelled {
                 guard let self else { return }
                 await self.pollOnce()
-                // One empty poll per mailbox every 5s. Long-polling would hold
-                // one Tor circuit per contact open, which is worse for a phone.
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                if self.fastPeer == nil {
+                    // One empty poll per mailbox every 5s. During a call the
+                    // fast path long-polls instead (see pollOnce).
+                    try? await Task.sleep(nanoseconds: 5_000_000_000)
+                }
             }
         }
+    }
+
+    /// Low-latency polling for the peer on an active call (long-poll with
+    /// `wait`), so 300 ms ADPCM chunks do not sit in the mailbox.
+    func setFastPolling(_ on: Bool, peerId: String?) {
+        let peer = on ? peerId : nil
+        guard fastPeer != peer else { return }
+        fastPeer = peer
+        startPolling()
+    }
+
+    /// Send one call signal / audio packet over the usual encrypted 1:1 path.
+    func sendCallPayload(_ payload: Data, to peerId: String) {
+        transmit(payload, to: peerId, markMid: "")
     }
 
     /// One pass over every mailbox we own: per-contact receive boxes plus
     /// invite boxes that no scanner has claimed yet.
     func pollOnce() async {
         guard let service = relayService() else { return }
+        let wait = fastPeer == nil ? 0 : 15
+        let peers = contacts
+            .filter { !$0.official }
+            .sorted { lhs, rhs in
+                (lhs.id == fastPeer ? 0 : 1) < (rhs.id == fastPeer ? 0 : 1)
+            }
 
-        for peer in contacts where !peer.official {
+        for peer in peers {
             guard let text = peer.recvBox,
                   let box = try? Base64URL.decode(text), box.count == 32 else { continue }
-            guard let opened = try? await service.poll(box: box, knownSender: peer.id) else {
+            guard let opened = try? await service.poll(
+                box: box, knownSender: peer.id, wait: wait
+            ) else {
                 continue
             }
             for message in opened { await apply(message) }
@@ -269,6 +298,16 @@ final class ChatStore: ObservableObject {
                 GroupMembershipMessage.self, from: opened.payload
             ) else { return }
             handleMembership(membership)
+        case .callOffer?, .callAnswer?, .callEnd?:
+            guard let signal = try? JSONDecoder().decode(
+                CallSignal.self, from: opened.payload
+            ) else { return }
+            onCallSignal?(opened.senderId, signal)
+        case .callAudio?:
+            guard let audio = try? JSONDecoder().decode(
+                CallAudio.self, from: opened.payload
+            ) else { return }
+            onCallAudio?(opened.senderId, audio)
         case .read?:
             markMyMessagesRead(opened.senderId)
         case .del?:

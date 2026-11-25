@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import RichManCore
 #if canImport(TorSupport)
 import TorSupport
@@ -35,6 +36,9 @@ final class TorSession: ObservableObject {
 
     private var launcher: AnyObject?
     private var pollTask: Task<Void, Never>?
+    /// Chosen per launch so two simulators (or two app instances) never fight
+    /// over 127.0.0.1:39050 on the same host.
+    private var socksPort: UInt16 = 39050
 
     init() {
         #if canImport(TorSupport)
@@ -75,7 +79,7 @@ final class TorSession: ObservableObject {
     var relayTransport: SOCKS5Transport? {
         guard phase != .unsupported, configured else { return nil }
         return SOCKS5Transport(
-            proxy: SOCKS5Address(host: "127.0.0.1", port: 39050),
+            proxy: SOCKS5Address(host: "127.0.0.1", port: socksPort),
             targetHost: Self.relayHost,
             targetPort: Self.relayPort,
             username: "default"
@@ -90,8 +94,9 @@ final class TorSession: ObservableObject {
             in: .userDomainMask
         )[0].appendingPathComponent("tor", isDirectory: true)
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        socksPort = Self.freeLoopbackPort() ?? 39050
         let config = TorConfig(
-            socksPort: 39050,
+            socksPort: socksPort,
             dataDirectory: base,
             cacheDirectory: base.appendingPathComponent("cache", isDirectory: true),
             logFile: base.appendingPathComponent("tor.log")
@@ -130,6 +135,34 @@ final class TorSession: ObservableObject {
                 self.phase = .failed("Tor の起動がタイムアウトしました")
             }
         }
+    }
+
+    /// Bind port 0 and read the assigned port, so two app instances on one
+    /// host (two simulators) never collide on the SOCKS listener.
+    private static func freeLoopbackPort() -> UInt16? {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { return nil }
+        defer { close(fd) }
+        var address = sockaddr_in()
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = 0
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        let bound = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard bound == 0 else { return nil }
+        var name = sockaddr_in()
+        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let named = withUnsafeMutablePointer(to: &name) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                getsockname(fd, $0, &length)
+            }
+        }
+        guard named == 0 else { return nil }
+        return UInt16(bigEndian: name.sin_port)
     }
 
     @discardableResult
