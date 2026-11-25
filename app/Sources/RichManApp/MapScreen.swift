@@ -48,6 +48,15 @@ enum MapConfig {
         return nil
         #endif
     }
+
+    /// Screenshot/CI hook: `-rm.mapfocus <id>` opens the map focused on a friend.
+    static var initialFocus: String? {
+        #if DEBUG
+        return UserDefaults.standard.string(forKey: "rm.mapfocus")
+        #else
+        return nil
+        #endif
+    }
 }
 
 // MARK: - Screen
@@ -55,7 +64,7 @@ enum MapConfig {
 struct MapHomeView: View {
     @EnvironmentObject private var store: ChatStore
     @StateObject private var actions = MapActions()
-    @State private var selectedId: String?
+    @State private var selectedId: String? = MapConfig.initialFocus
     @State private var chatTarget: Contact?
 
     private var people: [MapPerson] { MapDemo.people }
@@ -266,7 +275,12 @@ struct MapContainer: UIViewRepresentable {
         map.delegate = context.coordinator
         map.showsLogoView = false
         map.showsAttributionButton = false
-        map.setCenter(me, zoomLevel: 14.5, animated: false)
+        let focus = people.first { $0.id == focusId }
+        map.setCenter(
+            focus?.coordinate ?? me,
+            zoomLevel: focus == nil ? 14.5 : 15.5,
+            animated: false
+        )
         map.addAnnotations(makeAnnotations())
         actions.map = map
         context.coordinator.lastFocus = focusId
