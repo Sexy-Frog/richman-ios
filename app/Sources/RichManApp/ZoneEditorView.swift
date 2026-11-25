@@ -13,6 +13,7 @@ struct ZoneEditorView: View {
     @State private var action: SecurityZone.Action
     @State private var recenterToken = 0
     @State private var showLocationPrimer = false
+    @State private var pendingCenterOnMe = false
 
     init(zone: SecurityZone?) {
         let base = zone ?? SecurityZone(
@@ -69,6 +70,12 @@ struct ZoneEditorView: View {
             .sheet(isPresented: $showLocationPrimer) {
                 LocationPrimer().environmentObject(location)
             }
+            .onChange(of: location.location?.timestamp) { _, _ in
+                guard pendingCenterOnMe, let fix = location.location else { return }
+                pendingCenterOnMe = false
+                center = fix.coordinate
+                recenterToken += 1
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("キャンセル") { dismiss() }
@@ -97,6 +104,7 @@ struct ZoneEditorView: View {
             center = fix.coordinate
             recenterToken += 1
         } else {
+            pendingCenterOnMe = true
             location.startIfAuthorized()
         }
     }

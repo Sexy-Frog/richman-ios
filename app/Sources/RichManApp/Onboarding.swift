@@ -14,6 +14,7 @@ struct OnboardingView: View {
     @State private var step: Step = .pin
     @State private var showLocationPrimer = false
     @State private var recenterToken = 0
+    @State private var pendingCenterOnMe = false
     @State private var pin = ""
     @State private var pinConfirm = ""
     @State private var name = ""
@@ -43,6 +44,12 @@ struct OnboardingView: View {
         .background(RM.background)
         .sheet(isPresented: $showLocationPrimer) {
             LocationPrimer().environmentObject(location)
+        }
+        .onChange(of: location.location?.timestamp) { _, _ in
+            guard pendingCenterOnMe, let fix = location.location else { return }
+            pendingCenterOnMe = false
+            zoneCenter = fix.coordinate
+            recenterToken += 1
         }
     }
 
@@ -170,6 +177,7 @@ struct OnboardingView: View {
             zoneCenter = fix.coordinate
             recenterToken += 1
         } else {
+            pendingCenterOnMe = true
             location.startIfAuthorized()
         }
     }

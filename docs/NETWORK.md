@@ -75,17 +75,28 @@ CI（`iOS Crypto`）では `secrets.RM_RELAY_HOST` を xcodegen に渡してい�
   `/v1/blob` に置いて `img`/`file` ペイロードで鍵と nonce を送る。受信側は
   blob を取得して復号し、`MediaStore`（10MB 上限・完全保護）に保存する。
   blob id は base64url 64 文字に制限（経路注入防止）。
-- **位置**: チャットの「現在地」から **その場限り** の `loc_once` を送る。
-  バックグラウンド共有は無い。受信した位置は `ChatStore.places` に入り、
-  マップの友だちピンとして表示される（`loc_stop` で消える）。
+- **位置**: チャットで `/locate`（`/loc`・`/where`・`/位置`）と入力すると
+  `loc_req` を送り、相手は共有トグルON＋現在地があれば `loc_once` を返す。
+  返答が届くと **地図が自動で開く**。バックグラウンド共有は無い。
+  受信した位置は `ChatStore.places` に入り、地図のピンとして表示される
+  （`loc_stop` で消える）。地図はタブではなく、この返答・受信位置のタップ・
+  プライバシーゾーン編集からオンデマンドで開く。
 - **グループ**: 作成時に `group_invite` をメンバーへ 1:1 送信し、本文は
   `group_msg` を各メンバーへファンアウトする（フルメッシュ、ハブ不要）。
   `group_add` / `group_remove` / `group_leave` でメンバーを同期。
   グループ画像/ファイルはまだ未対応。
-- **地図**: Tor 接続後、`MapProxy` が `http://127.0.0.1:<port>/style.json` を
-  配信し、MapLibre はループバックだけを見る。実際の取得は RelayClient が
-  SOCKS 経由で `/v1/map/*` を叩く。ATS は `NSAllowsLocalNetworking` のみ許可。
-  Tor 未接続時はプレースホルダー（リリース）／直接 CDN（DEBUG のみ）。
+- **地図**: タブには置かない（Android と同じ）。`/locate` の返答・受信位置の
+  タップ・プライバシーゾーン編集でシート表示する。Tor 接続後、`MapProxy` が
+  `http://127.0.0.1:<port>/style.json` を配信し、MapLibre はループバックだけを
+  見る。実際の取得は RelayClient が SOCKS 経由で `/v1/map/*` を叩く。ATS は
+  `NSAllowsLocalNetworking` のみ許可。Tor 未接続時はプレースホルダー（リリース）
+  ／直接 CDN（DEBUG のみ）。
+- **位置情報の許可**: 初回起動のチュートリアルで、暗号化・追跡拒否・消える
+  メッセージ・画面保護・**プライバシーゾーン**を説明し、そのままゾーン設定へ
+  誘導する。ゾーン設定の「現在地を中心にする」で許可プライマー
+  （`LocationPrimer`）を表示してからシステムダイアログを出す。位置情報の用途は
+  「ゾーン判定」と「ユーザーが送信したとき」だけであることを UI と
+  `NSLocationWhenInUseUsageDescription` の両方で明示する。
 - **通話**: `call_offer` / `call_answer` / `call_end` と ADPCM 音声
   (`call_audio`) を同じ 1:1 暗号化経路で送る。音声は 16 kHz（相手が旧版なら
   8 kHz）・300 ms チャンク・IMA ADPCM。通話中は相手メールボックスを
