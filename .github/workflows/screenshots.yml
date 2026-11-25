@@ -77,12 +77,16 @@ jobs:
             -rm.skipOnboarding 1 -rm.demo 1 -rm.openMap 1 -rm.mapfocus demo-alice >/dev/null
           sleep 12
           xcrun simctl io "$UDID" screenshot shots/map-friend.png
-          # Actual first-run tutorial (no skipOnboarding).
+          # Actual first-run intro (no skipOnboarding) and the zone tutorial step.
+          xcrun simctl terminate "$UDID" works.kelvins.richman >/dev/null 2>&1 || true
+          xcrun simctl launch "$UDID" works.kelvins.richman -rm.demo 1 >/dev/null
+          sleep 6
+          xcrun simctl io "$UDID" screenshot shots/onboarding.png
           xcrun simctl terminate "$UDID" works.kelvins.richman >/dev/null 2>&1 || true
           xcrun simctl launch "$UDID" works.kelvins.richman -rm.demo 1 \
-            -rm.onboardingStep tutorial >/dev/null
-          sleep 6
-          xcrun simctl io "$UDID" screenshot shots/onboarding-tutorial.png
+            -rm.onboardingStep zone >/dev/null
+          sleep 12
+          xcrun simctl io "$UDID" screenshot shots/onboarding-zone.png
           shoot primer -rm.locationPrimer 1
           shoot tutorial -rm.privacyTutorial 1
           shoot talks -rm.tab 0
