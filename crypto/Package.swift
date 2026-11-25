@@ -28,8 +28,11 @@ let package = Package(
         .target(
             name: "RichManCrypto",
             dependencies: [
-                .product(name: "RichManCore", package: "RichManCore"),
-                .product(name: "LibSignalClient", package: "LibSignalClient"),
+                // SwiftPM identifies path dependencies by their DIRECTORY basename,
+                // not the manifest name: the repo root checks out as `richman-ios`
+                // on CI, and libsignal's manifest lives in a dir called `swift`.
+                .product(name: "RichManCore", package: "richman-ios"),
+                .product(name: "LibSignalClient", package: "swift"),
             ],
             path: "Sources/RichManCrypto"
         ),
