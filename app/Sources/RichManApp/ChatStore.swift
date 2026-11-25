@@ -114,6 +114,9 @@ final class ChatStore: ObservableObject {
     /// dispatch on the payload type.
     private func apply(_ opened: OpenedMessage) {
         if !contacts.contains(where: { $0.id == opened.senderId }) {
+            // Only a text/first message may create a contact; receipts from a
+            // stranger must not appear as a chat.
+            guard opened.type == .text else { return }
             contacts.append(
                 Contact(
                     id: opened.senderId,
@@ -197,8 +200,8 @@ final class ChatStore: ObservableObject {
               let peer = contact(peerId),
               let boxText = peer.box,
               let box = try? Base64URL.decode(boxText), box.count == 32,
-              let service = relayService() else { return }
-        let replyBox = ensureRecvBox(peerId)
+              let service = relayService(),
+              let replyBox = ensureRecvBox(peerId) else { return }
         let ttl = ttl(for: peerId)
         let exp = ttl > 0
             ? Int64((Date().addingTimeInterval(Double(ttl)).timeIntervalSince1970) * 1000)
