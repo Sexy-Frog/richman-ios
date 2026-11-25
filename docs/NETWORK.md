@@ -101,9 +101,25 @@ CI（`iOS Crypto`）では `secrets.RM_RELAY_HOST` を xcodegen に渡してい�
 アカウントは不要。
 
 CI ではホスト Mac の Tor（`127.0.0.1:9050`）を共有し、アプリは
-`-rm.tor off -rm.socksPort 9050` でそれを使う。埋め込み Tor の起動・
-ブートストラップは実機（または別のスモークテスト）で担保する。地図プロキシも
-同じ SOCKS を通るため、Tor 経由のタイル取得まで検証される。
+`-rm.tor off -rm.socksPort 9050` でそれを使う。埋め込み Tor の起動は
+`iOS Tor` の macOS スモークテスト（SOCKS リスナー）で担保する。
+地図プロキシも同じ SOCKS を通るため、Tor 経由のタイル取得まで検証される。
+
+**2026-11-25 に E2E 成功**（`iOS E2E` run 45675466309, 24m39s）:
+host/join 両方 `crypto=real` で
+`text / image / place / group / map` がすべて true。
+
+E2E で判明した重要事項:
+- Tor の CLI は `--SocksPort 9050` の 2 argv 形式のみ（`--SocksPort=9050` は
+  "Unknown option" で起動失敗）。`IsolateSOCKSAuth` は SocksPort のフラグ。
+- `CODE_SIGNING_ALLOWED=NO` の Simulator ビルドは Keychain が
+  `errSecMissingEntitlement (-34018)` になる。E2E は ad-hoc 署名
+  (`CODE_SIGN_IDENTITY=-`) でビルドする。
+- libsignal のセッションはスレッドセーフではない。送信・受信・通話が同じ
+  ピアのラチェットを同時に触るとロストするため、`KeyManager` を
+  再帰ロックで直列化し、`ChatStore` は RelayService を 1 個だけ使う。
+- グリフ URL はスペースを含む（`fonts/Noto Sans Regular/...`）。プロキシ側で
+  percent-encode しないと HTTP リクエスト行が壊れる。
 
 ## 端末内の保存
 
@@ -114,9 +130,11 @@ CI ではホスト Mac の Tor（`127.0.0.1:9050`）を共有し、アプリは
 
 ## 既知の制約 / 次の増分
 
-- **実機での疎通は未検証**。CI はビルドまで。実機で
-  「招待作成 → 別端末で読み取り → 双方向メッセージ」を確認する必要がある。
-- 通話は Tor の遅延により品質が不安定（300ms チャンク、ジッタで破棄）。
+- **実機**での疎通は未検証（Simulator 2 台の E2E は成功）。署名 `.ipa` が
+  用意でき次第、実機で同じシナリオを確認する。
+- 通話音声は ADPCM + AVAudioEngine + リレー信号まで実装済みだが、CI では
+  マイクが使えないため音声そのものの E2E は未実施。Tor の遅延で品質は
+  ネットワーク次第（300ms チャンク、バックログは破棄）。
 - グループ画像/ファイル、グループの未読バッジは未対応。
 - 地図プロキシは 1 リクエスト 1 SOCKS 接続。初回表示は Tor の遅延を伴う。
 - Tor 起動はプロセス常駐（Tor C API に停止関数がない）。Android と同じ。
