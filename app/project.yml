@@ -8,7 +8,7 @@ name: RichMan
 options:
   bundleIdPrefix: works.kelvins
   deploymentTarget:
-    iOS: "26.0"   # latest iOS only (built with the macos-26 runner's Xcode 26 / iOS 26 SDK)
+    iOS: "17.0"   # supports iOS 17 through the latest (26); built with the macos-26 runner's Xcode
   createIntermediateGroups: true
 
 packages:
