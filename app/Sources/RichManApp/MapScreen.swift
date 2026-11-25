@@ -246,7 +246,7 @@ final class MapActions: ObservableObject {
     }
 
     func center(_ coordinate: CLLocationCoordinate2D, zoom: Double) {
-        map?.setCenterCoordinate(coordinate, zoomLevel: zoom, animated: true)
+        map?.setCenter(coordinate, zoomLevel: zoom, animated: true)
     }
 }
 
@@ -266,7 +266,7 @@ struct MapContainer: UIViewRepresentable {
         map.delegate = context.coordinator
         map.showsLogoView = false
         map.showsAttributionButton = false
-        map.setCenterCoordinate(me, zoomLevel: 14.5, animated: false)
+        map.setCenter(me, zoomLevel: 14.5, animated: false)
         map.addAnnotations(makeAnnotations())
         actions.map = map
         context.coordinator.lastFocus = focusId
@@ -279,7 +279,7 @@ struct MapContainer: UIViewRepresentable {
         if let focusId, focusId != context.coordinator.lastFocus,
            let person = people.first(where: { $0.id == focusId }) {
             context.coordinator.lastFocus = focusId
-            map.setCenterCoordinate(person.coordinate, zoomLevel: 15.5, animated: true)
+            map.setCenter(person.coordinate, zoomLevel: 15.5, animated: true)
         }
     }
 
@@ -342,7 +342,6 @@ final class MapAnnotationView: MLNAnnotationView {
 
     override init(annotation: MLNAnnotation?, reuseIdentifier: String?) {
         super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
-        canShowCallout = false
         clipsToBounds = false
 
         avatar.textAlignment = .center
