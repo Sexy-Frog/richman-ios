@@ -61,7 +61,15 @@ jobs:
 
       - name: Build & test RichManCrypto
         working-directory: crypto
-        run: swift test -v
+        run: |
+          # libsignal's Package.swift only adds the FFI -L path to ITS OWN test
+          # target, not to consumers of the LibSignalClient library. So point the
+          # linker at wherever build_ffi.sh produced libsignal_ffi.a (robust to
+          # debug/release/target-triple layout).
+          FFI_DIR=$(dirname "$(find third_party/libsignal/target -name libsignal_ffi.a | head -n1)")
+          echo "libsignal_ffi.a dir: $FFI_DIR"
+          test -n "$FFI_DIR"
+          swift test -v -Xlinker -L"$FFI_DIR"
 
   # SwiftUI app — compile for the iOS Simulator. No signing and no Apple
   # Developer account needed (that is only for a device .ipa), and no libsignal
