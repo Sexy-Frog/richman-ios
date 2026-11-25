@@ -52,7 +52,7 @@ final class TorSession: ObservableObject {
 
     var statusText: String {
         if supportsTor && !configured { return "リレー未設定" }
-        switch phase {
+        return switch phase {
         case .unsupported: "このビルドでは無効"
         case .stopped: "停止"
         case .starting: "起動中…"
