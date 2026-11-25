@@ -8,6 +8,7 @@ struct SettingsView: View {
     @EnvironmentObject private var store: ChatStore
     @EnvironmentObject private var lock: LockStore
     @EnvironmentObject private var location: LocationProvider
+    @EnvironmentObject private var tor: TorSession
     @AppStorage("rm.displayName") private var savedName = ""
     @AppStorage("rm.preview") private var previewInNotifications = false
     @AppStorage("rm.autoLockSeconds") private var autoLockSeconds = 0
@@ -57,6 +58,28 @@ struct SettingsView: View {
                     Text("通知")
                 } footer: {
                     Text("オフの場合は「新しいメッセージ」だけを表示します。")
+                }
+
+                Section {
+                    LabeledContent("Tor", value: tor.statusText)
+                    if tor.supportsTor {
+                        LabeledContent("リレー", value: tor.reachable ? "接続OK" : "未接続")
+                        if let lastError = tor.lastError {
+                            Text(lastError)
+                                .font(.caption)
+                                .foregroundStyle(RM.onSurfaceVariant)
+                                .lineLimit(3)
+                        }
+                        Button("接続を確認") { tor.checkNow() }
+                    } else {
+                        Text("モックビルドでは無効です（実ビルドで有効になります）")
+                            .font(.caption)
+                            .foregroundStyle(RM.onSurfaceVariant)
+                    }
+                } header: {
+                    Text("ネットワーク")
+                } footer: {
+                    Text("メッセージと招待は .onion リレーへ Tor 経由でのみ送信されます。直接のインターネット接続は行いません。")
                 }
 
                 Section {

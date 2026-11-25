@@ -33,6 +33,14 @@ final class LibSignalCryptoProvider: CryptoProvider {
         try keys.startSession(peerId: peerId, bundle: bundle)
     }
 
+    func openSealedInvite(_ sealed: Data, key: Data) throws -> Data {
+        try InviteSealer.open(sealed, key: key)
+    }
+
+    func sealInvite(_ plain: Data, key: Data) throws -> Data {
+        try InviteSealer.seal(plain, key: key)
+    }
+
     func encrypt(peerId: String, plaintext: Data) throws -> Data {
         try keys.encrypt(peerId: peerId, plaintext: plaintext)
     }

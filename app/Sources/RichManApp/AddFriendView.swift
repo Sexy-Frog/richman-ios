@@ -8,10 +8,12 @@ import RichManCore
 /// (mock in Simulator) and exchanged as text so the flow is testable.
 struct AddFriendView: View {
     @EnvironmentObject private var store: ChatStore
+    @EnvironmentObject private var tor: TorSession
     @Environment(\.dismiss) private var dismiss
     @State private var myInvite = ""
     @State private var scanned = ""
     @State private var showScanner = false
+    @State private var busy = false
     @State private var info: String?
     @State private var error: String?
 
@@ -20,7 +22,15 @@ struct AddFriendView: View {
             Form {
                 Section("自分の招待コード") {
                     if myInvite.isEmpty {
-                        Button("招待コードを作成") { makeInvite() }
+                        Button {
+                            Task { await makeInvite() }
+                        } label: {
+                            HStack {
+                                Text(busy ? "作成中…" : "招待コードを作成")
+                                if busy { Spacer(); ProgressView() }
+                            }
+                        }
+                        .disabled(busy)
                     } else {
                         if let qr = QRCode.image(from: myInvite) {
                             Image(uiImage: qr)
@@ -51,8 +61,8 @@ struct AddFriendView: View {
                         Label("QRコードをスキャン", systemImage: "qrcode.viewfinder")
                     }
                     TextField("招待コードを貼り付け", text: $scanned, axis: .vertical)
-                    Button("追加") { add() }
-                        .disabled(scanned.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button(busy ? "追加中…" : "追加") { Task { await add() } }
+                        .disabled(busy || scanned.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     Text("カメラが使えない場合は、コードを貼り付けて追加できます。")
                         .font(.caption).foregroundStyle(RM.onSurfaceVariant)
                 }
@@ -69,7 +79,7 @@ struct AddFriendView: View {
                     QRScannerView { code in
                         showScanner = false
                         scanned = code
-                        add()
+                        Task { await add() }
                     }
                     .ignoresSafeArea()
 
@@ -83,15 +93,36 @@ struct AddFriendView: View {
         }
     }
 
-    private func makeInvite() {
-        do { myInvite = try store.makeInvite() }
-        catch { self.error = "招待の作成に失敗しました: \(error)" }
+    private func makeInvite() async {
+        error = nil
+        busy = true
+        defer { busy = false }
+        // Prefer the real onion-relay invite when Tor is up and real crypto is
+        // linked. The mock bundle fails `PrekeyBundle.decode`, which falls back
+        // to the self-contained Simulator invite.
+        if let transport = tor.readyTransport {
+            if let remote = try? await store.makeRelayInvite(using: transport) {
+                myInvite = remote
+                info = "Tor経由の招待を作成しました（有効期限 15分・1回限り）。"
+                return
+            }
+        }
+        do {
+            myInvite = try store.makeInvite()
+            info = tor.supportsTor
+                ? "オフライン用の招待を作成しました。Tor接続後に作り直してください。"
+                : nil
+        } catch {
+            self.error = "招待の作成に失敗しました: \(error)"
+        }
     }
 
-    private func add() {
+    private func add() async {
         error = nil; info = nil
+        busy = true
+        defer { busy = false }
         do {
-            let c = try store.addFriend(inviteText: scanned)
+            let c = try await store.addFriend(inviteText: scanned, using: tor.readyTransport)
             info = "\(c.name) を追加しました。"
             scanned = ""
         } catch let e as InviteError {

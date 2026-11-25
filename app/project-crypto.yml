@@ -13,6 +13,8 @@ packages:
     path: ..
   RichManCrypto:
     path: ../crypto
+  TorSupport:
+    path: ../tor
   MapLibre:
     url: https://github.com/maplibre/maplibre-gl-native-distribution
     exactVersion: "7.0.0"
@@ -38,6 +40,8 @@ targets:
         product: MapLibre
       - package: RichManCrypto
         product: RichManCrypto
+      - package: TorSupport
+        product: TorSupport
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: works.kelvins.richman.crypto

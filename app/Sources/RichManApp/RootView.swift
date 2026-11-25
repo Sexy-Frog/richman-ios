@@ -15,6 +15,7 @@ struct RootView: View {
     @StateObject private var calls = CallStore()
     @StateObject private var lock = LockStore()
     @StateObject private var location = LocationProvider()
+    @StateObject private var tor = TorSession()
     @State private var backgroundedAt: Date?
     @State private var privacyCover = false
     @State private var screenCaptured = UIScreen.main.isCaptured
@@ -53,6 +54,7 @@ struct RootView: View {
         .environmentObject(calls)
         .environmentObject(lock)
         .environmentObject(location)
+        .environmentObject(tor)
         .tint(RM.primary)
         .onAppear {
             if !savedName.isEmpty { store.displayName = savedName }
@@ -62,6 +64,8 @@ struct RootView: View {
             #endif
             location.startIfAuthorized()
             applySecurityZoneIfNeeded()
+            // No-op in the mock build (TorSupport not linked).
+            tor.start()
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {

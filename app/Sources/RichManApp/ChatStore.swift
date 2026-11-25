@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import UIKit
 import UserNotifications
+import Security
 import RichManCore
 
 /// Shared app state across the hub tabs (contacts, conversations, messages) and
@@ -321,22 +322,81 @@ final class ChatStore: ObservableObject {
         self.contacts = list
     }
 
-    /// My one-time invite to show as a QR. For the mock this is a QRInvite JSON;
-    /// the live provider will mint a relay-backed invite (createInvite).
+    /// Local invite for mock / no-Tor builds. It is self-contained (no relay
+    /// round-trip); the real build uses `makeRelayInvite`.
     func makeInvite() throws -> String {
         String(decoding: try crypto.buildInviteBundle(displayName: displayName), as: UTF8.self)
     }
 
-    /// Add a contact from a scanned invite. TODO: fetch the sealed bundle by
-    /// token, validate against the QR, and crypto.startSession.
+    /// Real one-shot invite (docs/PROTOCOL.md §2): mint a QR-only AES key, seal
+    /// the prekey bundle, store the opaque blob on the relay, and return the QR
+    /// that carries `{v,id,n,tag,box,k,t}`. Only the scanner can open the blob.
+    func makeRelayInvite(using transport: RelayTransport) async throws -> String {
+        let bundle = try crypto.buildInviteBundle(displayName: displayName)
+        // Throws for the mock provider (its JSON has no prekey material), which
+        // makes the caller fall back to the local invite.
+        let material = try PrekeyBundle.decode(bundle)
+        let key = Self.randomBytes(32)
+        let sealed = try crypto.sealInvite(bundle, key: key)
+        let envelope = try JSONSerialization.data(
+            withJSONObject: ["e": Base64URL.encode(sealed)]
+        )
+        let token = try await RelayClient(transport: transport).putInvite(envelope)
+        let qr = QRInvite(
+            id: material.id,
+            n: material.n,
+            tag: material.tag,
+            box: material.box,
+            k: Base64URL.encode(key),
+            t: token
+        )
+        return String(decoding: try JSONEncoder().encode(qr), as: UTF8.self)
+    }
+
+    /// Add a contact from a scanned/pasted invite. With a transport this runs
+    /// the full flow — fetch the sealed bundle by token, unseal with the QR key,
+    /// cross-check id/tag/box, then X3DH. Without one (Simulator) it records the
+    /// contact from the QR alone.
     @discardableResult
-    func addFriend(inviteText: String) throws -> Contact {
+    func addFriend(inviteText: String, using transport: RelayTransport? = nil) async throws -> Contact {
         let qr = try QRInvite.parse(inviteText)
         try qr.checkNotSelf(localId: crypto.myId)
         if let existing = contact(qr.id) { return existing }
-        let c = Contact(id: qr.id, name: qr.n.isEmpty ? "名前未設定" : qr.n)
+
+        var name = qr.n
+        if let transport {
+            guard let key = try? Base64URL.decode(qr.k), key.count == 32 else {
+                throw InviteError.malformed
+            }
+            let raw = try await RelayClient(transport: transport).fetchInvite(token: qr.t)
+            guard let obj = try? JSONSerialization.jsonObject(with: raw) as? [String: Any],
+                  let encoded = obj["e"] as? String,
+                  let sealed = try? Base64URL.decode(encoded) else {
+                throw InviteError.malformed
+            }
+            let bundle = try crypto.openSealedInvite(sealed, key: key)
+            let material = try PrekeyBundle.decode(bundle)
+            try material.validate(against: qr)
+            try crypto.startSession(peerId: material.id, bundle: bundle)
+            if !material.n.isEmpty { name = material.n }
+        }
+
+        let c = Contact(
+            id: qr.id,
+            name: name.isEmpty ? "名前未設定" : name,
+            tag: qr.tag,
+            box: qr.box
+        )
         contacts.append(c)
         return c
+    }
+
+    private static func randomBytes(_ count: Int) -> Data {
+        var data = Data(count: count)
+        _ = data.withUnsafeMutableBytes { buffer in
+            SecRandomCopyBytes(kSecRandomDefault, count, buffer.baseAddress!)
+        }
+        return data
     }
 }
 
@@ -348,6 +408,10 @@ struct Contact: Identifiable, Hashable {
     var lastMessage: String = ""
     var unread: Int = 0
     var official: Bool = false
+    /// base64url routing tag (16B) and send mailbox (32B) from the invite.
+    /// Present for contacts added through a real invite.
+    var tag: String? = nil
+    var box: String? = nil
 }
 
 struct ChatGroup: Identifiable, Hashable {
