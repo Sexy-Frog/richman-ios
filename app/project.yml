@@ -46,6 +46,10 @@ targets:
         ITSAppUsesNonExemptEncryption: true
         NSCameraUsageDescription: "QRコードを読み取って友だちを追加します。"
         NSLocationWhenInUseUsageDescription: "現在地を地図に表示し、セキュリティゾーンの判定に使います。"
+        # Map tiles are served from the loopback proxy (which uses Tor), never
+        # from the clearnet. Everything else stays HTTPS.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
         UILaunchScreen: {}
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false

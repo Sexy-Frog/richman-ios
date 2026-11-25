@@ -64,6 +64,7 @@ enum MapConfig {
 struct MapHomeView: View {
     @EnvironmentObject private var store: ChatStore
     @EnvironmentObject private var location: LocationProvider
+    @EnvironmentObject private var tor: TorSession
     @StateObject private var actions = MapActions()
     @State private var selectedId: String? = MapConfig.initialFocus
     @State private var chatTarget: Contact?
@@ -102,7 +103,7 @@ struct MapHomeView: View {
             )
             .ignoresSafeArea()
 
-            if MapConfig.styleURL == nil {
+            if styleURL == nil && tor.mapStyleURL == nil {
                 VStack(spacing: 8) {
                     Image(systemName: "map")
                         .font(.system(size: 40))
@@ -178,10 +179,17 @@ struct MapHomeView: View {
                 .environmentObject(store)
         }
         .task {
+            if let proxied = tor.mapStyleURL {
+                styleURL = proxied
+                return
+            }
             guard MapConfig.styleURL != nil else { return }
             if let japanese = await MapStyleLoader.japaneseStyleFile() {
                 styleURL = japanese
             }
+        }
+        .onChange(of: tor.mapStyleURL) { _, newValue in
+            if let newValue { styleURL = newValue }
         }
     }
 

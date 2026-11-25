@@ -7,6 +7,7 @@ struct OnboardingView: View {
     @AppStorage("rm.displayName") private var savedName = ""
     @EnvironmentObject private var store: ChatStore
     @EnvironmentObject private var lock: LockStore
+    @EnvironmentObject private var tor: TorSession
 
     private enum Step { case pin, name, zone }
     @State private var step: Step = .pin
@@ -75,7 +76,10 @@ struct OnboardingView: View {
                 .multilineTextAlignment(.center)
 
             ZStack {
-                ZonePickerMap(center: $zoneCenter, styleURL: MapConfig.styleURL)
+                ZonePickerMap(
+                    center: $zoneCenter,
+                    styleURL: tor.mapStyleURL ?? MapConfig.styleURL
+                )
                     .frame(height: 190)
                     .clipShape(RoundedRectangle(cornerRadius: 14))
                 Image(systemName: "plus")

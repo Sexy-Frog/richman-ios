@@ -30,6 +30,8 @@ final class TorSession: ObservableObject {
     @Published private(set) var reachable = false
     @Published private(set) var lastCheck: Date?
     @Published private(set) var lastError: String?
+    /// Loopback style URL once the Tor-backed map proxy is serving.
+    @Published private(set) var mapStyleURL: URL?
 
     private var launcher: AnyObject?
     private var pollTask: Task<Void, Never>?
@@ -141,6 +143,11 @@ final class TorSession: ObservableObject {
             if ok {
                 phase = .ready
                 lastError = nil
+                if mapStyleURL == nil {
+                    // Tiles/glyphs/sprites now go through the loopback proxy,
+                    // which fetches them over the same Tor transport.
+                    mapStyleURL = MapProxy.shared.start(transport: transport)
+                }
                 return true
             }
             lastError = "リレーが応答しません"
