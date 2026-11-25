@@ -90,7 +90,8 @@ jobs:
             -destination 'generic/platform=iOS Simulator' \
             -configuration Debug \
             -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGN_IDENTITY="-" \
             LIBRARY_SEARCH_PATHS="$FFI_DIR" \
             OTHER_LDFLAGS="-lsignal_ffi" \
             ARCHS=arm64 \
