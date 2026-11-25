@@ -69,7 +69,21 @@ struct MapHomeView: View {
     @State private var chatTarget: Contact?
     @State private var styleURL: URL? = MapConfig.styleURL
 
-    private var people: [MapPerson] { MapDemo.people }
+    /// Real positions come from shared `loc` messages. The demo seed is only a
+    /// fallback for DEBUG screenshot builds (and when nothing is shared yet).
+    private var people: [MapPerson] {
+        let shared = store.places.map { id, place in
+            MapPerson(
+                id: id,
+                name: store.contact(id)?.name ?? "友だち",
+                latitude: place.latitude,
+                longitude: place.longitude,
+                updated: place.updatedAt
+            )
+        }
+        if !shared.isEmpty { return shared }
+        return DemoData.enabled ? MapDemo.people : []
+    }
     private var selected: MapPerson? { people.first { $0.id == selectedId } }
     private var me: CLLocationCoordinate2D {
         location.location?.coordinate ?? MapDemo.me

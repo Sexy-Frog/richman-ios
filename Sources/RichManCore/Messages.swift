@@ -95,6 +95,12 @@ public struct ImageMessage: Codable, Equatable {
     public var sz: Int64
     public var mid: String?
     public var exp: Int64?
+
+    public init(id: String, k: String, n: String, mime: String, sz: Int64,
+                mid: String? = nil, exp: Int64? = nil) {
+        self.id = id; self.k = k; self.n = n; self.mime = mime; self.sz = sz
+        self.mid = mid; self.exp = exp
+    }
 }
 
 public struct FileMessage: Codable, Equatable {
@@ -107,6 +113,12 @@ public struct FileMessage: Codable, Equatable {
     public var sz: Int64
     public var mid: String?
     public var exp: Int64?
+
+    public init(id: String, k: String, n: String, name: String, mime: String,
+                sz: Int64, mid: String? = nil, exp: Int64? = nil) {
+        self.id = id; self.k = k; self.n = n; self.name = name; self.mime = mime
+        self.sz = sz; self.mid = mid; self.exp = exp
+    }
 }
 
 /// `{"t":"read","ids":[...]}` — read receipt for the peer's inbound mids.
@@ -153,6 +165,12 @@ public struct LocationMessage: Codable, Equatable {
     public var acc: Double?
     public var ts: Int64?
     public var end: Int64?         // live-share end time (start/update); 0 = indefinite
+
+    public init(t: String, id: String? = nil, lat: Double, lon: Double,
+                acc: Double? = nil, ts: Int64? = nil, end: Int64? = nil) {
+        self.t = t; self.id = id; self.lat = lat; self.lon = lon
+        self.acc = acc; self.ts = ts; self.end = end
+    }
 }
 
 public struct LocationStop: Codable, Equatable {

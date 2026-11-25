@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import PhotosUI
 import UniformTypeIdentifiers
 
@@ -9,6 +10,7 @@ struct ChatView: View {
     let contact: Contact
     @EnvironmentObject private var store: ChatStore
     @EnvironmentObject private var calls: CallStore
+    @EnvironmentObject private var locationProvider: LocationProvider
 
     @State private var draft = ""
     @State private var replyTo: ChatMessage?
@@ -19,6 +21,7 @@ struct ChatView: View {
     @State private var showFiles = false
     @State private var photoItem: PhotosPickerItem?
     @State private var ttlSeconds = 0
+    @State private var showLocationError = false
 
     private var messages: [ChatMessage] { store.messages(for: contact.id) }
     private var isBlocked: Bool { store.isBlocked(contact.id) }
@@ -145,7 +148,18 @@ struct ChatView: View {
         .confirmationDialog("送信する", isPresented: $showAttach, titleVisibility: .visible) {
             Button("写真") { showPhotos = true }
             Button("ファイル") { showFiles = true }
+            Button("現在地") { sendCurrentLocation() }
             Button("キャンセル", role: .cancel) {}
+        }
+        .alert("位置情報を送れません", isPresented: $showLocationError) {
+            Button("設定を開く") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+            Button("閉じる", role: .cancel) {}
+        } message: {
+            Text("位置情報の利用を許可し、現在地が取得できるまでお待ちください。共有はこの操作のときだけ行います。")
         }
         .task {
             store.markDelivered(contact.id)
@@ -283,6 +297,21 @@ struct ChatView: View {
         replyTo = nil
         store.send(to: contact.id, text: text, replyTo: reply)
     }
+
+    /// One-shot, user-initiated position share (never background tracking).
+    private func sendCurrentLocation() {
+        guard let fix = locationProvider.location else {
+            locationProvider.requestPermission()
+            showLocationError = true
+            return
+        }
+        store.sendLocation(
+            to: contact.id,
+            latitude: fix.coordinate.latitude,
+            longitude: fix.coordinate.longitude,
+            accuracy: fix.horizontalAccuracy
+        )
+    }
 }
 
 // MARK: - bubbles
@@ -345,6 +374,8 @@ private struct MessageBubble: View {
             } else {
                 bubbleLabel("画像", icon: "photo")
             }
+        case .location:
+            bubbleLabel("位置情報", icon: "location.fill")
         case .file:
             VStack(alignment: .leading, spacing: 2) {
                 Label(message.body, systemImage: "doc")

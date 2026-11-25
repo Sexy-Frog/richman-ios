@@ -19,6 +19,8 @@ final class ChatStore: ObservableObject {
     @Published var groups: [ChatGroup] = []
     @Published private(set) var messagesByPeer: [String: [ChatMessage]] = [:]
     @Published private(set) var groupMessages: [String: [ChatMessage]] = [:]
+    /// Last shared position per contact (fed by `loc`/`loc_once`, shown on the map).
+    @Published private(set) var places: [String: FriendPlace] = [:]
     /// Blocked contact ids (App Store UGC requirement — blocked peers can't be
     /// messaged and their inbound messages are dropped). Persisted in UserDefaults.
     @Published private(set) var blockedIds: Set<String> = []
@@ -51,6 +53,7 @@ final class ChatStore: ObservableObject {
             groups = state.groups
             messagesByPeer = state.messages
             groupMessages = state.groupMessages
+            places = state.places
             pendingBoxes = Set(state.pendingBoxes)
             blockedIds = Set(state.blocked)
         }
@@ -80,6 +83,7 @@ final class ChatStore: ObservableObject {
                 groups: groups,
                 messages: messagesByPeer,
                 groupMessages: groupMessages,
+                places: places,
                 pendingBoxes: Array(pendingBoxes),
                 blocked: Array(blockedIds)
             )
@@ -202,6 +206,29 @@ final class ChatStore: ObservableObject {
                 id: file.id, key: file.k, nonce: file.n,
                 peerId: opened.senderId, kind: .file,
                 fileName: file.name, remoteId: file.mid
+            )
+        case .loc?, .locOnce?, .locUpdate?, .locStart?:
+            guard let loc = try? JSONDecoder().decode(
+                LocationMessage.self, from: opened.payload
+            ) else { return }
+            guard abs(loc.lat) <= 90, abs(loc.lon) <= 180 else { return }
+            places[opened.senderId] = FriendPlace(
+                latitude: loc.lat,
+                longitude: loc.lon,
+                accuracy: loc.acc,
+                updatedAt: Date()
+            )
+            appendIncomingPlace(
+                peerId: opened.senderId,
+                text: "位置情報",
+                remoteId: loc.id
+            )
+        case .locStop?:
+            places.removeValue(forKey: opened.senderId)
+            appendIncomingPlace(
+                peerId: opened.senderId,
+                text: "位置情報の共有が停止されました",
+                remoteId: nil
             )
         case .read?:
             markMyMessagesRead(opened.senderId)
@@ -471,6 +498,38 @@ final class ChatStore: ObservableObject {
 
     // MARK: media
 
+    /// Send my current position as a one-shot `loc_once` (user-initiated only;
+    /// there is no background or covert tracking).
+    func sendLocation(
+        to peerId: String,
+        latitude: Double,
+        longitude: Double,
+        accuracy: Double?
+    ) {
+        guard !isBlocked(peerId), !(contact(peerId)?.official ?? false) else { return }
+        let mid = UUID().uuidString
+        messagesByPeer[peerId, default: []].append(
+            ChatMessage(
+                id: mid, body: "位置情報", mine: true, ts: Date(), kind: .location
+            )
+        )
+        if let i = contacts.firstIndex(where: { $0.id == peerId }) {
+            contacts[i].lastMessage = "位置情報"
+        }
+        scheduleSave()
+
+        let payload = LocationMessage(
+            t: MessageType.locOnce.rawValue,
+            id: mid,
+            lat: latitude,
+            lon: longitude,
+            acc: accuracy,
+            ts: Int64(Date().timeIntervalSince1970 * 1000)
+        )
+        guard let json = try? payload.toPayloadJSON() else { return }
+        transmit(json, to: peerId, markMid: mid)
+    }
+
     /// Image: keep a local copy, then (over Tor) upload the AES-GCM ciphertext
     /// as a one-shot blob and send an `img` payload with the key/nonce. The
     /// relay only ever holds ciphertext.
@@ -596,6 +655,36 @@ final class ChatStore: ObservableObject {
             peerId, kind: kind, name: savedName,
             size: savedSize, remoteId: remoteId
         )
+    }
+
+    private func appendIncomingPlace(
+        peerId: String,
+        text: String,
+        remoteId: String?
+    ) {
+        guard !isBlocked(peerId) else { return }
+        messagesByPeer[peerId, default: []].append(
+            ChatMessage(
+                id: UUID().uuidString,
+                body: text,
+                mine: false,
+                ts: Date(),
+                kind: .location,
+                remoteId: remoteId
+            )
+        )
+        if let i = contacts.firstIndex(where: { $0.id == peerId }) {
+            contacts[i].lastMessage = text
+            contacts[i].unread += 1
+        }
+        updateBadge()
+        scheduleSave()
+        if UIApplication.shared.applicationState != .active {
+            NotificationManager.shared.message(
+                from: contact(peerId)?.name ?? "RichMan",
+                preview: text
+            )
+        }
     }
 
     private func appendIncomingMedia(
@@ -823,9 +912,17 @@ struct ChatGroup: Identifiable, Hashable, Codable {
     var memberIds: [String]
 }
 
+/// A contact's last shared position (in-memory + sealed state).
+struct FriendPlace: Codable, Hashable {
+    var latitude: Double
+    var longitude: Double
+    var accuracy: Double?
+    var updatedAt: Date
+}
+
 struct ChatMessage: Identifiable, Hashable, Codable {
     enum Kind: String, Hashable, Codable {
-        case text, image, file
+        case text, image, file, location
     }
 
     enum Delivery: String, Hashable, Codable {
