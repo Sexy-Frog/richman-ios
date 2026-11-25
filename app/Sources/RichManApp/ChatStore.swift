@@ -324,7 +324,9 @@ final class ChatStore: ObservableObject {
         messagesByPeer.removeAll()
         groupMessages.removeAll()
         blockedIds.removeAll()
+        pendingBoxes.removeAll()
         UserDefaults.standard.removeObject(forKey: blockedKey)
+        crypto.wipeLocalState()
     }
 
     // MARK: official account (one-way broadcast, local only)
@@ -489,14 +491,19 @@ final class ChatStore: ObservableObject {
     /// Local invite for mock / no-Tor builds. It is self-contained (no relay
     /// round-trip); the real build uses `makeRelayInvite`.
     func makeInvite() throws -> String {
-        String(decoding: try crypto.buildInviteBundle(displayName: displayName), as: UTF8.self)
+        let box = Self.randomBytes(32)
+        return String(
+            decoding: try crypto.buildInviteBundle(displayName: displayName, box: box),
+            as: UTF8.self
+        )
     }
 
     /// Real one-shot invite (docs/PROTOCOL.md §2): mint a QR-only AES key, seal
     /// the prekey bundle, store the opaque blob on the relay, and return the QR
     /// that carries `{v,id,n,tag,box,k,t}`. Only the scanner can open the blob.
     func makeRelayInvite(using transport: RelayTransport) async throws -> String {
-        let bundle = try crypto.buildInviteBundle(displayName: displayName)
+        let box = Self.randomBytes(32)
+        let bundle = try crypto.buildInviteBundle(displayName: displayName, box: box)
         // Throws for the mock provider (its JSON has no prekey material), which
         // makes the caller fall back to the local invite.
         let material = try PrekeyBundle.decode(bundle)

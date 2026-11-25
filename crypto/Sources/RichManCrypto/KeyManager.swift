@@ -109,6 +109,14 @@ public final class KeyManager {
     /// A fresh one-time prekey is minted per bundle. Returns the JSON bytes that
     /// go to `/v1/invite`; the exact shape matches Android's `buildBundle`.
     public func buildBundle(displayName: String) throws -> Data {
+        try buildBundle(displayName: displayName, box: myBox())
+    }
+
+    /// Mint a bundle addressed to a fresh, per-contact receive mailbox (`box`)
+    /// so no single long-lived mailbox links all my contacts — mirrors the
+    /// Android 1.0.21 `createInvite()` which mints `inviteBox` per invite.
+    public func buildBundle(displayName: String, box: Data) throws -> Data {
+        guard box.count == 32 else { throw CryptoError.missingKey("invite box must be 32 bytes") }
         try ensureSignedPreKey()
         try ensureKyberPreKey()
         try ensurePreKeys()
@@ -123,7 +131,7 @@ public final class KeyManager {
             "id": id,
             "n": displayName,
             "tag": Base64URL.encode(myTag()),
-            "box": Base64URL.encode(myBox()),
+            "box": Base64URL.encode(box),
             "reg": Int(regId),
             "spk": ["i": Int(spk.id), "p": Base64URL.encode(try spk.publicKey().serialize()), "s": Base64URL.encode(spk.signature)],
             "opk": ["i": Int(opk.id), "p": Base64URL.encode(try opk.publicKey().serialize())],

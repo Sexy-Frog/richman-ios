@@ -36,6 +36,20 @@ public enum KeychainKey {
         return item as? Data
     }
 
+    /// Destroys the store key so no ciphertext (including backups) can ever be
+    /// opened again. Used by the emergency wipe.
+    public static func delete(
+        service: String = "works.kelvins.richman.signal",
+        account: String = "store-key"
+    ) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
+
     private static func save(_ data: Data, service: String, account: String) throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,

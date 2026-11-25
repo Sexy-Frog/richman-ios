@@ -8,6 +8,7 @@ import RichManCore
 /// SealedBox-encrypted local store whose AES key lives in the Keychain.
 final class LibSignalCryptoProvider: CryptoProvider {
     private let keys: KeyManager
+    private let storeURL: URL
 
     init() throws {
         let base = FileManager.default.urls(
@@ -16,17 +17,21 @@ final class LibSignalCryptoProvider: CryptoProvider {
         )[0]
         try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         let key = try KeychainKey.loadOrCreate()
-        let backend = try SealedFileKeyStore(
-            url: base.appendingPathComponent("signal.store"),
-            key: key
-        )
+        storeURL = base.appendingPathComponent("signal.store")
+        let backend = try SealedFileKeyStore(url: storeURL, key: key)
         keys = try KeyManager(backend: backend)
+    }
+
+    /// Emergency wipe: delete the sealed store and destroy its Keychain key.
+    func wipeLocalState() {
+        try? FileManager.default.removeItem(at: storeURL)
+        KeychainKey.delete()
     }
 
     var myId: String { keys.id }
 
-    func buildInviteBundle(displayName: String) throws -> Data {
-        try keys.buildBundle(displayName: displayName)
+    func buildInviteBundle(displayName: String, box: Data) throws -> Data {
+        try keys.buildBundle(displayName: displayName, box: box)
     }
 
     func startSession(peerId: String, bundle: Data) throws {

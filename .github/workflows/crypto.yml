@@ -61,7 +61,11 @@ jobs:
           swift test -v -Xlinker -L"$FFI_DIR"
 
       - name: Install Rust iOS simulator target
-        run: rustup target add aarch64-apple-ios-sim
+        working-directory: crypto/third_party/libsignal
+        run: |
+          # libsignal pins its own nightly via rust-toolchain; install the
+          # simulator target for THAT toolchain, not the runner default.
+          rustup target add aarch64-apple-ios-sim --toolchain "$(cat rust-toolchain)"
 
       - name: Build libsignal FFI (iOS Simulator)
         working-directory: crypto
