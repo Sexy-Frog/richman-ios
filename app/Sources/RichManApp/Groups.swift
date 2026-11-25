@@ -140,7 +140,7 @@ struct GroupChatView: View {
             }
         }
         .sheet(isPresented: $showInfo) {
-            GroupInfoView(group: group).environmentObject(store)
+            GroupInfoView(groupId: group.id).environmentObject(store)
         }
     }
 
@@ -206,27 +206,48 @@ private struct GroupBubble: View {
 // MARK: - Info
 
 struct GroupInfoView: View {
-    let group: ChatGroup
+    let groupId: String
     @EnvironmentObject private var store: ChatStore
     @Environment(\.dismiss) private var dismiss
     @State private var confirmDelete = false
+    @State private var showAdd = false
+
+    private var group: ChatGroup? { store.group(groupId) }
 
     var body: some View {
         NavigationStack {
             List {
-                Section("メンバー") {
-                    ForEach(group.memberIds, id: \.self) { id in
+                if let group {
+                    Section("メンバー") {
                         HStack(spacing: 12) {
-                            Avatar(name: name(for: id))
-                            Text(name(for: id))
+                            Avatar(name: "自")
+                            Text("自分（作成者）")
+                        }
+                        ForEach(group.memberIds, id: \.self) { id in
+                            HStack(spacing: 12) {
+                                Avatar(name: name(for: id))
+                                Text(name(for: id))
+                            }
+                            .swipeActions(edge: .trailing) {
+                                Button(role: .destructive) {
+                                    store.removeMember(id, from: group.id)
+                                } label: {
+                                    Label("削除", systemImage: "person.badge.minus")
+                                }
+                            }
+                        }
+                        Button { showAdd = true } label: {
+                            Label("メンバーを追加", systemImage: "person.badge.plus")
                         }
                     }
-                }
-                Section {
-                    Button("グループを削除", role: .destructive) { confirmDelete = true }
+                    Section {
+                        Button("グループを削除", role: .destructive) { confirmDelete = true }
+                    }
+                } else {
+                    Text("グループが見つかりません")
                 }
             }
-            .navigationTitle(group.name)
+            .navigationTitle(group?.name ?? "グループ")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -239,17 +260,83 @@ struct GroupInfoView: View {
                 titleVisibility: .visible
             ) {
                 Button("削除", role: .destructive) {
-                    store.deleteGroup(group.id)
+                    store.deleteGroup(groupId)
                     dismiss()
                 }
                 Button("キャンセル", role: .cancel) {}
             } message: {
                 Text("この端末からグループと履歴を削除します。")
             }
+            .sheet(isPresented: $showAdd) {
+                AddMembersView(groupId: groupId).environmentObject(store)
+            }
         }
     }
 
     private func name(for id: String) -> String {
         store.contacts.first { $0.id == id }?.name ?? "メンバー"
+    }
+}
+
+private struct AddMembersView: View {
+    let groupId: String
+    @EnvironmentObject private var store: ChatStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var selected: Set<String> = []
+
+    private var candidates: [Contact] {
+        guard let group = store.group(groupId) else { return [] }
+        return store.contacts.filter { !$0.official && !group.memberIds.contains($0.id) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if candidates.isEmpty {
+                    Text("追加できる友だちがいません")
+                        .foregroundStyle(RM.onSurfaceVariant)
+                } else {
+                    ForEach(candidates) { contact in
+                        Button { toggle(contact.id) } label: {
+                            HStack(spacing: 12) {
+                                Avatar(name: contact.name)
+                                Text(contact.name).foregroundStyle(RM.onSurface)
+                                Spacer()
+                                Image(
+                                    systemName: selected.contains(contact.id)
+                                        ? "checkmark.circle.fill" : "circle"
+                                )
+                                .foregroundStyle(
+                                    selected.contains(contact.id)
+                                        ? RM.primary : RM.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("メンバーを追加")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("キャンセル") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("追加") {
+                        store.addMembers(Array(selected), to: groupId)
+                        dismiss()
+                    }
+                    .disabled(selected.isEmpty)
+                }
+            }
+        }
+    }
+
+    private func toggle(_ id: String) {
+        if selected.contains(id) {
+            selected.remove(id)
+        } else {
+            selected.insert(id)
+        }
     }
 }

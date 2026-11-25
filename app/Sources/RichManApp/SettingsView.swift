@@ -17,6 +17,7 @@ struct SettingsView: View {
     @State private var showNameEdit = false
     @State private var showPolicy = false
     @State private var showPINChange = false
+    @State private var showDuress = false
     @State private var confirmClearChats = false
     @State private var confirmClearFriends = false
     @State private var zone: SecurityZone? = SecurityZoneStore.current
@@ -115,6 +116,18 @@ struct SettingsView: View {
                         }
                     }
                     .foregroundStyle(RM.onSurface)
+                    Button { showDuress = true } label: {
+                        HStack {
+                            Text("緊急消去コード")
+                            Spacer()
+                            Text(lock.hasDuress ? "設定済み" : "未設定")
+                                .foregroundStyle(RM.onSurfaceVariant)
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .foregroundStyle(RM.onSurface)
                 } header: {
                     Text("セキュリティ")
                 } footer: {
@@ -161,6 +174,9 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $showPINChange) {
                 ChangePINView().environmentObject(lock)
+            }
+            .sheet(isPresented: $showDuress) {
+                DuressView().environmentObject(lock)
             }
             .confirmationDialog(
                 "トークを全部消しますか？",
@@ -272,6 +288,87 @@ private struct PrivacySheet: View {
                     Button("閉じる") { dismiss() }
                 }
             }
+        }
+    }
+}
+
+private struct DuressView: View {
+    @EnvironmentObject private var lock: LockStore
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var current = ""
+    @State private var duress = ""
+    @State private var confirm = ""
+    @State private var error: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("現在の暗証番号") {
+                    SecureField("現在の暗証番号", text: $current)
+                        .keyboardType(.numberPad)
+                }
+                Section {
+                    SecureField("緊急消去コード", text: $duress)
+                        .keyboardType(.numberPad)
+                    SecureField("もう一度入力", text: $confirm)
+                        .keyboardType(.numberPad)
+                } header: {
+                    Text("新しい緊急消去コード")
+                } footer: {
+                    Text("ロック画面でこのコードを入力すると、端末内のデータを消去します。通常の暗証番号とは別の番号にしてください。")
+                }
+                if lock.hasDuress {
+                    Section {
+                        Button("緊急消去コードを削除", role: .destructive) {
+                            guard lock.check(current) else {
+                                error = "現在の暗証番号が違います"
+                                return
+                            }
+                            lock.removeDuress()
+                            dismiss()
+                        }
+                    }
+                }
+                if let error {
+                    Text(error).foregroundStyle(RM.error)
+                }
+            }
+            .navigationTitle("緊急消去コード")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("キャンセル") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存") { save() }
+                        .disabled(duress.count < 4)
+                }
+            }
+        }
+    }
+
+    private func save() {
+        guard lock.check(current) else {
+            error = "現在の暗証番号が違います"
+            return
+        }
+        guard duress.count >= 4, duress.allSatisfy(\.isNumber) else {
+            error = "数字4桁以上で設定してください"
+            return
+        }
+        guard duress == confirm else {
+            error = "コードが一致しません"
+            return
+        }
+        guard !lock.check(duress) else {
+            error = "通常の暗証番号とは別の番号にしてください"
+            return
+        }
+        if lock.setDuress(duress) {
+            dismiss()
+        } else {
+            error = "保存できませんでした"
         }
     }
 }

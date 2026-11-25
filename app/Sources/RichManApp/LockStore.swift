@@ -12,6 +12,7 @@ final class LockStore: ObservableObject {
 
     private let service = "works.kelvins.richman.lock"
     private let account = "pin"
+    private let duressAccount = "duress"
     private let attemptsKey = "rm.lock.attempts"
 
     init() {
@@ -22,7 +23,9 @@ final class LockStore: ObservableObject {
         #endif
     }
 
-    var hasPIN: Bool { loadPIN() != nil }
+    var hasPIN: Bool { loadKeychain(account: account) != nil }
+
+    var hasDuress: Bool { loadKeychain(account: duressAccount) != nil }
 
     var wipeAfter: Int {
         let value = UserDefaults.standard.integer(forKey: "rm.wipeAfter")
@@ -36,11 +39,35 @@ final class LockStore: ObservableObject {
         guard pin.count >= 4, pin.allSatisfy(\.isNumber) else { return false }
         let salt = randomSalt()
         let hash = hashPIN(pin, salt: salt)
-        return saveKeychain(salt + hash)
+        return saveKeychain(salt + hash, account: account)
+    }
+
+    /// A second PIN that wipes local data instead of unlocking. Must differ
+    /// from the normal PIN.
+    @discardableResult
+    func setDuress(_ pin: String) -> Bool {
+        guard pin.count >= 4, pin.allSatisfy(\.isNumber), !check(pin) else { return false }
+        let salt = randomSalt()
+        let hash = hashPIN(pin, salt: salt)
+        return saveKeychain(salt + hash, account: duressAccount)
+    }
+
+    func removeDuress() {
+        deleteKeychain(account: duressAccount)
     }
 
     func check(_ pin: String) -> Bool {
-        guard let stored = loadPIN(), stored.count == 48 else { return false }
+        check(pin, account: account)
+    }
+
+    func checkDuress(_ pin: String) -> Bool {
+        check(pin, account: duressAccount)
+    }
+
+    private func check(_ pin: String, account: String) -> Bool {
+        guard let stored = loadKeychain(account: account), stored.count == 48 else {
+            return false
+        }
         let salt = stored.prefix(16)
         let expected = stored.suffix(32)
         let actual = hashPIN(pin, salt: Data(salt))
@@ -64,7 +91,8 @@ final class LockStore: ObservableObject {
     }
 
     func reset() {
-        deleteKeychain()
+        deleteKeychain(account: account)
+        deleteKeychain(account: duressAccount)
         locked = false
         failedAttempts = 0
         UserDefaults.standard.set(0, forKey: attemptsKey)
@@ -87,7 +115,7 @@ final class LockStore: ObservableObject {
         return Data(bytes)
     }
 
-    private func saveKeychain(_ data: Data) -> Bool {
+    private func saveKeychain(_ data: Data, account: String) -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -100,7 +128,7 @@ final class LockStore: ObservableObject {
         return SecItemAdd(attributes as CFDictionary, nil) == errSecSuccess
     }
 
-    private func loadPIN() -> Data? {
+    private func loadKeychain(account: String) -> Data? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -115,7 +143,7 @@ final class LockStore: ObservableObject {
         return item as? Data
     }
 
-    private func deleteKeychain() {
+    private func deleteKeychain(account: String) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,

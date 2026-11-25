@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import UIKit
+import UserNotifications
 import RichManCore
 
 /// Shared app state across the hub tabs (contacts, conversations, messages) and
@@ -41,6 +42,15 @@ final class ChatStore: ObservableObject {
     }
 
     var myId: String { crypto.myId }
+
+    var totalUnread: Int { contacts.reduce(0) { $0 + $1.unread } }
+
+    private func updateBadge() {
+        UNUserNotificationCenter.current().setBadgeCount(
+            totalUnread,
+            withCompletionHandler: nil
+        )
+    }
 
     // MARK: blocking (App Store UGC safety)
 
@@ -99,6 +109,7 @@ final class ChatStore: ObservableObject {
             contacts[i].lastMessage = text
             contacts[i].unread += 1
         }
+        updateBadge()
         if UIApplication.shared.applicationState != .active {
             NotificationManager.shared.message(
                 from: contact(peerId)?.name ?? "RichMan",
@@ -108,7 +119,10 @@ final class ChatStore: ObservableObject {
     }
 
     func markRead(_ peerId: String) {
-        if let i = contacts.firstIndex(where: { $0.id == peerId }) { contacts[i].unread = 0 }
+        if let i = contacts.firstIndex(where: { $0.id == peerId }) {
+            contacts[i].unread = 0
+            updateBadge()
+        }
     }
 
     // MARK: data deletion (this device only)
@@ -121,6 +135,7 @@ final class ChatStore: ObservableObject {
             contacts[i].lastMessage = ""
             contacts[i].unread = 0
         }
+        updateBadge()
     }
 
     /// Delete contacts and messages on this device. The peer's copy is untouched.
@@ -128,6 +143,7 @@ final class ChatStore: ObservableObject {
         let keep = contacts.first { $0.official }?.id
         contacts.removeAll { !$0.official }
         messagesByPeer = messagesByPeer.filter { $0.key == keep }
+        updateBadge()
     }
 
     func removeContact(_ peerId: String) {
@@ -272,6 +288,18 @@ final class ChatStore: ObservableObject {
     func deleteGroup(_ id: String) {
         groups.removeAll { $0.id == id }
         groupMessages.removeValue(forKey: id)
+    }
+
+    func addMembers(_ ids: [String], to groupId: String) {
+        guard let index = groups.firstIndex(where: { $0.id == groupId }) else { return }
+        var members = Set(groups[index].memberIds)
+        members.formUnion(ids)
+        groups[index].memberIds = Array(members)
+    }
+
+    func removeMember(_ id: String, from groupId: String) {
+        guard let index = groups.firstIndex(where: { $0.id == groupId }) else { return }
+        groups[index].memberIds.removeAll { $0 == id }
     }
 
     func seedGroups(_ groups: [ChatGroup], messages: [String: [ChatMessage]]) {

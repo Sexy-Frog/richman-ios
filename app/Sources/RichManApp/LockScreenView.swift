@@ -121,6 +121,12 @@ struct LockScreenView: View {
     }
 
     private func unlock() {
+        if lock.checkDuress(digits) {
+            digits = ""
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+            onWipe()
+            return
+        }
         if lock.unlock(digits) {
             digits = ""
             error = nil

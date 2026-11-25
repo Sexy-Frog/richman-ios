@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import Combine
+import UserNotifications
 
 /// Gate: first launch → onboarding; afterwards → the hub. The single `ChatStore`
 /// is created here and shared with every screen.
@@ -170,6 +171,8 @@ struct RootView: View {
 
 /// The hub tabs, matching the Android app: トーク / 友だち / 設定.
 struct HubView: View {
+    @EnvironmentObject private var store: ChatStore
+
     /// Screenshot/CI hook: `-rm.tab 2` opens 設定 directly (DEBUG only).
     @State private var tab: Int = {
         #if DEBUG
@@ -186,6 +189,7 @@ struct HubView: View {
                 .tag(0)
             TalksView()
                 .tabItem { Label("トーク", systemImage: "bubble.left.and.bubble.right.fill") }
+                .badge(store.totalUnread)
                 .tag(1)
             FriendsView()
                 .tabItem { Label("友だち", systemImage: "person.2.fill") }
@@ -193,6 +197,12 @@ struct HubView: View {
             SettingsView()
                 .tabItem { Label("設定", systemImage: "gearshape.fill") }
                 .tag(3)
+        }
+        .onChange(of: store.totalUnread) { _, count in
+            UNUserNotificationCenter.current().setBadgeCount(
+                count,
+                withCompletionHandler: nil
+            )
         }
     }
 }
