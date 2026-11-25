@@ -24,10 +24,16 @@ protocol CryptoProvider: CryptoEngine {
 }
 
 enum CryptoProviderFactory {
+    /// Why the real provider fell back to the mock (DEBUG/E2E diagnostics).
+    static var lastError: String?
+
     static func make() -> CryptoProvider {
         #if REAL_CRYPTO
-        if let real = try? LibSignalCryptoProvider() {
-            return real
+        do {
+            return try LibSignalCryptoProvider()
+        } catch {
+            lastError = String(describing: error)
+            NSLog("RichManCrypto init failed: \(error)")
         }
         #endif
         return MockCryptoProvider()

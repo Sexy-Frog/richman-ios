@@ -32,7 +32,16 @@ enum E2E {
     // MARK: host
 
     private static func runHost(store: ChatStore, tor: TorSession) async throws {
-        report(["role": "host", "phase": "tor"])
+        var cryptoKind = "mock-build"
+        #if REAL_CRYPTO
+        cryptoKind = store.crypto is LibSignalCryptoProvider ? "real" : "mock-fallback"
+        #endif
+        report([
+            "role": "host",
+            "phase": "tor",
+            "crypto": cryptoKind,
+            "cryptoError": CryptoProviderFactory.lastError ?? "",
+        ])
         let transport = try await waitForTor(tor)
         let mapOK = await verifyTorMap(tor: tor)
         report(["phase": "invite", "map": mapOK])
@@ -118,7 +127,16 @@ enum E2E {
     // MARK: join
 
     private static func runJoin(store: ChatStore, tor: TorSession) async throws {
-        report(["role": "join", "phase": "tor"])
+        var cryptoKind = "mock-build"
+        #if REAL_CRYPTO
+        cryptoKind = store.crypto is LibSignalCryptoProvider ? "real" : "mock-fallback"
+        #endif
+        report([
+            "role": "join",
+            "phase": "tor",
+            "crypto": cryptoKind,
+            "cryptoError": CryptoProviderFactory.lastError ?? "",
+        ])
         let transport = try await waitForTor(tor)
 
         guard let encoded = UserDefaults.standard.string(forKey: "rm.e2eInvite"),

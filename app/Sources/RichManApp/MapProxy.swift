@@ -166,7 +166,12 @@ final class MapProxy: @unchecked Sendable {
             respond(client, status: 404, type: "text/plain", body: Data())
             return
         }
-        guard let data = fetch(subpath) else {
+        // Glyph paths contain spaces ("Noto Sans Regular"); a raw space would
+        // split the HTTP request line. The relay unquotes before fetching.
+        let encoded = subpath.addingPercentEncoding(
+            withAllowedCharacters: .urlPathAllowed
+        ) ?? subpath
+        guard let data = fetch(encoded) else {
             // 5xx is treated as temporary by MapLibre, so it retries.
             respond(client, status: 503, type: "text/plain", body: Data())
             return
