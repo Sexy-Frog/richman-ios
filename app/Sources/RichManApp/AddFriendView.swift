@@ -19,9 +19,17 @@ struct AddFriendView: View {
                     if myInvite.isEmpty {
                         Button("招待コードを作成") { makeInvite() }
                     } else {
-                        Text(myInvite).font(.footnote.monospaced()).textSelection(.enabled)
-                        Text("相手にこのコード（将来はQR）を渡して読み取ってもらいます。")
+                        if let qr = QRCode.image(from: myInvite) {
+                            Image(uiImage: qr)
+                                .interpolation(.none)
+                                .resizable().scaledToFit()
+                                .frame(maxWidth: 220)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 8)
+                        }
+                        Text("相手にこのQRを見せて読み取ってもらいます。")
                             .font(.caption).foregroundStyle(RM.onSurfaceVariant)
+                        Text(myInvite).font(.footnote.monospaced()).textSelection(.enabled)
                     }
                 }
                 Section("相手を追加") {
