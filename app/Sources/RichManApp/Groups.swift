@@ -1,4 +1,6 @@
 import SwiftUI
+import PhotosUI
+import UniformTypeIdentifiers
 
 // MARK: - Talks row
 
@@ -109,6 +111,10 @@ struct GroupChatView: View {
     @EnvironmentObject private var store: ChatStore
     @State private var draft = ""
     @State private var showInfo = false
+    @State private var showAttach = false
+    @State private var showPhotos = false
+    @State private var showFiles = false
+    @State private var photoItem: PhotosPickerItem?
 
     private var messages: [ChatMessage] { store.messages(forGroup: group.id) }
     private var canSend: Bool {
@@ -152,10 +158,40 @@ struct GroupChatView: View {
         }
         .onAppear { store.setActiveGroup(group.id) }
         .onDisappear { store.setActiveGroup(nil) }
+        .confirmationDialog("送信する", isPresented: $showAttach, titleVisibility: .visible) {
+            Button("写真") { showPhotos = true }
+            Button("ファイル") { showFiles = true }
+            Button("キャンセル", role: .cancel) {}
+        }
+        .photosPicker(isPresented: $showPhotos, selection: $photoItem, matching: .images)
+        .fileImporter(
+            isPresented: $showFiles,
+            allowedContentTypes: [.data],
+            allowsMultipleSelection: false
+        ) { result in
+            guard case .success(let urls) = result, let url = urls.first else { return }
+            let access = url.startAccessingSecurityScopedResource()
+            defer { if access { url.stopAccessingSecurityScopedResource() } }
+            store.sendFile(toGroup: group.id, url: url)
+        }
+        .onChange(of: photoItem) { _, item in
+            guard let item else { return }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self) {
+                    store.sendImage(toGroup: group.id, data: data)
+                }
+                photoItem = nil
+            }
+        }
     }
 
     private var composer: some View {
         HStack(alignment: .bottom, spacing: 8) {
+            Button { showAttach = true } label: {
+                Image(systemName: "plus.circle.fill")
+                    .font(.system(size: 26))
+                    .foregroundStyle(RM.primary)
+            }
             TextField("メッセージ", text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
                 .padding(.horizontal, 14)
@@ -195,14 +231,7 @@ private struct GroupBubble: View {
                         .foregroundStyle(RM.onSurfaceVariant)
                         .padding(.leading, 6)
                 }
-                Text(message.body)
-                    .foregroundStyle(message.mine ? RM.bubbleMeText : RM.bubbleThemText)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(
-                        message.mine ? RM.bubbleMe : RM.bubbleThem,
-                        in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    )
+                content
                 Text(message.ts.formatted(date: .omitted, time: .shortened))
                     .font(.caption2)
                     .foregroundStyle(
@@ -216,6 +245,50 @@ private struct GroupBubble: View {
                 onDelete(message)
             }
         }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch message.kind {
+        case .image:
+            if let name = message.mediaName, let image = MediaStore.image(named: name) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: 210)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            } else {
+                bubble(Label("画像", systemImage: "photo"))
+            }
+        case .file:
+            bubble(
+                VStack(alignment: .leading, spacing: 2) {
+                    Label(message.body, systemImage: "doc").lineLimit(1)
+                    if let size = message.fileSize {
+                        Text(ByteCountFormatter.string(
+                            fromByteCount: Int64(size), countStyle: .file
+                        ))
+                        .font(.caption2)
+                        .opacity(0.7)
+                    }
+                }
+            )
+        case .location:
+            bubble(Label("位置情報", systemImage: "location.fill"))
+        case .text:
+            bubble(Text(message.body))
+        }
+    }
+
+    private func bubble<Content: View>(_ content: Content) -> some View {
+        content
+            .foregroundStyle(message.mine ? RM.bubbleMeText : RM.bubbleThemText)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                message.mine ? RM.bubbleMe : RM.bubbleThem,
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            )
     }
 }
 

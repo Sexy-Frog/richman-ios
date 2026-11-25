@@ -22,6 +22,7 @@ struct ChatView: View {
     @State private var photoItem: PhotosPickerItem?
     @State private var ttlSeconds = 0
     @State private var showLocationError = false
+    @State private var imagePreview: ImagePreview?
 
     private var messages: [ChatMessage] { store.messages(for: contact.id) }
     private var isBlocked: Bool { store.isBlocked(contact.id) }
@@ -63,6 +64,9 @@ struct ChatView: View {
                                     store.deleteMessage(
                                         $0, in: contact.id, everyone: true
                                     )
+                                },
+                                onOpenImage: {
+                                    imagePreview = ImagePreview(image: $0)
                                 }
                             )
                             .id(message.id)
@@ -165,6 +169,23 @@ struct ChatView: View {
             Button("ファイル") { showFiles = true }
             Button("現在地") { sendCurrentLocation() }
             Button("キャンセル", role: .cancel) {}
+        }
+        .sheet(item: $imagePreview) { preview in
+            NavigationStack {
+                ZStack {
+                    Color.black.ignoresSafeArea()
+                    Image(uiImage: preview.image)
+                        .resizable()
+                        .scaledToFit()
+                        .padding(8)
+                }
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("閉じる") { imagePreview = nil }
+                    }
+                }
+                .toolbarBackground(.black, for: .navigationBar)
+            }
         }
         .alert("位置情報を送れません", isPresented: $showLocationError) {
             Button("設定を開く") {
@@ -341,12 +362,18 @@ struct ChatView: View {
 
 // MARK: - bubbles
 
+private struct ImagePreview: Identifiable {
+    let id = UUID()
+    let image: UIImage
+}
+
 private struct MessageBubble: View {
     let message: ChatMessage
     let replyPreview: String?
     let onReply: (ChatMessage) -> Void
     let onDelete: (ChatMessage) -> Void
     let onDeleteEveryone: (ChatMessage) -> Void
+    let onOpenImage: (UIImage) -> Void
 
     var body: some View {
         HStack(alignment: .bottom) {
@@ -388,6 +415,11 @@ private struct MessageBubble: View {
                     UIPasteboard.general.string = message.body
                 }
             }
+            if message.kind == .file, let name = message.mediaName {
+                ShareLink(item: MediaStore.fileURL(named: name)) {
+                    Label("ファイルを共有", systemImage: "square.and.arrow.up")
+                }
+            }
             Button("この端末から削除", systemImage: "trash", role: .destructive) {
                 onDelete(message)
             }
@@ -411,6 +443,7 @@ private struct MessageBubble: View {
                     .scaledToFit()
                     .frame(maxWidth: 210)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .onTapGesture { onOpenImage(image) }
             } else {
                 bubbleLabel("画像", icon: "photo")
             }

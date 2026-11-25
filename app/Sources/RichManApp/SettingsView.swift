@@ -21,6 +21,7 @@ struct SettingsView: View {
     @State private var showDuress = false
     @State private var confirmClearChats = false
     @State private var confirmClearFriends = false
+    @State private var showZoneEditor = false
     @State private var zone: SecurityZone? = SecurityZoneStore.current
 
     var body: some View {
@@ -99,13 +100,15 @@ struct SettingsView: View {
                     if let zone {
                         LabeledContent("半径", value: "\(Int(zone.radius))m")
                         LabeledContent("入室時の動作", value: zone.action.label)
+                        Button("地図で変更") { showZoneEditor = true }
                         Button("セキュリティゾーンを削除", role: .destructive) {
                             SecurityZoneStore.current = nil
                             self.zone = nil
                         }
                     } else {
-                        Text("未設定（オンボーディングで設定できます）")
+                        Text("未設定")
                             .foregroundStyle(RM.onSurfaceVariant)
+                        Button("地図で設定") { showZoneEditor = true }
                     }
                 } header: {
                     Text("セキュリティゾーン")
@@ -200,6 +203,11 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $showDuress) {
                 DuressView().environmentObject(lock)
+            }
+            .sheet(isPresented: $showZoneEditor, onDismiss: {
+                zone = SecurityZoneStore.current
+            }) {
+                ZoneEditorView(zone: zone).environmentObject(tor)
             }
             .confirmationDialog(
                 "トークを全部消しますか？",

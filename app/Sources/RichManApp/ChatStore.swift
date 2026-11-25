@@ -353,17 +353,29 @@ final class ChatStore: ObservableObject {
                 GroupMessage.self, from: opened.payload
             ) else { return }
             ensureGroup(groupMessage.gid, name: nil, members: [groupMessage.sender])
-            appendGroupMessage(
-                groupMessage.gid,
-                message: ChatMessage(
-                    id: UUID().uuidString,
-                    body: groupMessage.b ?? "メッセージ",
-                    mine: false,
-                    ts: Date(),
+            if (groupMessage.kind == "img" || groupMessage.kind == "file"),
+               let encoded = groupMessage.m,
+               let manifest = try? MediaManifest.parse(encoded) {
+                await fetchGroupMedia(
+                    manifest,
+                    groupId: groupMessage.gid,
+                    kind: groupMessage.kind == "img" ? .image : .file,
                     senderName: groupMessage.n,
                     remoteId: groupMessage.mid
                 )
-            )
+            } else {
+                appendGroupMessage(
+                    groupMessage.gid,
+                    message: ChatMessage(
+                        id: UUID().uuidString,
+                        body: groupMessage.b ?? "メッセージ",
+                        mine: false,
+                        ts: Date(),
+                        senderName: groupMessage.n,
+                        remoteId: groupMessage.mid
+                    )
+                )
+            }
         case .groupAdd?, .groupRemove?, .groupLeave?:
             guard let membership = try? JSONDecoder().decode(
                 GroupMembershipMessage.self, from: opened.payload
@@ -579,6 +591,141 @@ final class ChatStore: ObservableObject {
             }
         }
         scheduleSave()
+    }
+
+    // MARK: group media
+
+    func sendImage(toGroup groupId: String, data: Data) {
+        guard let group = group(groupId), let name = MediaStore.saveImage(data) else {
+            return
+        }
+        let mid = UUID().uuidString
+        groupMessages[groupId, default: []].append(
+            ChatMessage(
+                id: mid, body: "", mine: true, ts: Date(),
+                kind: .image, remoteId: mid, mediaName: name
+            )
+        )
+        scheduleSave()
+        guard let transport = relayTransport, let blob = Self.sealBlob(data) else {
+            return
+        }
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let blobId = try await RelayClient(transport: transport)
+                    .putBlob(blob.ciphertext)
+                let manifest = MediaManifest(
+                    id: blobId, k: blob.key, n: blob.nonce,
+                    mime: "image/jpeg", sz: Int64(data.count)
+                )
+                try self.sendGroupManifest(
+                    manifest, kind: "img", mid: mid, group: group
+                )
+            } catch {
+                return
+            }
+        }
+    }
+
+    func sendFile(toGroup groupId: String, url: URL) {
+        guard let group = group(groupId), let saved = MediaStore.saveFile(url),
+              let blob = Self.sealBlob(saved.data) else { return }
+        let mid = UUID().uuidString
+        groupMessages[groupId, default: []].append(
+            ChatMessage(
+                id: mid, body: url.lastPathComponent, mine: true, ts: Date(),
+                kind: .file, remoteId: mid, mediaName: saved.name,
+                fileSize: saved.size
+            )
+        )
+        scheduleSave()
+        guard let transport = relayTransport else { return }
+        let mime = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType
+            ?? "application/octet-stream"
+        let original = url.lastPathComponent
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let blobId = try await RelayClient(transport: transport)
+                    .putBlob(blob.ciphertext)
+                let manifest = MediaManifest(
+                    id: blobId, k: blob.key, n: blob.nonce, name: original,
+                    mime: mime, sz: Int64(saved.data.count)
+                )
+                try self.sendGroupManifest(
+                    manifest, kind: "file", mid: mid, group: group
+                )
+            } catch {
+                return
+            }
+        }
+    }
+
+    private func sendGroupManifest(
+        _ manifest: MediaManifest,
+        kind: String,
+        mid: String,
+        group: ChatGroup
+    ) throws {
+        let message = GroupMessage(
+            gid: group.id,
+            kind: kind,
+            m: try manifest.manifestString(),
+            n: displayName,
+            sender: crypto.myId,
+            ts: Int64(Date().timeIntervalSince1970 * 1000),
+            mid: mid
+        )
+        let json = try message.toPayloadJSON()
+        for member in group.memberIds where member != crypto.myId {
+            transmit(json, to: member, markMid: "")
+        }
+    }
+
+    private func fetchGroupMedia(
+        _ manifest: MediaManifest,
+        groupId: String,
+        kind: ChatMessage.Kind,
+        senderName: String,
+        remoteId: String?
+    ) async {
+        guard let transport = relayTransport else { return }
+        guard let blob = try? await RelayClient(transport: transport)
+            .getBlob(id: manifest.id) else { return }
+        guard let keyData = try? Base64URL.decode(manifest.k), keyData.count == 32,
+              let nonceData = try? Base64URL.decode(manifest.n), nonceData.count == 12,
+              let box = try? AES.GCM.SealedBox(combined: nonceData + blob),
+              let plain = try? AES.GCM.open(box, using: SymmetricKey(data: keyData)) else {
+            return
+        }
+        let savedName: String
+        let savedSize: Int
+        if kind == .image {
+            guard let saved = MediaStore.saveImage(plain) else { return }
+            savedName = saved
+            savedSize = plain.count
+        } else {
+            guard let saved = MediaStore.saveFileData(
+                plain, name: manifest.name ?? "file"
+            ) else { return }
+            savedName = saved.name
+            savedSize = saved.size
+        }
+        appendGroupMessage(
+            groupId,
+            message: ChatMessage(
+                id: UUID().uuidString,
+                body: kind == .file ? (manifest.name ?? "ファイル") : "",
+                mine: false,
+                ts: Date(),
+                kind: kind,
+                senderName: senderName,
+                remoteId: remoteId,
+                mediaName: savedName,
+                fileSize: savedSize
+            )
+        )
     }
 
     /// Group messages are deleted on this device only (Android parity).
@@ -1206,9 +1353,16 @@ final class ChatStore: ObservableObject {
         scheduleSave()
         if !message.mine, !isOpen,
            UIApplication.shared.applicationState != .active {
+            let preview: String
+            switch message.kind {
+            case .image: preview = "画像"
+            case .file: preview = "ファイル"
+            case .location: preview = "位置情報"
+            case .text: preview = message.body
+            }
             NotificationManager.shared.message(
                 from: message.senderName ?? group(groupId)?.name ?? "グループ",
-                preview: message.body
+                preview: preview
             )
         }
     }
