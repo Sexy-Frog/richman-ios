@@ -100,7 +100,27 @@ final class ChatStore: ObservableObject {
 
     var myId: String { crypto.myId }
 
-    var totalUnread: Int { contacts.reduce(0) { $0 + $1.unread } }
+    var totalUnread: Int {
+        contacts.reduce(0) { $0 + $1.unread }
+            + groups.reduce(0) { $0 + $1.unread }
+    }
+
+    func setActivePeer(_ peerId: String?) {
+        activePeer = peerId
+        if let peerId { markRead(peerId) }
+    }
+
+    func setActiveGroup(_ groupId: String?) {
+        activeGroup = groupId
+        if let groupId { markGroupRead(groupId) }
+    }
+
+    /// Chat currently on screen (read receipts / no unread while open).
+    private var activePeer: String?
+    private var activeGroup: String?
+    private var sentReceipts: Set<String> = []
+    /// Wired by RootView: current one-shot position for `/locate` replies.
+    var currentLocationProvider: (() -> (latitude: Double, longitude: Double, accuracy: Double?)?)?
 
     /// True while the app has a working Tor → relay path.
     var relayReady: Bool { relayTransport != nil }
@@ -220,7 +240,14 @@ final class ChatStore: ObservableObject {
             if contacts[index].name == "新規", let name = text.n, !name.isEmpty {
                 contacts[index].name = name
             }
-            receive(from: opened.senderId, text: text.b, remoteId: text.mid)
+            receive(
+                from: opened.senderId,
+                text: text.b,
+                remoteId: text.mid,
+                replyId: text.re,
+                replyName: text.ren,
+                replyText: text.ret
+            )
         case .img?:
             guard let image = try? JSONDecoder().decode(
                 ImageMessage.self, from: opened.payload
@@ -238,6 +265,42 @@ final class ChatStore: ObservableObject {
                 id: file.id, key: file.k, nonce: file.n,
                 peerId: opened.senderId, kind: .file,
                 fileName: file.name, remoteId: file.mid
+            )
+        case .ttl?:
+            guard let ttl = try? JSONDecoder().decode(
+                TtlMessage.self, from: opened.payload
+            ) else { return }
+            let seconds = Int(ttl.ms / 1000)
+            UserDefaults.standard.set(seconds, forKey: "rm.ttl.\(opened.senderId)")
+            purgeExpired(opened.senderId)
+            appendSystem(opened.senderId, text: ttlSystemLabel(seconds))
+        case .locReq?:
+            guard let request = try? JSONDecoder().decode(
+                LocationRequest.self, from: opened.payload
+            ) else { return }
+            // Same consent gate as the settings toggle; one-shot only.
+            let sharing = (UserDefaults.standard.object(
+                forKey: "rm.shareLocation"
+            ) as? Bool) ?? true
+            if sharing, let fix = currentLocationProvider?() {
+                let reply = LocationMessage(
+                    t: MessageType.locOnce.rawValue,
+                    id: request.id,
+                    lat: fix.latitude,
+                    lon: fix.longitude,
+                    acc: fix.accuracy,
+                    ts: Int64(Date().timeIntervalSince1970 * 1000)
+                )
+                if let json = try? reply.toPayloadJSON() {
+                    transmit(json, to: opened.senderId, markMid: "")
+                }
+            } else if let json = try? LocationDenied(why: "off").toPayloadJSON() {
+                transmit(json, to: opened.senderId, markMid: "")
+            }
+        case .locDenied?:
+            appendSystem(
+                opened.senderId,
+                text: "相手は位置情報を共有していません"
             )
         case .loc?, .locOnce?, .locUpdate?, .locStart?:
             guard let loc = try? JSONDecoder().decode(
@@ -271,6 +334,11 @@ final class ChatStore: ObservableObject {
                 name: invite.name,
                 members: invite.members.map(\.id) + [opened.senderId]
             )
+            if let index = groups.firstIndex(where: { $0.id == invite.gid }),
+               groups[index].ownerId == nil,
+               !invite.hub.isEmpty {
+                groups[index].ownerId = invite.hub
+            }
             appendGroupMessage(
                 invite.gid,
                 message: ChatMessage(
@@ -301,6 +369,11 @@ final class ChatStore: ObservableObject {
                 GroupMembershipMessage.self, from: opened.payload
             ) else { return }
             handleMembership(membership)
+        case .groupDel?:
+            guard let deletion = try? JSONDecoder().decode(
+                GroupDeleteMessage.self, from: opened.payload
+            ) else { return }
+            removeGroupLocally(deletion.gid)
         case .callOffer?, .callAnswer?, .callEnd?:
             guard let signal = try? JSONDecoder().decode(
                 CallSignal.self, from: opened.payload
@@ -357,6 +430,24 @@ final class ChatStore: ObservableObject {
         let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty, !isBlocked(peerId) else { return }
         let mid = UUID().uuidString
+
+        // `/locate` is a command, never visible text (Android parity).
+        if kind == .text, Self.isLocateCommand(body) {
+            messagesByPeer[peerId, default: []].append(
+                ChatMessage(
+                    id: mid, body: "位置情報をリクエストしました", mine: true, ts: Date()
+                )
+            )
+            if let i = contacts.firstIndex(where: { $0.id == peerId }) {
+                contacts[i].lastMessage = "位置情報をリクエスト"
+            }
+            scheduleSave()
+            if let json = try? LocationRequest(id: mid).toPayloadJSON() {
+                transmit(json, to: peerId, markMid: mid)
+            }
+            return
+        }
+
         messagesByPeer[peerId, default: []].append(
             ChatMessage(id: mid, body: body, mine: true, ts: Date(),
                         kind: kind, replyTo: replyTo)
@@ -368,12 +459,42 @@ final class ChatStore: ObservableObject {
         scheduleSave()
 
         guard kind == .text else { return }
+
+        // Wire reply metadata so the peer can render the quote even without
+        // the referenced message.
+        var replyWireId: String?
+        var replyName: String?
+        var replyPreview: String?
+        if let replyTo,
+           let target = messagesByPeer[peerId]?.first(where: { $0.id == replyTo }) {
+            replyWireId = target.remoteId ?? target.id
+            replyName = target.mine ? displayName : contact(peerId)?.name
+            let snippet: String
+            switch target.kind {
+            case .image: snippet = "画像"
+            case .file: snippet = "ファイル"
+            case .location: snippet = "位置情報"
+            case .text: snippet = target.body
+            }
+            replyPreview = String(snippet.prefix(80))
+        }
+
         let payload = TextMessage(
             b: body, n: displayName, ts: Int64(Date().timeIntervalSince1970 * 1000),
-            mid: mid, exp: expiry(peerId)
+            mid: mid, exp: expiry(peerId),
+            re: replyWireId, ren: replyName, ret: replyPreview
         )
         guard let json = try? payload.toPayloadJSON() else { return }
         transmit(json, to: peerId, markMid: mid)
+    }
+
+    static func isLocateCommand(_ text: String) -> Bool {
+        let commands: Set<String> = [
+            "/locate", "/loc", "/where", "/位置", "/いち",
+        ]
+        return commands.contains(
+            text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        )
     }
 
     /// Expiry timestamp for the peer's disappearing timer (nil = off).
@@ -445,27 +566,45 @@ final class ChatStore: ObservableObject {
         scheduleSave()
     }
 
+    // MARK: message deletion
+
+    /// Delete locally; for my own message the peer can be told to delete its
+    /// copy too (`{"t":"del","ids":[mid]}`).
+    func deleteMessage(_ message: ChatMessage, in peerId: String, everyone: Bool) {
+        messagesByPeer[peerId]?.removeAll { $0.id == message.id }
+        if everyone, message.mine {
+            let payload = DeleteMessage(ids: [message.id])
+            if let json = try? payload.toPayloadJSON() {
+                transmit(json, to: peerId, markMid: "")
+            }
+        }
+        scheduleSave()
+    }
+
+    /// Group messages are deleted on this device only (Android parity).
+    func deleteGroupMessage(_ message: ChatMessage, in groupId: String) {
+        groupMessages[groupId]?.removeAll { $0.id == message.id }
+        scheduleSave()
+    }
+
     /// Record an inbound message (will be called by the relay receive loop).
-    func receive(from peerId: String, text: String, remoteId: String? = nil) {
+    func receive(
+        from peerId: String,
+        text: String,
+        remoteId: String? = nil,
+        replyId: String? = nil,
+        replyName: String? = nil,
+        replyText: String? = nil
+    ) {
         guard !isBlocked(peerId) else { return }   // drop messages from blocked peers
         messagesByPeer[peerId, default: []].append(
             ChatMessage(
                 id: UUID().uuidString, body: text, mine: false, ts: Date(),
-                remoteId: remoteId
+                replyTo: replyId, remoteId: remoteId,
+                replyName: replyName, replyText: replyText
             )
         )
-        if let i = contacts.firstIndex(where: { $0.id == peerId }) {
-            contacts[i].lastMessage = text
-            contacts[i].unread += 1
-        }
-        updateBadge()
-        scheduleSave()
-        if UIApplication.shared.applicationState != .active {
-            NotificationManager.shared.message(
-                from: contact(peerId)?.name ?? "RichMan",
-                preview: text
-            )
-        }
+        noteIncoming(peerId, preview: text, notify: true)
     }
 
     func markRead(_ peerId: String) {
@@ -473,6 +612,49 @@ final class ChatStore: ObservableObject {
             contacts[i].unread = 0
             updateBadge()
             scheduleSave()
+        }
+        sendReadReceipts(peerId)
+    }
+
+    /// Ack the peer's inbound mids once (Android sends `{"t":"read","ids":[]}`).
+    private func sendReadReceipts(_ peerId: String) {
+        let mids = (messagesByPeer[peerId] ?? [])
+            .filter { !$0.mine }
+            .compactMap(\.remoteId)
+            .filter { !sentReceipts.contains($0) }
+        guard !mids.isEmpty else { return }
+        sentReceipts.formUnion(mids)
+        guard let json = try? ReadReceipt(ids: mids).toPayloadJSON() else { return }
+        transmit(json, to: peerId, markMid: "")
+    }
+
+    func markGroupRead(_ groupId: String) {
+        guard let index = groups.firstIndex(where: { $0.id == groupId }) else { return }
+        groups[index].unread = 0
+        updateBadge()
+        scheduleSave()
+    }
+
+    /// Shared inbound bookkeeping: unread/notify, or immediate read if open.
+    private func noteIncoming(
+        _ peerId: String,
+        preview: String,
+        notify: Bool
+    ) {
+        let isOpen = activePeer == peerId
+        if let i = contacts.firstIndex(where: { $0.id == peerId }) {
+            contacts[i].lastMessage = preview
+            if !isOpen { contacts[i].unread += 1 }
+        }
+        updateBadge()
+        scheduleSave()
+        if isOpen {
+            sendReadReceipts(peerId)
+        } else if notify, UIApplication.shared.applicationState != .active {
+            NotificationManager.shared.message(
+                from: contact(peerId)?.name ?? "RichMan",
+                preview: preview
+            )
         }
     }
 
@@ -556,6 +738,31 @@ final class ChatStore: ObservableObject {
     func setTTL(_ seconds: Int, for peerId: String) {
         UserDefaults.standard.set(seconds, forKey: "rm.ttl.\(peerId)")
         purgeExpired(peerId)
+        scheduleSave()
+        // Keep both ends' expiry in step (Android sends `{"t":"ttl","ms":N}`).
+        if let json = try? TtlMessage(ms: Int64(seconds) * 1000).toPayloadJSON() {
+            transmit(json, to: peerId, markMid: "")
+        }
+    }
+
+    private func appendSystem(_ peerId: String, text: String) {
+        messagesByPeer[peerId, default: []].append(
+            ChatMessage(
+                id: UUID().uuidString, body: text, mine: false, ts: Date()
+            )
+        )
+        scheduleSave()
+    }
+
+    private func ttlSystemLabel(_ seconds: Int) -> String {
+        switch seconds {
+        case 0: return "消えるメッセージをオフにしました"
+        case 3600: return "消えるメッセージ: 1時間"
+        case 86_400: return "消えるメッセージ: 1日"
+        case 604_800: return "消えるメッセージ: 7日"
+        case 2_592_000: return "消えるメッセージ: 30日"
+        default: return "消えるメッセージ: \(seconds)秒"
+        }
     }
 
     func purgeExpired(_ peerId: String) {
@@ -754,18 +961,7 @@ final class ChatStore: ObservableObject {
                 remoteId: remoteId
             )
         )
-        if let i = contacts.firstIndex(where: { $0.id == peerId }) {
-            contacts[i].lastMessage = text
-            contacts[i].unread += 1
-        }
-        updateBadge()
-        scheduleSave()
-        if UIApplication.shared.applicationState != .active {
-            NotificationManager.shared.message(
-                from: contact(peerId)?.name ?? "RichMan",
-                preview: text
-            )
-        }
+        noteIncoming(peerId, preview: text, notify: true)
     }
 
     private func appendIncomingMedia(
@@ -788,18 +984,11 @@ final class ChatStore: ObservableObject {
                 fileSize: size
             )
         )
-        if let i = contacts.firstIndex(where: { $0.id == peerId }) {
-            contacts[i].lastMessage = kind == .image ? "画像" : "ファイル"
-            contacts[i].unread += 1
-        }
-        updateBadge()
-        scheduleSave()
-        if UIApplication.shared.applicationState != .active {
-            NotificationManager.shared.message(
-                from: contact(peerId)?.name ?? "RichMan",
-                preview: kind == .image ? "画像が届きました" : "ファイルが届きました"
-            )
-        }
+        noteIncoming(
+            peerId,
+            preview: kind == .image ? "画像" : "ファイル",
+            notify: true
+        )
     }
 
     // MARK: groups (hub fan-out lands with the relay loop)
@@ -818,7 +1007,8 @@ final class ChatStore: ObservableObject {
         let group = ChatGroup(
             id: "group-\(UUID().uuidString.prefix(8))",
             name: trimmed.isEmpty ? "グループ" : trimmed,
-            memberIds: memberIds
+            memberIds: memberIds,
+            ownerId: crypto.myId
         )
         groups.append(group)
         groupMessages[group.id] = []
@@ -889,7 +1079,23 @@ final class ChatStore: ObservableObject {
         scheduleSave()
     }
 
+    /// Creator: tell the members and remove it everywhere.
     func deleteGroup(_ id: String) {
+        if let group = group(id) {
+            let payload = GroupDeleteMessage(
+                gid: id, sender: crypto.myId,
+                ts: Int64(Date().timeIntervalSince1970 * 1000)
+            )
+            if let json = try? payload.toPayloadJSON() {
+                for member in group.memberIds {
+                    transmit(json, to: member, markMid: "")
+                }
+            }
+        }
+        removeGroupLocally(id)
+    }
+
+    private func removeGroupLocally(_ id: String) {
         groups.removeAll { $0.id == id }
         groupMessages.removeValue(forKey: id)
         scheduleSave()
@@ -975,6 +1181,12 @@ final class ChatStore: ObservableObject {
             }
         case MessageType.groupRemove.rawValue, MessageType.groupLeave.rawValue:
             if let id = membership.id {
+                // The creator leaving dissolves the group for everyone.
+                if membership.t == MessageType.groupLeave.rawValue,
+                   id == groups[index].ownerId {
+                    deleteGroup(membership.gid)
+                    return
+                }
                 groups[index].memberIds.removeAll { $0 == id }
             }
         default:
@@ -985,13 +1197,39 @@ final class ChatStore: ObservableObject {
 
     private func appendGroupMessage(_ groupId: String, message: ChatMessage) {
         groupMessages[groupId, default: []].append(message)
+        let isOpen = activeGroup == groupId
+        if !message.mine, !isOpen,
+           let index = groups.firstIndex(where: { $0.id == groupId }) {
+            groups[index].unread += 1
+        }
+        updateBadge()
         scheduleSave()
-        if UIApplication.shared.applicationState != .active {
+        if !message.mine, !isOpen,
+           UIApplication.shared.applicationState != .active {
             NotificationManager.shared.message(
-                from: message.senderName ?? "グループ",
+                from: message.senderName ?? group(groupId)?.name ?? "グループ",
                 preview: message.body
             )
         }
+    }
+
+    /// Leave a group (members) — the creator deletes it for everyone instead.
+    func leaveGroup(_ id: String) {
+        guard let group = group(id) else { return }
+        let payload = GroupMembershipMessage(
+            t: MessageType.groupLeave.rawValue,
+            gid: id,
+            id: crypto.myId,
+            name: displayName,
+            n: displayName,
+            ts: Int64(Date().timeIntervalSince1970 * 1000)
+        )
+        if let json = try? payload.toPayloadJSON() {
+            for member in group.memberIds {
+                transmit(json, to: member, markMid: "")
+            }
+        }
+        removeGroupLocally(id)
     }
 
     func seedGroups(_ groups: [ChatGroup], messages: [String: [ChatMessage]]) {
@@ -1119,6 +1357,33 @@ struct ChatGroup: Identifiable, Hashable, Codable {
     let id: String
     var name: String
     var memberIds: [String]
+    /// Creator's id; the creator can delete the group for everyone, members can
+    /// only leave.
+    var ownerId: String? = nil
+    var unread: Int = 0
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, memberIds, ownerId, unread
+    }
+
+    init(id: String, name: String, memberIds: [String],
+         ownerId: String? = nil, unread: Int = 0) {
+        self.id = id
+        self.name = name
+        self.memberIds = memberIds
+        self.ownerId = ownerId
+        self.unread = unread
+    }
+
+    /// Older sealed state has no ownerId/unread keys.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        memberIds = try container.decode([String].self, forKey: .memberIds)
+        ownerId = try container.decodeIfPresent(String.self, forKey: .ownerId)
+        unread = try container.decodeIfPresent(Int.self, forKey: .unread) ?? 0
+    }
 }
 
 /// A contact's last shared position (in-memory + sealed state).
@@ -1149,6 +1414,10 @@ struct ChatMessage: Identifiable, Hashable, Codable {
     var senderName: String? = nil
     /// The sender's wire message id, kept for delete-for-everyone receipts.
     var remoteId: String? = nil
+    /// Inbound reply target metadata (survives even if the referenced message
+    /// was already deleted locally).
+    var replyName: String? = nil
+    var replyText: String? = nil
     /// Local media file name (image/file messages).
     var mediaName: String? = nil
     var fileSize: Int? = nil

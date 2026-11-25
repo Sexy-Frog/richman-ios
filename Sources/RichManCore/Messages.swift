@@ -190,6 +190,10 @@ public struct LocationRequest: Codable, Equatable {
 public struct LocationDenied: Codable, Equatable {
     public var t = MessageType.locDenied.rawValue
     public var why: String?
+
+    public init(why: String? = nil) {
+        self.why = why
+    }
 }
 
 // MARK: Groups (hub model; docs/PROTOCOL.md §7)
@@ -262,6 +266,10 @@ public struct GroupDeleteMessage: Codable, Equatable {
     public var ids: [String]
     public var sender: String
     public var ts: Int64?
+
+    public init(gid: String, ids: [String] = [], sender: String, ts: Int64? = nil) {
+        self.gid = gid; self.ids = ids; self.sender = sender; self.ts = ts
+    }
 }
 
 // MARK: Calls (reuse the encrypted message path)

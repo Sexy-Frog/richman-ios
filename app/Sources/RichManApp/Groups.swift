@@ -19,6 +19,11 @@ struct GroupRow: View {
                     .foregroundStyle(RM.onSurfaceVariant)
             }
             Spacer()
+            if group.unread > 0 {
+                Text("\(group.unread)")
+                    .font(.caption2.weight(.bold)).foregroundStyle(.white)
+                    .padding(6).background(RM.primary, in: Circle())
+            }
         }
         .padding(.vertical, 4)
     }
@@ -116,7 +121,10 @@ struct GroupChatView: View {
                 ScrollView {
                     LazyVStack(spacing: 8) {
                         ForEach(messages) { message in
-                            GroupBubble(message: message).id(message.id)
+                            GroupBubble(message: message) { target in
+                                store.deleteGroupMessage(target, in: group.id)
+                            }
+                            .id(message.id)
                         }
                     }
                     .padding(.horizontal, 12)
@@ -142,6 +150,8 @@ struct GroupChatView: View {
         .sheet(isPresented: $showInfo) {
             GroupInfoView(groupId: group.id).environmentObject(store)
         }
+        .onAppear { store.setActiveGroup(group.id) }
+        .onDisappear { store.setActiveGroup(nil) }
     }
 
     private var composer: some View {
@@ -173,6 +183,7 @@ struct GroupChatView: View {
 
 private struct GroupBubble: View {
     let message: ChatMessage
+    let onDelete: (ChatMessage) -> Void
 
     var body: some View {
         HStack(alignment: .bottom) {
@@ -200,6 +211,11 @@ private struct GroupBubble: View {
             }
             if !message.mine { Spacer(minLength: 48) }
         }
+        .contextMenu {
+            Button("この端末から削除", systemImage: "trash", role: .destructive) {
+                onDelete(message)
+            }
+        }
     }
 }
 
@@ -210,6 +226,7 @@ struct GroupInfoView: View {
     @EnvironmentObject private var store: ChatStore
     @Environment(\.dismiss) private var dismiss
     @State private var confirmDelete = false
+    @State private var confirmLeave = false
     @State private var showAdd = false
 
     private var group: ChatGroup? { store.group(groupId) }
@@ -221,7 +238,7 @@ struct GroupInfoView: View {
                     Section("メンバー") {
                         HStack(spacing: 12) {
                             Avatar(name: "自")
-                            Text("自分（作成者）")
+                            Text(group.ownerId == store.myId ? "自分（作成者）" : "自分")
                         }
                         ForEach(group.memberIds, id: \.self) { id in
                             HStack(spacing: 12) {
@@ -241,7 +258,15 @@ struct GroupInfoView: View {
                         }
                     }
                     Section {
-                        Button("グループを削除", role: .destructive) { confirmDelete = true }
+                        if group.ownerId == store.myId || group.ownerId == nil {
+                            Button("グループを削除（全員）", role: .destructive) {
+                                confirmDelete = true
+                            }
+                        } else {
+                            Button("グループを退出", role: .destructive) {
+                                confirmLeave = true
+                            }
+                        }
                     }
                 } else {
                     Text("グループが見つかりません")
@@ -265,7 +290,20 @@ struct GroupInfoView: View {
                 }
                 Button("キャンセル", role: .cancel) {}
             } message: {
-                Text("この端末からグループと履歴を削除します。")
+                Text("グループと履歴を全員から削除します。")
+            }
+            .confirmationDialog(
+                "グループを退出しますか？",
+                isPresented: $confirmLeave,
+                titleVisibility: .visible
+            ) {
+                Button("退出", role: .destructive) {
+                    store.leaveGroup(groupId)
+                    dismiss()
+                }
+                Button("キャンセル", role: .cancel) {}
+            } message: {
+                Text("この端末からグループと履歴を削除します。メンバーには退出が通知されます。")
             }
             .sheet(isPresented: $showAdd) {
                 AddMembersView(groupId: groupId).environmentObject(store)

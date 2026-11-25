@@ -53,7 +53,17 @@ struct ChatView: View {
                             MessageBubble(
                                 message: message,
                                 replyPreview: replyPreview(for: message),
-                                onReply: { replyTo = $0 }
+                                onReply: { replyTo = $0 },
+                                onDelete: {
+                                    store.deleteMessage(
+                                        $0, in: contact.id, everyone: false
+                                    )
+                                },
+                                onDeleteEveryone: {
+                                    store.deleteMessage(
+                                        $0, in: contact.id, everyone: true
+                                    )
+                                }
                             )
                             .id(message.id)
                         }
@@ -85,9 +95,12 @@ struct ChatView: View {
         .navigationTitle(contact.name)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
-            store.markRead(contact.id)
+            store.setActivePeer(contact.id)
             ttlSeconds = store.ttl(for: contact.id)
             store.purgeExpired(contact.id)
+        }
+        .onDisappear {
+            store.setActivePeer(nil)
         }
         .toolbar {
             if !isOfficial {
@@ -279,8 +292,18 @@ struct ChatView: View {
     }
 
     private func replyPreview(for message: ChatMessage) -> String? {
-        guard let id = message.replyTo else { return nil }
-        return messages.first { $0.id == id }?.body
+        if let id = message.replyTo,
+           let target = messages.first(where: { $0.id == id || $0.remoteId == id }) {
+            let who = target.mine ? "自分" : (target.senderName ?? contact.name)
+            let body = target.body.isEmpty
+                ? (target.kind == .image ? "画像" : target.kind == .file ? "ファイル" : "位置情報")
+                : target.body
+            return "\(who): \(body)"
+        }
+        if let name = message.replyName, let text = message.replyText {
+            return "\(name): \(text)"
+        }
+        return message.replyText
     }
 
     private func ttlLabel(_ seconds: Int) -> String {
@@ -322,6 +345,8 @@ private struct MessageBubble: View {
     let message: ChatMessage
     let replyPreview: String?
     let onReply: (ChatMessage) -> Void
+    let onDelete: (ChatMessage) -> Void
+    let onDeleteEveryone: (ChatMessage) -> Void
 
     var body: some View {
         HStack(alignment: .bottom) {
@@ -358,6 +383,19 @@ private struct MessageBubble: View {
         }
         .contextMenu {
             Button("返信", systemImage: "arrowshape.turn.up.left") { onReply(message) }
+            if message.kind == .text {
+                Button("コピー", systemImage: "doc.on.doc") {
+                    UIPasteboard.general.string = message.body
+                }
+            }
+            Button("この端末から削除", systemImage: "trash", role: .destructive) {
+                onDelete(message)
+            }
+            if message.mine {
+                Button("全員から削除", systemImage: "trash.slash", role: .destructive) {
+                    onDeleteEveryone(message)
+                }
+            }
         }
     }
 
