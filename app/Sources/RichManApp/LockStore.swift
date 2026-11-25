@@ -14,6 +14,7 @@ final class LockStore: ObservableObject {
     private let account = "pin"
     private let duressAccount = "duress"
     private let attemptsKey = "rm.lock.attempts"
+    private let pinLengthKey = "rm.lock.pinLength"
 
     init() {
         failedAttempts = UserDefaults.standard.integer(forKey: attemptsKey)
@@ -27,6 +28,12 @@ final class LockStore: ObservableObject {
 
     var hasDuress: Bool { loadKeychain(account: duressAccount) != nil }
 
+    /// Main PIN length (non-secret UX hint for auto-submit). Defaults to 4.
+    var pinLength: Int {
+        let value = UserDefaults.standard.integer(forKey: pinLengthKey)
+        return value >= 4 ? value : 4
+    }
+
     var wipeAfter: Int {
         let value = UserDefaults.standard.integer(forKey: "rm.wipeAfter")
         return value <= 0 ? 10 : value
@@ -39,7 +46,11 @@ final class LockStore: ObservableObject {
         guard pin.count >= 4, pin.allSatisfy(\.isNumber) else { return false }
         let salt = randomSalt()
         let hash = hashPIN(pin, salt: salt)
-        return saveKeychain(salt + hash, account: account)
+        let saved = saveKeychain(salt + hash, account: account)
+        if saved {
+            UserDefaults.standard.set(pin.count, forKey: pinLengthKey)
+        }
+        return saved
     }
 
     /// A second PIN that wipes local data instead of unlocking. Must differ
@@ -96,6 +107,7 @@ final class LockStore: ObservableObject {
         locked = false
         failedAttempts = 0
         UserDefaults.standard.set(0, forKey: attemptsKey)
+        UserDefaults.standard.removeObject(forKey: pinLengthKey)
     }
 
     private func hashPIN(_ pin: String, salt: Data) -> Data {

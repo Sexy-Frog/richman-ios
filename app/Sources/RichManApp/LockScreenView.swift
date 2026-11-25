@@ -113,6 +113,34 @@ struct LockScreenView: View {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         digits += value
         error = nil
+        guard digits.count >= 4 else { return }
+
+        // Unlock as soon as the entered digits match, without pressing 解除.
+        // The duress code may be longer than the main PIN, so check both at
+        // every length before deciding a normal PIN was wrong.
+        if lock.checkDuress(digits) {
+            digits = ""
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+            onWipe()
+            return
+        }
+        if lock.check(digits) {
+            let entered = digits
+            digits = ""
+            if lock.unlock(entered) {
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                error = nil
+            }
+            return
+        }
+
+        // No duress configured: fail as soon as the known PIN length is
+        // reached. With a duress code, allow up to 8 digits.
+        if !lock.hasDuress, digits.count >= lock.pinLength {
+            unlock()
+        } else if digits.count >= maxDigits {
+            unlock()
+        }
     }
 
     private func deleteDigit() {
