@@ -1,0 +1,48 @@
+name: iOS Tor
+
+# macOS-only: downloads the prebuilt tor.xcframework (150 MB), builds the
+# TorSupport wrapper for macOS and the iOS Simulator, and runs the torrc
+# argument tests. Tor itself is never started in CI (it needs the live network);
+# readiness/bootstrap is exercised on a device. Kept separate from ci.yml so
+# normal UI pushes never pay for the download.
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'tor/**'
+      - '.github/workflows/tor.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: tor-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tor:
+    name: TorSupport (macOS + iOS Simulator)
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tool versions
+        run: |
+          swift --version
+          xcodebuild -version
+
+      - name: Build & test TorSupport (macOS)
+        working-directory: tor
+        run: |
+          swift build -c release
+          swift test -v
+
+      - name: Build TorSupport for iOS Simulator
+        working-directory: tor
+        run: |
+          xcodebuild \
+            -scheme TorSupport \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Debug \
+            -derivedDataPath .build-ios \
+            CODE_SIGNING_ALLOWED=NO \
+            build
