@@ -1,6 +1,7 @@
 import Foundation
 import CryptoKit
 import Security
+import LibSignalClient
 
 /// Keychain-held AES key for the sealed local store. Destroying this key makes
 /// every record unreadable (wipe).

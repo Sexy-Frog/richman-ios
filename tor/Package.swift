@@ -19,10 +19,13 @@ let package = Package(
         .library(name: "TorSupport", targets: ["TorSupport"]),
     ],
     targets: [
+        // Vendor/tor.xcframework is produced by `scripts/fetch-tor.sh` (run in
+        // CI before building). The upstream archive ships `tor.a`, which SwiftPM
+        // rejects for a static library ("must be prefixed with lib"), so the
+        // script repacks each slice as `libtor.a`.
         .binaryTarget(
             name: "tor",
-            url: "https://github.com/iCepa/Tor.framework/releases/download/409.17.1/tor.xcframework.zip",
-            checksum: "14e7875f5452cdbfd0fbc4efbaa1b4d16855a7fa94d42580adf4d73adeb241d1"
+            path: "Vendor/tor.xcframework"
         ),
         // Header-only shim: the xcframework has no module map, so we expose
         // `feature/api/tor_api.h` under a SwiftPM module name.

@@ -254,12 +254,11 @@ public final class SOCKS5Transport: RelayTransport, @unchecked Sendable {
             if buffer.count > maxResponse { throw SOCKS5Error.tooLarge }
             if headerEnd == nil, let split = buffer.range(of: Data("\r\n\r\n".utf8)) {
                 headerEnd = split
-                if let head = String(data: buffer[..<split.lowerBound], encoding: .utf8) {
-                    for line in head.split(separator: "\r\n") {
-                        let lower = line.lowercased()
-                        if lower.hasPrefix("content-length:") {
-                            contentLength = Int(line.dropFirst("content-length:".count).trimmingCharacters(in: .whitespaces))
-                        }
+                let head = String(decoding: buffer[..<split.lowerBound], as: UTF8.self)
+                for line in head.split(separator: "\r\n") {
+                    let lower = line.lowercased()
+                    if lower.hasPrefix("content-length:") {
+                        contentLength = Int(line.dropFirst("content-length:".count).trimmingCharacters(in: .whitespaces))
                     }
                 }
             }
@@ -275,16 +274,12 @@ public final class SOCKS5Transport: RelayTransport, @unchecked Sendable {
     }
 
     private static func dial(_ proxy: SOCKS5Address, timeout: TimeInterval) throws -> Int32 {
-        var hints = addrinfo(
-            ai_flags: 0,
-            ai_family: AF_UNSPEC,
-            ai_socktype: rmSocketStream,
-            ai_protocol: 0,
-            ai_addrlen: 0,
-            ai_canonname: nil,
-            ai_addr: nil,
-            ai_next: nil
-        )
+        // Field order differs between Darwin and Glibc, so set fields
+        // individually instead of using the memberwise initializer.
+        var hints = addrinfo()
+        hints.ai_family = AF_UNSPEC
+        hints.ai_socktype = rmSocketStream
+        hints.ai_protocol = 0
         var result: UnsafeMutablePointer<addrinfo>?
         let rc = getaddrinfo(proxy.host, String(proxy.port), &hints, &result)
         guard rc == 0, let first = result else {

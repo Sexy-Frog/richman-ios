@@ -29,6 +29,10 @@ jobs:
           swift --version
           xcodebuild -version
 
+      - name: Fetch Tor xcframework
+        working-directory: tor
+        run: bash scripts/fetch-tor.sh
+
       - name: Build & test TorSupport (macOS)
         working-directory: tor
         run: |
