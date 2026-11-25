@@ -78,8 +78,12 @@ public final class RelayClient {
         return try string(resp, "id")
     }
 
-    /// Fetch and consume a blob (relay deletes it on fetch).
+    /// Fetch and consume a blob (relay deletes it on fetch). The id is bounded
+    /// to base64url so a peer-supplied value cannot inject path segments.
     public func getBlob(id: String) async throws -> Data {
+        guard !id.isEmpty, id.count <= 64,
+              id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_" || $0 == "-") })
+        else { throw RelayError.badResponse("bad blob id") }
         let resp = try await transport.perform(method: "GET", path: "v1/blob/\(id)", contentType: nil, body: nil)
         guard resp.isSuccess else { throw RelayError.http(resp.status, "blob") }
         return resp.body

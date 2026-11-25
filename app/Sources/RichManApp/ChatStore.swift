@@ -3,6 +3,8 @@ import SwiftUI
 import UIKit
 import UserNotifications
 import Security
+import CryptoKit
+import UniformTypeIdentifiers
 import RichManCore
 
 /// Shared app state across the hub tabs (contacts, conversations, messages) and
@@ -30,6 +32,12 @@ final class ChatStore: ObservableObject {
     /// Invite mailboxes waiting for the first message (inviter side). When one
     /// is claimed, the sender becomes a contact and this box is dropped.
     private var pendingBoxes: Set<String> = []
+    private var saveTask: Task<Void, Never>?
+    private var loaded = false
+
+    /// Demo/screenshot builds must stay deterministic, so they never read or
+    /// write the sealed state file.
+    private var persistenceEnabled: Bool { !DemoData.enabled }
 
     init(displayName: String,
          crypto: CryptoProvider = CryptoProviderFactory.make()) {
@@ -38,10 +46,44 @@ final class ChatStore: ObservableObject {
         if let saved = UserDefaults.standard.stringArray(forKey: blockedKey) {
             self.blockedIds = Set(saved)
         }
+        if persistenceEnabled, let state = LocalStore.load() {
+            contacts = state.contacts
+            groups = state.groups
+            messagesByPeer = state.messages
+            groupMessages = state.groupMessages
+            pendingBoxes = Set(state.pendingBoxes)
+            blockedIds = Set(state.blocked)
+        }
         DemoData.seed(into: self)
         seedOfficialIfNeeded()
         let stored = UserDefaults.standard.object(forKey: "rm.retentionDays") as? Int
         purgeOldMessages(days: stored ?? 30)
+        loaded = true
+    }
+
+    // MARK: sealed local persistence
+
+    private func scheduleSave() {
+        guard persistenceEnabled, loaded else { return }
+        saveTask?.cancel()
+        saveTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            self?.persistNow()
+        }
+    }
+
+    private func persistNow() {
+        LocalStore.save(
+            LocalStore.State(
+                contacts: contacts,
+                groups: groups,
+                messages: messagesByPeer,
+                groupMessages: groupMessages,
+                pendingBoxes: Array(pendingBoxes),
+                blocked: Array(blockedIds)
+            )
+        )
     }
 
     var myId: String { crypto.myId }
@@ -91,7 +133,7 @@ final class ChatStore: ObservableObject {
             guard let opened = try? await service.poll(box: box, knownSender: peer.id) else {
                 continue
             }
-            for message in opened { apply(message) }
+            for message in opened { await apply(message) }
         }
 
         for text in pendingBoxes {
@@ -104,7 +146,7 @@ final class ChatStore: ObservableObject {
             }
             if !opened.isEmpty {
                 pendingBoxes.remove(text)
-                for message in opened { apply(message) }
+                for message in opened { await apply(message) }
             }
         }
     }
@@ -112,7 +154,7 @@ final class ChatStore: ObservableObject {
     /// Apply a decrypted inbound message: learn the peer's reply mailbox,
     /// create a contact for a first message arriving on an invite box, then
     /// dispatch on the payload type.
-    private func apply(_ opened: OpenedMessage) {
+    private func apply(_ opened: OpenedMessage) async {
         if !contacts.contains(where: { $0.id == opened.senderId }) {
             // Only a text/first message may create a contact; receipts from a
             // stranger must not appear as a chat.
@@ -143,6 +185,24 @@ final class ChatStore: ObservableObject {
                 contacts[index].name = name
             }
             receive(from: opened.senderId, text: text.b, remoteId: text.mid)
+        case .img?:
+            guard let image = try? JSONDecoder().decode(
+                ImageMessage.self, from: opened.payload
+            ) else { return }
+            await fetchMedia(
+                id: image.id, key: image.k, nonce: image.n,
+                peerId: opened.senderId, kind: .image,
+                fileName: nil, remoteId: image.mid
+            )
+        case .file?:
+            guard let file = try? JSONDecoder().decode(
+                FileMessage.self, from: opened.payload
+            ) else { return }
+            await fetchMedia(
+                id: file.id, key: file.k, nonce: file.n,
+                peerId: opened.senderId, kind: .file,
+                fileName: file.name, remoteId: file.mid
+            )
         case .read?:
             markMyMessagesRead(opened.senderId)
         case .del?:
@@ -156,6 +216,7 @@ final class ChatStore: ObservableObject {
         default:
             break
         }
+        scheduleSave()
     }
 
     private func updateBadge() {
@@ -172,6 +233,7 @@ final class ChatStore: ObservableObject {
     func setBlocked(_ peerId: String, _ blocked: Bool) {
         if blocked { blockedIds.insert(peerId) } else { blockedIds.remove(peerId) }
         UserDefaults.standard.set(Array(blockedIds), forKey: blockedKey)
+        scheduleSave()
     }
 
     func messages(for peerId: String) -> [ChatMessage] { messagesByPeer[peerId] ?? [] }
@@ -195,30 +257,40 @@ final class ChatStore: ObservableObject {
             contacts[i].lastMessage = kind == .text ? body : (kind == .image ? "画像" : "ファイル")
         }
         objectWillChange.send()
+        scheduleSave()
 
-        guard kind == .text,
-              let peer = contact(peerId),
+        guard kind == .text else { return }
+        let payload = TextMessage(
+            b: body, n: displayName, ts: Int64(Date().timeIntervalSince1970 * 1000),
+            mid: mid, exp: expiry(peerId)
+        )
+        guard let json = try? payload.toPayloadJSON() else { return }
+        transmit(json, to: peerId, markMid: mid)
+    }
+
+    /// Expiry timestamp for the peer's disappearing timer (nil = off).
+    private func expiry(_ peerId: String) -> Int64? {
+        let seconds = ttl(for: peerId)
+        guard seconds > 0 else { return nil }
+        return Int64(Date().addingTimeInterval(Double(seconds)).timeIntervalSince1970 * 1000)
+    }
+
+    /// Seal a payload with libsignal and POST it to the peer's mailbox. Does
+    /// nothing (message stays local) without a live Tor relay.
+    private func transmit(_ payload: Data, to peerId: String, markMid: String) {
+        guard let peer = contact(peerId),
               let boxText = peer.box,
               let box = try? Base64URL.decode(boxText), box.count == 32,
               let service = relayService(),
               let replyBox = ensureRecvBox(peerId) else { return }
-        let ttl = ttl(for: peerId)
-        let exp = ttl > 0
-            ? Int64((Date().addingTimeInterval(Double(ttl)).timeIntervalSince1970) * 1000)
-            : nil
-        let payload = TextMessage(
-            b: body, n: displayName, ts: Int64(Date().timeIntervalSince1970 * 1000),
-            mid: mid, exp: exp
-        )
         Task { [weak self] in
             do {
-                let json = try payload.toPayloadJSON()
                 try await service.send(
-                    payload: json, to: peerId, box: box, replyBox: replyBox
+                    payload: payload, to: peerId, box: box, replyBox: replyBox
                 )
-                self?.markMessage(peerId, mid: mid, delivery: .delivered)
+                self?.markMessage(peerId, mid: markMid, delivery: .delivered)
             } catch {
-                self?.markMessage(peerId, mid: mid, delivery: .sent)
+                self?.markMessage(peerId, mid: markMid, delivery: .sent)
             }
         }
     }
@@ -230,6 +302,7 @@ final class ChatStore: ObservableObject {
               let index = list.firstIndex(where: { $0.id == mid }) else { return }
         list[index].delivery = delivery
         messagesByPeer[peerId] = list
+        scheduleSave()
     }
 
     /// My receive mailbox for this peer (32 random bytes, base64url). The peer
@@ -241,6 +314,7 @@ final class ChatStore: ObservableObject {
         if let existing = contacts[index].recvBox { return existing }
         let box = Base64URL.encode(Self.randomBytes(32))
         contacts[index].recvBox = box
+        scheduleSave()
         return box
     }
 
@@ -251,6 +325,7 @@ final class ChatStore: ObservableObject {
             list[i].delivery = .delivered
         }
         messagesByPeer[peerId] = list
+        scheduleSave()
     }
 
     func markMyMessagesRead(_ peerId: String) {
@@ -259,6 +334,7 @@ final class ChatStore: ObservableObject {
             list[i].delivery = .read
         }
         messagesByPeer[peerId] = list
+        scheduleSave()
     }
 
     /// Record an inbound message (will be called by the relay receive loop).
@@ -275,6 +351,7 @@ final class ChatStore: ObservableObject {
             contacts[i].unread += 1
         }
         updateBadge()
+        scheduleSave()
         if UIApplication.shared.applicationState != .active {
             NotificationManager.shared.message(
                 from: contact(peerId)?.name ?? "RichMan",
@@ -287,6 +364,7 @@ final class ChatStore: ObservableObject {
         if let i = contacts.firstIndex(where: { $0.id == peerId }) {
             contacts[i].unread = 0
             updateBadge()
+            scheduleSave()
         }
     }
 
@@ -301,6 +379,7 @@ final class ChatStore: ObservableObject {
             contacts[i].unread = 0
         }
         updateBadge()
+        scheduleSave()
     }
 
     /// Delete contacts and messages on this device. The peer's copy is untouched.
@@ -308,13 +387,16 @@ final class ChatStore: ObservableObject {
         let keep = contacts.first { $0.official }?.id
         contacts.removeAll { !$0.official }
         messagesByPeer = messagesByPeer.filter { $0.key == keep }
+        pendingBoxes.removeAll()
         updateBadge()
+        scheduleSave()
     }
 
     func removeContact(_ peerId: String) {
         guard !(contacts.first { $0.id == peerId }?.official ?? false) else { return }
         contacts.removeAll { $0.id == peerId }
         messagesByPeer.removeValue(forKey: peerId)
+        scheduleSave()
     }
 
     /// Full local wipe (duress / repeated wrong PIN). Includes the official feed.
@@ -325,7 +407,10 @@ final class ChatStore: ObservableObject {
         groupMessages.removeAll()
         blockedIds.removeAll()
         pendingBoxes.removeAll()
+        saveTask?.cancel()
         UserDefaults.standard.removeObject(forKey: blockedKey)
+        LocalStore.wipe()
+        MediaStore.clearAll()
         crypto.wipeLocalState()
     }
 
@@ -372,6 +457,7 @@ final class ChatStore: ObservableObject {
         let kept = list.filter { $0.ts > cutoff }
         if kept.count != list.count {
             messagesByPeer[peerId] = kept
+            scheduleSave()
         }
     }
 
@@ -385,29 +471,164 @@ final class ChatStore: ObservableObject {
 
     // MARK: media
 
+    /// Image: keep a local copy, then (over Tor) upload the AES-GCM ciphertext
+    /// as a one-shot blob and send an `img` payload with the key/nonce. The
+    /// relay only ever holds ciphertext.
     func sendImage(to peerId: String, data: Data) {
         guard !isBlocked(peerId), let name = MediaStore.saveImage(data) else { return }
+        let mid = UUID().uuidString
         messagesByPeer[peerId, default: []].append(
             ChatMessage(
-                id: UUID().uuidString, body: "", mine: true, ts: Date(),
+                id: mid, body: "", mine: true, ts: Date(),
                 kind: .image, mediaName: name
             )
         )
         if let i = contacts.firstIndex(where: { $0.id == peerId }) {
             contacts[i].lastMessage = "画像"
         }
+        scheduleSave()
+
+        guard let transport = relayTransport, let blob = Self.sealBlob(data) else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let blobId = try await RelayClient(transport: transport)
+                    .putBlob(blob.ciphertext)
+                var image = ImageMessage(
+                    id: blobId, k: blob.key, n: blob.nonce,
+                    mime: "image/jpeg", sz: Int64(data.count), mid: mid
+                )
+                image.exp = self.expiry(peerId)
+                self.transmit(try image.toPayloadJSON(), to: peerId, markMid: mid)
+            } catch {
+                return // remains a local-only attachment
+            }
+        }
     }
 
     func sendFile(to peerId: String, url: URL) {
         guard !isBlocked(peerId), let saved = MediaStore.saveFile(url) else { return }
+        let mid = UUID().uuidString
         messagesByPeer[peerId, default: []].append(
             ChatMessage(
-                id: UUID().uuidString, body: saved.name, mine: true, ts: Date(),
+                id: mid, body: saved.name, mine: true, ts: Date(),
                 kind: .file, mediaName: saved.name, fileSize: saved.size
             )
         )
         if let i = contacts.firstIndex(where: { $0.id == peerId }) {
             contacts[i].lastMessage = "ファイル"
+        }
+        scheduleSave()
+
+        guard let transport = relayTransport, let blob = Self.sealBlob(saved.data) else { return }
+        let mime = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType
+            ?? "application/octet-stream"
+        let original = url.lastPathComponent
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let blobId = try await RelayClient(transport: transport)
+                    .putBlob(blob.ciphertext)
+                var file = FileMessage(
+                    id: blobId, k: blob.key, n: blob.nonce, name: original,
+                    mime: mime, sz: Int64(saved.data.count), mid: mid
+                )
+                file.exp = self.expiry(peerId)
+                self.transmit(try file.toPayloadJSON(), to: peerId, markMid: mid)
+            } catch {
+                return
+            }
+        }
+    }
+
+    /// AES-256-GCM with a fresh key per blob. `combined` = nonce ‖ ct ‖ tag,
+    /// which is exactly Android's image/file message layout once split.
+    private static func sealBlob(_ data: Data)
+        -> (ciphertext: Data, key: String, nonce: String)? {
+        let key = SymmetricKey(size: .bits256)
+        guard let box = try? AES.GCM.seal(data, using: key),
+              let combined = box.combined, combined.count > 12 else { return nil }
+        let nonce = combined.prefix(12)
+        let ciphertext = combined.dropFirst(12)
+        let keyData = key.withUnsafeBytes { Data($0) }
+        return (
+            Data(ciphertext),
+            Base64URL.encode(keyData),
+            Base64URL.encode(Data(nonce))
+        )
+    }
+
+    /// Fetch, decrypt and store media from a received `img`/`file` message.
+    private func fetchMedia(
+        id: String,
+        key: String,
+        nonce: String,
+        peerId: String,
+        kind: ChatMessage.Kind,
+        fileName: String?,
+        remoteId: String?
+    ) async {
+        guard let transport = relayTransport else { return }
+        guard let blob = try? await RelayClient(transport: transport).getBlob(id: id) else {
+            return
+        }
+        guard let keyData = try? Base64URL.decode(key), keyData.count == 32,
+              let nonceData = try? Base64URL.decode(nonce), nonceData.count == 12,
+              let box = try? AES.GCM.SealedBox(combined: nonceData + blob),
+              let plain = try? AES.GCM.open(box, using: SymmetricKey(data: keyData)) else {
+            return
+        }
+
+        let savedName: String
+        let savedSize: Int
+        if kind == .image {
+            guard let saved = MediaStore.saveImage(plain) else { return }
+            savedName = saved
+            savedSize = plain.count
+        } else {
+            guard let saved = MediaStore.saveFileData(
+                plain, name: fileName ?? "file"
+            ) else { return }
+            savedName = saved.name
+            savedSize = saved.size
+        }
+        appendIncomingMedia(
+            peerId, kind: kind, name: savedName,
+            size: savedSize, remoteId: remoteId
+        )
+    }
+
+    private func appendIncomingMedia(
+        _ peerId: String,
+        kind: ChatMessage.Kind,
+        name: String,
+        size: Int,
+        remoteId: String?
+    ) {
+        guard !isBlocked(peerId) else { return }
+        messagesByPeer[peerId, default: []].append(
+            ChatMessage(
+                id: UUID().uuidString,
+                body: kind == .file ? name : "",
+                mine: false,
+                ts: Date(),
+                kind: kind,
+                remoteId: remoteId,
+                mediaName: name,
+                fileSize: size
+            )
+        )
+        if let i = contacts.firstIndex(where: { $0.id == peerId }) {
+            contacts[i].lastMessage = kind == .image ? "画像" : "ファイル"
+            contacts[i].unread += 1
+        }
+        updateBadge()
+        scheduleSave()
+        if UIApplication.shared.applicationState != .active {
+            NotificationManager.shared.message(
+                from: contact(peerId)?.name ?? "RichMan",
+                preview: kind == .image ? "画像が届きました" : "ファイルが届きました"
+            )
         }
     }
 
@@ -431,6 +652,7 @@ final class ChatStore: ObservableObject {
         )
         groups.append(group)
         groupMessages[group.id] = []
+        scheduleSave()
         return group
     }
 
@@ -440,6 +662,7 @@ final class ChatStore: ObservableObject {
         groupMessages[id, default: []].append(
             ChatMessage(id: UUID().uuidString, body: body, mine: true, ts: Date())
         )
+        scheduleSave()
     }
 
     func receive(inGroup id: String, from sender: String, text: String) {
@@ -450,11 +673,13 @@ final class ChatStore: ObservableObject {
                 id: UUID().uuidString, body: body, mine: false, ts: Date(), senderName: sender
             )
         )
+        scheduleSave()
     }
 
     func deleteGroup(_ id: String) {
         groups.removeAll { $0.id == id }
         groupMessages.removeValue(forKey: id)
+        scheduleSave()
     }
 
     func addMembers(_ ids: [String], to groupId: String) {
@@ -462,11 +687,13 @@ final class ChatStore: ObservableObject {
         var members = Set(groups[index].memberIds)
         members.formUnion(ids)
         groups[index].memberIds = Array(members)
+        scheduleSave()
     }
 
     func removeMember(_ id: String, from groupId: String) {
         guard let index = groups.firstIndex(where: { $0.id == groupId }) else { return }
         groups[index].memberIds.removeAll { $0 == id }
+        scheduleSave()
     }
 
     func seedGroups(_ groups: [ChatGroup], messages: [String: [ChatMessage]]) {
@@ -560,6 +787,7 @@ final class ChatStore: ObservableObject {
             box: qr.box
         )
         contacts.append(c)
+        scheduleSave()
         return c
     }
 
@@ -574,7 +802,7 @@ final class ChatStore: ObservableObject {
 
 // MARK: shared models (single source of truth for the screens)
 
-struct Contact: Identifiable, Hashable {
+struct Contact: Identifiable, Hashable, Codable {
     let id: String          // base64url identity
     var name: String
     var lastMessage: String = ""
@@ -589,18 +817,18 @@ struct Contact: Identifiable, Hashable {
     var recvBox: String? = nil
 }
 
-struct ChatGroup: Identifiable, Hashable {
+struct ChatGroup: Identifiable, Hashable, Codable {
     let id: String
     var name: String
     var memberIds: [String]
 }
 
-struct ChatMessage: Identifiable, Hashable {
-    enum Kind: String, Hashable {
+struct ChatMessage: Identifiable, Hashable, Codable {
+    enum Kind: String, Hashable, Codable {
         case text, image, file
     }
 
-    enum Delivery: String, Hashable {
+    enum Delivery: String, Hashable, Codable {
         case sent, delivered, read
     }
 

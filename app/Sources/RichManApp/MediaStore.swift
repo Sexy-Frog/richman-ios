@@ -32,16 +32,31 @@ enum MediaStore {
         }
     }
 
-    static func saveFile(_ url: URL) -> (name: String, size: Int)? {
+    static func saveFile(_ url: URL) -> (name: String, size: Int, data: Data)? {
         do {
             let data = try Data(contentsOf: url, options: .mappedIfSafe)
-            guard data.count <= maxFileBytes else { return nil }
-            let name = UUID().uuidString + "-" + url.lastPathComponent
+            guard let saved = saveFileData(data, name: url.lastPathComponent) else {
+                return nil
+            }
+            return (saved.name, saved.size, data)
+        } catch {
+            return nil
+        }
+    }
+
+    /// Store decrypted media received from a peer. The name is reduced to its
+    /// last path component so a hostile `name` cannot escape the media dir.
+    static func saveFileData(_ data: Data, name: String) -> (name: String, size: Int)? {
+        guard data.count <= maxFileBytes else { return nil }
+        let base = URL(fileURLWithPath: name).lastPathComponent
+        let safe = base.isEmpty ? "file" : base
+        let stored = UUID().uuidString + "-" + safe
+        do {
             try data.write(
-                to: directory.appendingPathComponent(name),
+                to: directory.appendingPathComponent(stored),
                 options: [.atomic, .completeFileProtection]
             )
-            return (name, data.count)
+            return (stored, data.count)
         } catch {
             return nil
         }
