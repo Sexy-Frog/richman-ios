@@ -78,6 +78,7 @@ jobs:
           sleep 12
           xcrun simctl io "$UDID" screenshot shots/map-friend.png
           shoot primer -rm.locationPrimer 1
+          shoot tutorial -rm.privacyTutorial 1
           shoot talks -rm.tab 0
           shoot friends -rm.tab 1
           shoot settings -rm.tab 2

@@ -26,6 +26,7 @@ struct RootView: View {
     @State private var screenCaptured = UIScreen.main.isCaptured
     @State private var notificationChat: NotificationChat?
     @State private var showDebugLocationPrimer = false
+    @State private var showDebugPrivacyTutorial = false
 
     /// Screenshot/CI hook: launch with `-rm.skipOnboarding 1` to bypass setup.
     /// DEBUG only, so release builds always start at onboarding.
@@ -94,6 +95,12 @@ struct RootView: View {
                     showDebugLocationPrimer = true
                 }
             }
+            if UserDefaults.standard.bool(forKey: "rm.privacyTutorial") {
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 400_000_000)
+                    showDebugPrivacyTutorial = true
+                }
+            }
             #endif
         }
         .onChange(of: scenePhase) { _, phase in
@@ -150,6 +157,9 @@ struct RootView: View {
         }
         .sheet(isPresented: $showDebugLocationPrimer) {
             LocationPrimer().environmentObject(location)
+        }
+        .sheet(isPresented: $showDebugPrivacyTutorial) {
+            PrivacyTutorialSheet()
         }
         .onChange(of: location.location?.timestamp) { _, _ in
             if scenePhase == .active { applySecurityZoneIfNeeded() }

@@ -23,14 +23,14 @@ struct LocationPrimer: View {
                         .frame(maxWidth: .infinity, alignment: .center)
 
                     benefit(
+                        "lock.shield.fill",
+                        "プライバシーゾーンで自動ロック",
+                        "自宅など決めた場所に入ると、自動でロックできます。位置情報はこの判定に使います。"
+                    )
+                    benefit(
                         "figure.wave",
                         "待ち合わせがスムーズ",
                         "現在地を友だちに送ったり、届いた位置を地図で確認できます。"
-                    )
-                    benefit(
-                        "lock.shield.fill",
-                        "セキュリティゾーン",
-                        "自宅など決めた場所に入ると、自動でロックできます。"
                     )
                     benefit(
                         "hand.raised.fill",

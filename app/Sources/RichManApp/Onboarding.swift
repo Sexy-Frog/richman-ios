@@ -8,9 +8,12 @@ struct OnboardingView: View {
     @EnvironmentObject private var store: ChatStore
     @EnvironmentObject private var lock: LockStore
     @EnvironmentObject private var tor: TorSession
+    @EnvironmentObject private var location: LocationProvider
 
-    private enum Step { case pin, name, zone }
+    private enum Step { case pin, name, tutorial, zone }
     @State private var step: Step = .pin
+    @State private var showLocationPrimer = false
+    @State private var recenterToken = 0
     @State private var pin = ""
     @State private var pinConfirm = ""
     @State private var name = ""
@@ -27,9 +30,10 @@ struct OnboardingView: View {
             Image(systemName: "lock.shield.fill")
                 .font(.system(size: 56)).foregroundStyle(RM.primary)
             switch step {
-            case .pin:  pinStep
-            case .name: nameStep
-            case .zone: zoneStep
+            case .pin:      pinStep
+            case .name:     nameStep
+            case .tutorial: tutorialStep
+            case .zone:     zoneStep
             }
             if let error { Text(error).font(.footnote).foregroundStyle(RM.error) }
             Spacer()
@@ -37,6 +41,9 @@ struct OnboardingView: View {
         .padding(28)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(RM.background)
+        .sheet(isPresented: $showLocationPrimer) {
+            LocationPrimer().environmentObject(location)
+        }
     }
 
     private var pinStep: some View {
@@ -61,16 +68,40 @@ struct OnboardingView: View {
             Text("友だちに表示される名前です。").font(.subheadline).foregroundStyle(RM.onSurfaceVariant)
             TextField("表示名", text: $name)
                 .padding().background(RM.surface, in: RoundedRectangle(cornerRadius: 12))
-            Button("次へ") { step = .zone }
+            Button("次へ") { step = .tutorial }
                 .buttonStyle(.borderedProminent).tint(RM.primary)
                 .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
         }
     }
 
+    private var tutorialStep: some View {
+        VStack(spacing: 14) {
+            Text("RichMan へようこそ").font(.title2.weight(.bold))
+            Text("プライバシーを強化する設定を紹介します。")
+                .font(.subheadline)
+                .foregroundStyle(RM.onSurfaceVariant)
+
+            ScrollView {
+                PrivacyTutorialCards()
+            }
+            .frame(maxHeight: 300)
+
+            Button("プライバシーゾーンを設定") { step = .zone }
+                .buttonStyle(.borderedProminent)
+                .tint(RM.primary)
+
+            Button("あとで（設定せずにはじめる）") {
+                useZone = false
+                finish()
+            }
+            .font(.footnote)
+        }
+    }
+
     private var zoneStep: some View {
         VStack(spacing: 12) {
-            Text("セキュリティゾーン（任意）").font(.title2.weight(.bold))
-            Text("指定した場所に入ると、選んだ動作を実行します。")
+            Text("プライバシーゾーン（任意）").font(.title2.weight(.bold))
+            Text("自宅など決めた場所に入ると、選んだ動作を自動で実行します。")
                 .font(.subheadline)
                 .foregroundStyle(RM.onSurfaceVariant)
                 .multilineTextAlignment(.center)
@@ -78,7 +109,8 @@ struct OnboardingView: View {
             ZStack {
                 ZonePickerMap(
                     center: $zoneCenter,
-                    styleURL: tor.mapStyleURL ?? MapConfig.styleURL
+                    styleURL: tor.mapStyleURL ?? MapConfig.styleURL,
+                    recenter: recenterToken
                 )
                     .frame(height: 190)
                     .clipShape(RoundedRectangle(cornerRadius: 14))
@@ -86,6 +118,18 @@ struct OnboardingView: View {
                     .font(.title2.weight(.bold))
                     .foregroundStyle(RM.primary)
             }
+
+            Button {
+                centerOnCurrentLocation()
+            } label: {
+                Label("現在地を中心にする", systemImage: "location.fill")
+                    .font(.footnote.weight(.semibold))
+            }
+
+            Text("位置情報は、このゾーンの判定と、あなたが送るときだけ使います。バックグラウンドでは取得しません。")
+                .font(.caption2)
+                .foregroundStyle(RM.onSurfaceVariant)
+                .multilineTextAlignment(.center)
 
             HStack(spacing: 10) {
                 Text("半径").font(.caption)
@@ -114,6 +158,19 @@ struct OnboardingView: View {
                 finish()
             }
             .font(.footnote)
+        }
+    }
+
+    private func centerOnCurrentLocation() {
+        guard location.hasPermission else {
+            showLocationPrimer = true
+            return
+        }
+        if let fix = location.location {
+            zoneCenter = fix.coordinate
+            recenterToken += 1
+        } else {
+            location.startIfAuthorized()
         }
     }
 

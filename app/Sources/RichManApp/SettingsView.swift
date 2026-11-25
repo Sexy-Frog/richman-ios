@@ -9,7 +9,6 @@ struct SettingsView: View {
     @EnvironmentObject private var lock: LockStore
     @EnvironmentObject private var location: LocationProvider
     @EnvironmentObject private var tor: TorSession
-    @EnvironmentObject private var mapPresenter: MapPresenter
     @AppStorage("rm.displayName") private var savedName = ""
     @AppStorage("rm.preview") private var previewInNotifications = false
     @AppStorage("rm.autoLockSeconds") private var autoLockSeconds = 0
@@ -24,6 +23,7 @@ struct SettingsView: View {
     @State private var confirmClearFriends = false
     @State private var showZoneEditor = false
     @State private var showLocationPrimer = false
+    @State private var showPrivacyTutorial = false
     @State private var zone: SecurityZone? = SecurityZoneStore.current
 
     var body: some View {
@@ -92,13 +92,10 @@ struct SettingsView: View {
                     } else {
                         Button("位置情報を許可") { showLocationPrimer = true }
                     }
-                    Button("友だちの位置を地図で見る") {
-                        mapPresenter.show()
-                    }
                 } header: {
                     Text("位置情報")
                 } footer: {
-                    Text("位置情報は、現在地を友だちに送るとき・届いた位置を地図で確認するとき・セキュリティゾーンの判定にだけ使います。バックグラウンドでは取得しません。")
+                    Text("位置情報は、現在地を友だちに送るとき・届いた位置を地図で確認するとき・プライバシーゾーンの判定にだけ使います。バックグラウンドでは取得しません。")
                 }
 
                 Section {
@@ -106,7 +103,7 @@ struct SettingsView: View {
                         LabeledContent("半径", value: "\(Int(zone.radius))m")
                         LabeledContent("入室時の動作", value: zone.action.label)
                         Button("地図で変更") { showZoneEditor = true }
-                        Button("セキュリティゾーンを削除", role: .destructive) {
+                        Button("プライバシーゾーンを削除", role: .destructive) {
                             SecurityZoneStore.current = nil
                             self.zone = nil
                         }
@@ -116,7 +113,9 @@ struct SettingsView: View {
                         Button("地図で設定") { showZoneEditor = true }
                     }
                 } header: {
-                    Text("セキュリティゾーン")
+                    Text("プライバシーゾーン")
+                } footer: {
+                    Text("自宅など決めた場所に入ると、自動でロック・消去できます。位置情報はこの判定と、あなたが送るときだけ使います。")
                 }
 
                 if !store.blockedContacts.isEmpty {
@@ -160,6 +159,16 @@ struct SettingsView: View {
                             Spacer()
                             Image(systemName: "lock.fill")
                                 .foregroundStyle(RM.onSurfaceVariant)
+                        }
+                    }
+                    .foregroundStyle(RM.onSurface)
+                    Button { showPrivacyTutorial = true } label: {
+                        HStack {
+                            Text("プライバシーのヒント")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.tertiary)
                         }
                     }
                     .foregroundStyle(RM.onSurface)
@@ -227,6 +236,9 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $showLocationPrimer) {
                 LocationPrimer().environmentObject(location)
+            }
+            .sheet(isPresented: $showPrivacyTutorial) {
+                PrivacyTutorialSheet()
             }
             .sheet(isPresented: $showZoneEditor, onDismiss: {
                 zone = SecurityZoneStore.current

@@ -6,10 +6,13 @@ import CoreLocation
 struct ZoneEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var tor: TorSession
+    @EnvironmentObject private var location: LocationProvider
 
     @State private var center: CLLocationCoordinate2D
     @State private var radius: Double
     @State private var action: SecurityZone.Action
+    @State private var recenterToken = 0
+    @State private var showLocationPrimer = false
 
     init(zone: SecurityZone?) {
         let base = zone ?? SecurityZone(
@@ -30,7 +33,8 @@ struct ZoneEditorView: View {
                     ZStack {
                         ZonePickerMap(
                             center: $center,
-                            styleURL: tor.mapStyleURL ?? MapConfig.styleURL
+                            styleURL: tor.mapStyleURL ?? MapConfig.styleURL,
+                            recenter: recenterToken
                         )
                         .frame(height: 220)
                         .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -38,8 +42,13 @@ struct ZoneEditorView: View {
                             .font(.title2.weight(.bold))
                             .foregroundStyle(RM.primary)
                     }
+                    Button {
+                        centerOnCurrentLocation()
+                    } label: {
+                        Label("現在地を中心にする", systemImage: "location.fill")
+                    }
                 } footer: {
-                    Text("地図を動かして中心を合わせます。")
+                    Text("地図を動かして中心を合わせます。位置情報はゾーンの判定と、あなたが送るときだけ使います。バックグラウンドでは取得しません。")
                 }
 
                 Section("半径") {
@@ -55,8 +64,11 @@ struct ZoneEditorView: View {
                     }
                 }
             }
-            .navigationTitle("セキュリティゾーン")
+            .navigationTitle("プライバシーゾーン")
             .navigationBarTitleDisplayMode(.inline)
+            .sheet(isPresented: $showLocationPrimer) {
+                LocationPrimer().environmentObject(location)
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("キャンセル") { dismiss() }
@@ -73,6 +85,19 @@ struct ZoneEditorView: View {
                     }
                 }
             }
+        }
+    }
+
+    private func centerOnCurrentLocation() {
+        guard location.hasPermission else {
+            showLocationPrimer = true
+            return
+        }
+        if let fix = location.location {
+            center = fix.coordinate
+            recenterToken += 1
+        } else {
+            location.startIfAuthorized()
         }
     }
 }
