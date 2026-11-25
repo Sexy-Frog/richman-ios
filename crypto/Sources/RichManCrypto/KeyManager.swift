@@ -24,6 +24,9 @@ public final class KeyManager {
     private let idKeyPair: IdentityKeyPair
     private let regId: UInt32
     private let ctx = NullContext.shared
+    /// libsignal sessions are not thread-safe: serialize every operation that
+    /// touches the ratchet or prekey state (sends, polls, call audio).
+    private let mutex = NSRecursiveLock()
 
     /// Contact / group primary key: base64url(identity public, 33 bytes).
     public let id: String
@@ -116,6 +119,8 @@ public final class KeyManager {
     /// so no single long-lived mailbox links all my contacts — mirrors the
     /// Android 1.0.21 `createInvite()` which mints `inviteBox` per invite.
     public func buildBundle(displayName: String, box: Data) throws -> Data {
+        mutex.lock()
+        defer { mutex.unlock() }
         guard box.count == 32 else { throw CryptoError.missingKey("invite box must be 32 bytes") }
         try ensureSignedPreKey()
         try ensureKyberPreKey()
@@ -148,6 +153,8 @@ public final class KeyManager {
 
     /// Pin the remote identity from the QR bundle and run X3DH + PQXDH.
     public func startSession(peerId: String, bundle bundleData: Data) throws {
+        mutex.lock()
+        defer { mutex.unlock() }
         guard let obj = try JSONSerialization.jsonObject(with: bundleData) as? [String: Any],
               let idStr = obj["id"] as? String,
               let regAny = obj["reg"] as? Int,
@@ -192,6 +199,8 @@ public final class KeyManager {
 
     /// Encrypt → `[libsignal type byte][serialized message]` (goes in the Wire payload).
     public func encrypt(peerId: String, plaintext: Data) throws -> Data {
+        mutex.lock()
+        defer { mutex.unlock() }
         let address = try ProtocolAddress(name: peerId, deviceId: Self.deviceId)
         let message = try signalEncrypt(message: plaintext, for: address, sessionStore: store, identityStore: store, context: ctx)
         var out = Data([message.messageType.rawValue])
@@ -200,6 +209,8 @@ public final class KeyManager {
     }
 
     public func decrypt(peerId: String, payload: Data) throws -> Data {
+        mutex.lock()
+        defer { mutex.unlock() }
         let bytes = [UInt8](payload)
         guard bytes.count > 1 else { throw CryptoError.emptyCiphertext }
         let type = bytes[0]
@@ -222,6 +233,8 @@ public final class KeyManager {
     /// Recover the sender identity from a PreKeySignalMessage so a recipient can
     /// resolve the session before it has stored the sender's routing tag.
     public func peekPreKeyIdentity(payload: Data) -> String? {
+        mutex.lock()
+        defer { mutex.unlock() }
         let bytes = [UInt8](payload)
         guard bytes.count >= 2, bytes[0] == CiphertextMessage.MessageType.preKey.rawValue else { return nil }
         return try? Base64URL.encode(PreKeySignalMessage(bytes: Data(bytes[1...])).identityKey.serialize())

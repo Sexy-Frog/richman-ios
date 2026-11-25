@@ -30,6 +30,9 @@ final class ChatStore: ObservableObject {
     /// Non-nil only when Tor is up and the app is foreground. Every send/poll
     /// goes through this; nil means the chat stays local (Simulator/demo).
     private var relayTransport: RelayTransport?
+    /// One actor for every send/poll so libsignal session operations are
+    /// serialized (multiple actors would encrypt concurrently for one peer).
+    private var relayServiceInstance: RelayService?
     private var pollTask: Task<Void, Never>?
     /// During a call the active peer is long-polled first for low latency.
     private var fastPeer: String?
@@ -107,6 +110,7 @@ final class ChatStore: ObservableObject {
     func attachRelay(_ transport: RelayTransport?) {
         if relayTransport == nil && transport == nil { return }
         relayTransport = transport
+        relayServiceInstance = transport.map { RelayService(transport: $0, crypto: crypto) }
         pollTask?.cancel()
         pollTask = nil
         guard transport != nil else { return }
@@ -114,8 +118,7 @@ final class ChatStore: ObservableObject {
     }
 
     private func relayService() -> RelayService? {
-        guard let relayTransport else { return nil }
-        return RelayService(transport: relayTransport, crypto: crypto)
+        relayServiceInstance
     }
 
     private func startPolling() {
