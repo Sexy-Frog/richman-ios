@@ -52,6 +52,9 @@ jobs:
           rustup show || true
           cargo --version || true
 
+      - name: Install protobuf (protoc — required by the spqr/libsignal build)
+        run: brew install protobuf
+
       - name: Build libsignal FFI (release)
         working-directory: crypto
         run: ./third_party/libsignal/swift/build_ffi.sh --release
