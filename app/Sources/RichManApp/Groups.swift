@@ -127,9 +127,17 @@ struct GroupChatView: View {
                 ScrollView {
                     LazyVStack(spacing: 8) {
                         ForEach(messages) { message in
-                            GroupBubble(message: message) { target in
-                                store.deleteGroupMessage(target, in: group.id)
-                            }
+                            GroupBubble(
+                                message: message,
+                                onDelete: {
+                                    store.deleteGroupMessage($0, in: group.id)
+                                },
+                                onDeleteEveryone: {
+                                    store.deleteGroupMessage(
+                                        $0, in: group.id, everyone: true
+                                    )
+                                }
+                            )
                             .id(message.id)
                         }
                     }
@@ -220,6 +228,7 @@ struct GroupChatView: View {
 private struct GroupBubble: View {
     let message: ChatMessage
     let onDelete: (ChatMessage) -> Void
+    let onDeleteEveryone: (ChatMessage) -> Void
 
     var body: some View {
         HStack(alignment: .bottom) {
@@ -243,6 +252,11 @@ private struct GroupBubble: View {
         .contextMenu {
             Button("この端末から削除", systemImage: "trash", role: .destructive) {
                 onDelete(message)
+            }
+            if message.mine {
+                Button("全員から削除", systemImage: "trash.slash", role: .destructive) {
+                    onDeleteEveryone(message)
+                }
             }
         }
     }

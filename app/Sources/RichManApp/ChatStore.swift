@@ -266,6 +266,15 @@ final class ChatStore: ObservableObject {
                 peerId: opened.senderId, kind: .file,
                 fileName: file.name, remoteId: file.mid
             )
+        case .profile?:
+            guard let profile = try? JSONDecoder().decode(
+                ProfileMessage.self, from: opened.payload
+            ) else { return }
+            if let name = profile.n, !name.isEmpty,
+               let index = contacts.firstIndex(where: { $0.id == opened.senderId }) {
+                contacts[index].name = name
+                scheduleSave()
+            }
         case .ttl?:
             guard let ttl = try? JSONDecoder().decode(
                 TtlMessage.self, from: opened.payload
@@ -385,7 +394,16 @@ final class ChatStore: ObservableObject {
             guard let deletion = try? JSONDecoder().decode(
                 GroupDeleteMessage.self, from: opened.payload
             ) else { return }
-            removeGroupLocally(deletion.gid)
+            if deletion.ids.isEmpty {
+                // Creator deletion: drop the whole group.
+                removeGroupLocally(deletion.gid)
+            } else {
+                groupMessages[deletion.gid]?.removeAll { message in
+                    deletion.ids.contains(message.id)
+                        || (message.remoteId.map(deletion.ids.contains) ?? false)
+                }
+                scheduleSave()
+            }
         case .callOffer?, .callAnswer?, .callEnd?:
             guard let signal = try? JSONDecoder().decode(
                 CallSignal.self, from: opened.payload
@@ -432,6 +450,37 @@ final class ChatStore: ObservableObject {
     func messages(for peerId: String) -> [ChatMessage] { messagesByPeer[peerId] ?? [] }
 
     func contact(_ peerId: String) -> Contact? { contacts.first { $0.id == peerId } }
+
+    var blockedContacts: [Contact] {
+        contacts.filter { blockedIds.contains($0.id) }
+    }
+
+    /// Change the display name and propagate it to existing contacts
+    /// (`{"t":"profile","n":...}`). The official feed never gets a profile.
+    func updateDisplayName(_ name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        displayName = trimmed
+        UserDefaults.standard.set(trimmed, forKey: "rm.displayName")
+        let profile = ProfileMessage(n: trimmed, av: 0)
+        if let json = try? profile.toPayloadJSON() {
+            for peer in contacts where !peer.official && peer.box != nil {
+                transmit(json, to: peer.id, markMid: "")
+            }
+        }
+        scheduleSave()
+    }
+
+    /// Delete the conversation but keep the contact (Android "トークを削除").
+    func clearChat(_ peerId: String) {
+        messagesByPeer[peerId] = []
+        if let index = contacts.firstIndex(where: { $0.id == peerId }) {
+            contacts[index].lastMessage = ""
+            contacts[index].unread = 0
+        }
+        updateBadge()
+        scheduleSave()
+    }
 
     /// Append an outgoing message, then (on device, over Tor) seal it with
     /// libsignal and POST it to the peer's mailbox. Without a relay the message
@@ -728,9 +777,26 @@ final class ChatStore: ObservableObject {
         )
     }
 
-    /// Group messages are deleted on this device only (Android parity).
-    func deleteGroupMessage(_ message: ChatMessage, in groupId: String) {
+    /// Delete a group message locally, or for everyone when it is mine.
+    func deleteGroupMessage(
+        _ message: ChatMessage,
+        in groupId: String,
+        everyone: Bool = false
+    ) {
         groupMessages[groupId]?.removeAll { $0.id == message.id }
+        if everyone, message.mine, let group = group(groupId) {
+            let payload = GroupDeleteMessage(
+                gid: groupId,
+                ids: [message.id],
+                sender: crypto.myId,
+                ts: Int64(Date().timeIntervalSince1970 * 1000)
+            )
+            if let json = try? payload.toPayloadJSON() {
+                for member in group.memberIds where member != crypto.myId {
+                    transmit(json, to: member, markMid: "")
+                }
+            }
+        }
         scheduleSave()
     }
 

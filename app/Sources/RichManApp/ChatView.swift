@@ -23,6 +23,7 @@ struct ChatView: View {
     @State private var ttlSeconds = 0
     @State private var showLocationError = false
     @State private var imagePreview: ImagePreview?
+    @State private var confirmClearChat = false
 
     private var messages: [ChatMessage] { store.messages(for: contact.id) }
     private var isBlocked: Bool { store.isBlocked(contact.id) }
@@ -130,6 +131,9 @@ struct ChatView: View {
                         Button("消えるメッセージ", systemImage: "timer") {
                             showTTL = true
                         }
+                        Button("トークを削除", systemImage: "trash", role: .destructive) {
+                            confirmClearChat = true
+                        }
                     } label: {
                         Image(systemName: "ellipsis.circle")
                     }
@@ -138,6 +142,18 @@ struct ChatView: View {
         }
         .sheet(isPresented: $showReport) {
             ReportSheet(contact: contact).environmentObject(store)
+        }
+        .confirmationDialog(
+            "トークを削除しますか？",
+            isPresented: $confirmClearChat,
+            titleVisibility: .visible
+        ) {
+            Button("削除", role: .destructive) {
+                store.clearChat(contact.id)
+            }
+            Button("キャンセル", role: .cancel) {}
+        } message: {
+            Text("この端末からメッセージ履歴を削除します。友だちは残ります。")
         }
         .sheet(isPresented: $showTTL, onDismiss: {
             store.setTTL(ttlSeconds, for: contact.id)

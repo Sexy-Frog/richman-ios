@@ -152,6 +152,13 @@ public struct ProfileMessage: Codable, Equatable {
     public var avBlob: String?
     public var avK: String?
     public var avN: String?
+
+    public init(n: String? = nil, bio: String? = nil, addMode: String? = nil,
+                av: Int = 0, avBlob: String? = nil, avK: String? = nil,
+                avN: String? = nil) {
+        self.n = n; self.bio = bio; self.addMode = addMode; self.av = av
+        self.avBlob = avBlob; self.avK = avK; self.avN = avN
+    }
 }
 
 // MARK: Location (self-initiated; docs/PROTOCOL.md §8)

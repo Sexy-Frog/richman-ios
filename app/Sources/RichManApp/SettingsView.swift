@@ -114,6 +114,22 @@ struct SettingsView: View {
                     Text("セキュリティゾーン")
                 }
 
+                if !store.blockedContacts.isEmpty {
+                    Section("ブロックしたユーザー") {
+                        ForEach(store.blockedContacts) { contact in
+                            HStack(spacing: 10) {
+                                Avatar(name: contact.name)
+                                Text(contact.name)
+                                Spacer()
+                                Button("解除") {
+                                    store.setBlocked(contact.id, false)
+                                }
+                                .font(.footnote.weight(.semibold))
+                            }
+                        }
+                    }
+                }
+
                 Section {
                     Picker("自動ロック", selection: $autoLockSeconds) {
                         Text("オフ").tag(0)
@@ -283,7 +299,7 @@ private struct NameEditSheet: View {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         savedName = trimmed
-        store.displayName = trimmed
+        store.updateDisplayName(trimmed)
         dismiss()
     }
 }
