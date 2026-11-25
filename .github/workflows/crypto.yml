@@ -76,6 +76,8 @@ jobs:
 
       - name: Generate app project (real-crypto spec)
         working-directory: app
+        env:
+          RM_RELAY_HOST: ${{ secrets.RM_RELAY_HOST }}
         run: xcodegen generate --spec project-crypto.yml
 
       - name: Build RichManCrypto app (Simulator)

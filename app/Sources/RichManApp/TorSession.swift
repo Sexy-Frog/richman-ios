@@ -10,9 +10,12 @@ import TorSupport
 /// `unsupported` instead of pretending to be online.
 @MainActor
 final class TorSession: ObservableObject {
-    /// The production relay's v3 onion address (public; reachability is what
-    /// protects it). Baked at build time, like the Android client.
-    static let relayHost = "relay.invalid.onion"
+    /// The relay's v3 onion address, injected at build time (`RM_RELAY_HOST`)
+    /// instead of living in this public repository (docs/DESIGN.md §9).
+    static var relayHost: String {
+        (Bundle.main.object(forInfoDictionaryKey: "RMRelayHost") as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
     static let relayPort: UInt16 = 80
 
     enum Phase: Equatable {
@@ -48,6 +51,7 @@ final class TorSession: ObservableObject {
     }
 
     var statusText: String {
+        if supportsTor && !configured { return "リレー未設定" }
         switch phase {
         case .unsupported: "このビルドでは無効"
         case .stopped: "停止"
@@ -62,9 +66,12 @@ final class TorSession: ObservableObject {
         phase == .ready ? relayTransport : nil
     }
 
+    /// False when the build was produced without a relay address.
+    var configured: Bool { !Self.relayHost.isEmpty }
+
     /// Transport for relay calls, only once the SOCKS listener is up.
     var relayTransport: SOCKS5Transport? {
-        guard phase != .unsupported else { return nil }
+        guard phase != .unsupported, configured else { return nil }
         return SOCKS5Transport(
             proxy: SOCKS5Address(host: "127.0.0.1", port: 39050),
             targetHost: Self.relayHost,
@@ -75,7 +82,7 @@ final class TorSession: ObservableObject {
 
     func start() {
         #if canImport(TorSupport)
-        guard launcher == nil else { return }
+        guard launcher == nil, configured else { return }
         let base = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask

@@ -5,7 +5,7 @@ import CoreLocation
 /// background/always permission and Tor location sharing arrive with the
 /// relay transport; this layer only asks for when-in-use.
 @MainActor
-final class LocationProvider: NSObject, ObservableObject, CLLocationManagerDelegate {
+final class LocationProvider: NSObject, ObservableObject, @preconcurrency CLLocationManagerDelegate {
     @Published private(set) var authorization: CLAuthorizationStatus = .notDetermined
     @Published private(set) var location: CLLocation?
     @Published private(set) var error: String?

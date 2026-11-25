@@ -46,6 +46,9 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: works.kelvins.richman.crypto
         GENERATE_INFOPLIST_FILE: YES
+        # Onion relay address is injected by CI (never committed).
+        RM_RELAY_HOST: ${RM_RELAY_HOST}
+        INFOPLIST_KEY_RMRelayHost: "$(RM_RELAY_HOST)"
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: YES
         INFOPLIST_KEY_CFBundleDisplayName: RichMan
         INFOPLIST_KEY_NSCameraUsageDescription: "QRコードを読み取って友だちを追加します。"
