@@ -37,7 +37,7 @@ final class CallAudioEngine {
             mode: .voiceChat,
             options: [.defaultToSpeaker, .allowBluetooth]
         )
-        try session.setPreferredSampleRate(Double(rate))
+        try session.setPreferredSampleRate(format.sampleRate)
         try session.setActive(true)
         try? session.overrideOutputAudioPort(speaker ? .speaker : .none)
 
