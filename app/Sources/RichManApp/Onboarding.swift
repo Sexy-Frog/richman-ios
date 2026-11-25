@@ -63,7 +63,7 @@ struct OnboardingView: View {
         (
             "location.circle.fill",
             "プライバシーゾーン",
-            "自宅など決めた場所に入ると自動でロック。位置情報はこの判定と、あなたが送るときだけ使います。"
+            "自宅など決めた場所に入ると自動でロック。位置情報は端末内の判定に使い、送信するときは暗号化されます。"
         ),
     ]
 
@@ -135,10 +135,6 @@ struct OnboardingView: View {
             .buttonStyle(.borderedProminent)
             .tint(RM.primary)
             .controlSize(.large)
-
-            Button("スキップ") { step = .name }
-                .font(.footnote)
-                .foregroundStyle(RM.onSurfaceVariant)
         }
         .padding(24)
     }
@@ -217,10 +213,17 @@ struct OnboardingView: View {
                     .font(.footnote.weight(.semibold))
             }
 
-            Text("位置情報は、このゾーンの判定と、あなたが送るときだけ使います。バックグラウンドでは取得しません。")
-                .font(.caption2)
-                .foregroundStyle(RM.onSurfaceVariant)
-                .multilineTextAlignment(.center)
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "lock.shield.fill")
+                    .font(.caption)
+                    .foregroundStyle(RM.primary)
+                Text("位置情報は端末内のゾーン判定にだけ使い、送信するときは暗号化されます。バックグラウンドでは取得しません。")
+                    .font(.caption2)
+                    .foregroundStyle(RM.onSurfaceVariant)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(10)
+            .background(RM.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
 
             HStack(spacing: 10) {
                 Text("半径").font(.caption)
@@ -237,14 +240,14 @@ struct OnboardingView: View {
             }
             .pickerStyle(.menu)
 
-            Button("このゾーンを設定") {
+            Button("プライバシーゾーンを有効にする") {
                 useZone = true
                 step = .pin
             }
             .buttonStyle(.borderedProminent)
             .tint(RM.primary)
 
-            Button("あとで設定する") {
+            Button("後で設定する") {
                 useZone = false
                 step = .pin
             }

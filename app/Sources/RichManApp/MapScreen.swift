@@ -43,7 +43,12 @@ enum MapDemo {
 enum MapConfig {
     static var styleURL: URL? {
         #if DEBUG
-        return URL(string: "https://tiles.openfreemap.org/styles/liberty")
+        // Bundled copy of the Android palette (name:ja) with OpenFreeMap's
+        // public sources. Keeps the DEBUG/Simulator map visually identical to
+        // the Tor-delivered style. Release still shows nothing until Tor is up.
+        return Bundle.main.url(
+            forResource: "map_style_direct", withExtension: "json"
+        )
         #else
         return nil
         #endif
@@ -200,11 +205,6 @@ struct MapHomeView: View {
         .task {
             if let proxied = tor.mapStyleURL {
                 styleURL = proxied
-                return
-            }
-            guard MapConfig.styleURL != nil else { return }
-            if let japanese = await MapStyleLoader.japaneseStyleFile() {
-                styleURL = japanese
             }
         }
         .onChange(of: tor.mapStyleURL) { _, newValue in

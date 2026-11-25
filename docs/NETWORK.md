@@ -90,13 +90,16 @@ CI（`iOS Crypto`）では `secrets.RM_RELAY_HOST` を xcodegen に渡してい�
   `http://127.0.0.1:<port>/style.json` を配信し、MapLibre はループバックだけを
   見る。実際の取得は RelayClient が SOCKS 経由で `/v1/map/*` を叩く。ATS は
   `NSAllowsLocalNetworking` のみ許可。Tor 未接続時はプレースホルダー（リリース）
-  ／直接 CDN（DEBUG のみ）。
-- **位置情報の許可**: 初回起動は 1 画面ずつの紹介（暗号化・追跡拒否・
-  プライバシーゾーン）→「さあ始めよう」→ **表示名 → プライバシーゾーン →
-  暗証番号** の順でチュートリアル形式に設定する。ゾーン設定の
+  ／直接 CDN（DEBUG のみ）。DEBUG は Android 版と同じ配色の
+  `map_style_direct.json`（Android の `map_style.json` から生成、日本語ラベル・
+  OpenFreeMap の公開ソース）を使うため、Simulator でも色合いが一致する。
+- **位置情報の許可**: 初回起動はスキップ不可の 1 画面ずつ紹介（暗号化・
+  追跡拒否・プライバシーゾーン）→「さあ始めよう」→ **表示名 →
+  プライバシーゾーン → 暗証番号** の順でチュートリアル形式に設定する。
+  ゾーンは「有効にする」か「後で設定する」の二択。ゾーン設定の
   「現在地を中心にする」で許可プライマー（`LocationPrimer`）を表示してから
-  システムダイアログを出す。位置情報の用途は「ゾーン判定」と
-  「ユーザーが送信したとき」だけであることを UI と
+  システムダイアログを出す。位置情報は端末内のゾーン判定に使い、送信時は
+  暗号化されること、バックグラウンド取得がないことを UI と
   `NSLocationWhenInUseUsageDescription` の両方で明示する。
 - **通話**: `call_offer` / `call_answer` / `call_end` と ADPCM 音声
   (`call_audio`) を同じ 1:1 暗号化経路で送る。音声は 16 kHz（相手が旧版なら

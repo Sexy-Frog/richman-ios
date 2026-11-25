@@ -74,3 +74,6 @@ jobs:
           test -f build/Build/Products/Debug-iphonesimulator/RichMan.app/map_style_ja.json
           grep -q "__MAP_BASE__" \
             build/Build/Products/Debug-iphonesimulator/RichMan.app/map_style_ja.json
+          test -f build/Build/Products/Debug-iphonesimulator/RichMan.app/map_style_direct.json
+          grep -qi "#EEF1F4" \
+            build/Build/Products/Debug-iphonesimulator/RichMan.app/map_style_direct.json
