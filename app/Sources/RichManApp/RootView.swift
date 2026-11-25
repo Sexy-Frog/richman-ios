@@ -3,6 +3,10 @@ import UIKit
 import Combine
 import UserNotifications
 
+private struct NotificationChat: Identifiable {
+    let id: String
+}
+
 /// Gate: first launch → onboarding; afterwards → the hub. The single `ChatStore`
 /// is created here and shared with every screen.
 struct RootView: View {
@@ -19,6 +23,7 @@ struct RootView: View {
     @State private var backgroundedAt: Date?
     @State private var privacyCover = false
     @State private var screenCaptured = UIScreen.main.isCaptured
+    @State private var notificationChat: NotificationChat?
 
     /// Screenshot/CI hook: launch with `-rm.skipOnboarding 1` to bypass setup.
     /// DEBUG only, so release builds always start at onboarding.
@@ -97,6 +102,23 @@ struct RootView: View {
             NotificationCenter.default.publisher(for: UIScreen.capturedDidChangeNotification)
         ) { _ in
             screenCaptured = UIScreen.main.isCaptured
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(for: .rmOpenChat)
+        ) { note in
+            guard !lock.locked,
+                  let peer = note.object as? String,
+                  store.contact(peer) != nil else { return }
+            notificationChat = NotificationChat(id: peer)
+        }
+        .sheet(item: $notificationChat) { target in
+            if let contact = store.contact(target.id) {
+                NavigationStack { ChatView(contact: contact) }
+                    .environmentObject(store)
+                    .environmentObject(calls)
+                    .environmentObject(location)
+                    .environmentObject(tor)
+            }
         }
         .onChange(of: location.location?.timestamp) { _, _ in
             if scenePhase == .active { applySecurityZoneIfNeeded() }

@@ -855,7 +855,8 @@ final class ChatStore: ObservableObject {
         } else if notify, UIApplication.shared.applicationState != .active {
             NotificationManager.shared.message(
                 from: contact(peerId)?.name ?? "RichMan",
-                preview: preview
+                preview: preview,
+                peerId: peerId
             )
         }
     }

@@ -18,4 +18,20 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     ) async -> UNNotificationPresentationOptions {
         [.banner, .sound]
     }
+
+    /// Tapping a message notification opens that conversation.
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse
+    ) async {
+        guard let peer = response.notification.request.content
+            .userInfo["peer"] as? String else { return }
+        await MainActor.run {
+            NotificationCenter.default.post(name: .rmOpenChat, object: peer)
+        }
+    }
+}
+
+extension Notification.Name {
+    static let rmOpenChat = Notification.Name("rm.openChat")
 }

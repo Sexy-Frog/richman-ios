@@ -12,12 +12,13 @@ final class NotificationManager {
         center.requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
     }
 
-    func message(from name: String, preview: String?) {
+    func message(from name: String, preview: String?, peerId: String? = nil) {
         let content = UNMutableNotificationContent()
         let showPreview = UserDefaults.standard.bool(forKey: "rm.preview")
         content.title = showPreview ? name : "RichMan"
         content.body = showPreview ? (preview ?? "新しいメッセージ") : "新しいメッセージ"
         content.sound = .default
+        if let peerId { content.userInfo["peer"] = peerId }
         add(content)
     }
 
