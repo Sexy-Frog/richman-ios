@@ -12,6 +12,10 @@ final class ChatStore: ObservableObject {
     @Published var displayName: String
     @Published var contacts: [Contact] = []
     @Published private(set) var messagesByPeer: [String: [ChatMessage]] = [:]
+    /// Blocked contact ids (App Store UGC requirement — blocked peers can't be
+    /// messaged and their inbound messages are dropped). Persisted in UserDefaults.
+    @Published private(set) var blockedIds: Set<String> = []
+    private let blockedKey = "rm.blocked"
 
     let crypto: CryptoProvider
     /// Real relay pipeline (seal/send, fetch/open). Transport is a Simulator stub
@@ -24,9 +28,21 @@ final class ChatStore: ObservableObject {
         self.displayName = displayName
         self.crypto = crypto
         self.relay = RelayService(transport: transport, crypto: crypto)
+        if let saved = UserDefaults.standard.stringArray(forKey: blockedKey) {
+            self.blockedIds = Set(saved)
+        }
     }
 
     var myId: String { crypto.myId }
+
+    // MARK: blocking (App Store UGC safety)
+
+    func isBlocked(_ peerId: String) -> Bool { blockedIds.contains(peerId) }
+
+    func setBlocked(_ peerId: String, _ blocked: Bool) {
+        if blocked { blockedIds.insert(peerId) } else { blockedIds.remove(peerId) }
+        UserDefaults.standard.set(Array(blockedIds), forKey: blockedKey)
+    }
 
     func messages(for peerId: String) -> [ChatMessage] { messagesByPeer[peerId] ?? [] }
 
@@ -36,7 +52,7 @@ final class ChatStore: ObservableObject {
     /// OutgoingSealer.seal → RelayClient.send(to: peer.box).
     func send(to peerId: String, text: String) {
         let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !body.isEmpty else { return }
+        guard !body.isEmpty, !isBlocked(peerId) else { return }
         messagesByPeer[peerId, default: []].append(
             ChatMessage(id: UUID().uuidString, body: body, mine: true, ts: Date())
         )
@@ -48,6 +64,7 @@ final class ChatStore: ObservableObject {
 
     /// Record an inbound message (will be called by the relay receive loop).
     func receive(from peerId: String, text: String) {
+        guard !isBlocked(peerId) else { return }   // drop messages from blocked peers
         messagesByPeer[peerId, default: []].append(
             ChatMessage(id: UUID().uuidString, body: text, mine: false, ts: Date())
         )

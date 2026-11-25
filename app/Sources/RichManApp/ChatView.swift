@@ -6,8 +6,10 @@ struct ChatView: View {
     let contact: Contact
     @EnvironmentObject private var store: ChatStore
     @State private var draft: String = ""
+    @State private var showReport = false
 
     private var messages: [ChatMessage] { store.messages(for: contact.id) }
+    private var isBlocked: Bool { store.isBlocked(contact.id) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -30,6 +32,20 @@ struct ChatView: View {
         .navigationTitle(contact.name)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { store.markRead(contact.id) }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button(isBlocked ? "ブロックを解除" : "ブロック",
+                           systemImage: isBlocked ? "hand.raised.slash" : "hand.raised") {
+                        store.setBlocked(contact.id, !isBlocked)
+                    }
+                    Button("通報", systemImage: "flag", role: .destructive) { showReport = true }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+            }
+        }
+        .sheet(isPresented: $showReport) { ReportSheet(contact: contact).environmentObject(store) }
     }
 
     private var composer: some View {
