@@ -11,7 +11,14 @@ struct OnboardingView: View {
     @EnvironmentObject private var location: LocationProvider
 
     private enum Step { case pin, name, tutorial, zone }
-    @State private var step: Step = .pin
+    @State private var step: Step = {
+        #if DEBUG
+        if UserDefaults.standard.string(forKey: "rm.onboardingStep") == "tutorial" {
+            return .tutorial
+        }
+        #endif
+        return .pin
+    }()
     @State private var showLocationPrimer = false
     @State private var recenterToken = 0
     @State private var pendingCenterOnMe = false
