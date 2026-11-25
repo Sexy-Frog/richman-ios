@@ -143,6 +143,9 @@ final class ChatStore: ObservableObject {
         guard !contacts.contains(where: { $0.official }) else { return }
         let official = Contact(id: "official", name: "Richman", official: true)
         contacts.insert(official, at: 0)
+        if let index = contacts.firstIndex(where: { $0.official }) {
+            contacts[index].lastMessage = "ようこそ RichMan へ"
+        }
         messagesByPeer[official.id] = [
             ChatMessage(
                 id: "official-welcome",
