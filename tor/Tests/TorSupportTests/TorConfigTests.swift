@@ -11,12 +11,13 @@ final class TorConfigTests: XCTestCase {
         )
         let args = config.arguments()
         XCTAssertTrue(args.contains("--ignore-missing-torrc"))
-        XCTAssertEqual(args.firstIndex(of: "--SocksPort").map { args[$0 + 1] }, "39050")
+        XCTAssertEqual(args.firstIndex(of: "--SocksPort").map { args[$0 + 1] },
+                       "39050 IsolateSOCKSAuth")
         XCTAssertEqual(args.firstIndex(of: "--DataDirectory").map { args[$0 + 1] },
                        "/tmp/rich man/tor")
         XCTAssertEqual(args.firstIndex(of: "--CacheDirectory").map { args[$0 + 1] },
                        "/tmp/rich man/cache")
-        XCTAssertEqual(args.firstIndex(of: "--IsolateSOCKSAuth").map { args[$0 + 1] }, "1")
+        XCTAssertFalse(args.contains("--IsolateSOCKSAuth"))
         XCTAssertEqual(args.firstIndex(of: "--ControlPort").map { args[$0 + 1] }, "0")
         XCTAssertEqual(args.firstIndex(of: "--ClientOnly").map { args[$0 + 1] }, "1")
         XCTAssertEqual(args.firstIndex(of: "--AvoidDiskWrites").map { args[$0 + 1] }, "1")

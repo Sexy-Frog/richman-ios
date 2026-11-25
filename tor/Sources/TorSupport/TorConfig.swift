@@ -44,12 +44,12 @@ public struct TorConfig: Sendable {
         // `--SocksPort=9050` with "Unknown option" and aborts at startup.
         var args: [String] = [
             "--ignore-missing-torrc",
-            "--SocksPort", "\(socksPort)",
+            // IsolateSOCKSAuth is a SocksPort flag (not a standalone option):
+            // every SOCKS username gets its own circuit, which the app uses to
+            // keep each friend's mailbox on a separate connection path.
+            "--SocksPort", "\(socksPort) IsolateSOCKSAuth",
             "--DataDirectory", dataDirectory.path,
             "--ControlPort", "0",
-            // Every SOCKS username gets its own circuit, which the app uses to
-            // keep each friend's mailbox on a separate connection path.
-            "--IsolateSOCKSAuth", "1",
         ]
         if clientOnly { args += ["--ClientOnly", "1"] }
         if avoidDiskWrites { args += ["--AvoidDiskWrites", "1"] }
