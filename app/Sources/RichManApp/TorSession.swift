@@ -87,6 +87,19 @@ final class TorSession: ObservableObject {
     }
 
     func start() {
+        #if DEBUG
+        // CI E2E uses a Tor daemon on the host Mac (simulators share its
+        // loopback), which keeps the embedded-Tor lifecycle out of the E2E
+        // signal path. `-rm.tor off -rm.socksPort 9050`.
+        if let port = Self.externalSocksPort {
+            socksPort = port
+            phase = .ready
+            if mapStyleURL == nil, let transport = relayTransport {
+                mapStyleURL = MapProxy.shared.start(transport: transport)
+            }
+            return
+        }
+        #endif
         #if canImport(TorSupport)
         guard launcher == nil, configured else { return }
         let base = FileManager.default.urls(
@@ -135,6 +148,19 @@ final class TorSession: ObservableObject {
                 self.phase = .failed("Tor の起動がタイムアウトしました")
             }
         }
+    }
+
+    /// DEBUG-only external SOCKS override (CI simulators).
+    private static var externalSocksPort: UInt16? {
+        #if DEBUG
+        guard UserDefaults.standard.string(forKey: "rm.tor") == "off" else {
+            return nil
+        }
+        let value = UserDefaults.standard.integer(forKey: "rm.socksPort")
+        return value > 0 ? UInt16(value) : nil
+        #else
+        return nil
+        #endif
     }
 
     /// Bind port 0 and read the assigned port, so two app instances on one

@@ -38,13 +38,13 @@ enum E2E {
         report(["phase": "invite", "map": mapOK])
 
         var invite = ""
-        for attempt in 0..<3 {
+        for attempt in 0..<10 {
             do {
                 invite = try await store.makeRelayInvite(using: transport)
                 break
             } catch {
-                if attempt == 2 { throw error }
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                if attempt == 9 { throw error }
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
             }
         }
         report(["phase": "invite-ready", "invite": invite])
@@ -130,15 +130,15 @@ enum E2E {
 
         report(["phase": "add"])
         var added: Contact?
-        for attempt in 0..<3 {
+        for attempt in 0..<10 {
             do {
                 added = try await store.addFriend(
                     inviteText: invite, using: transport
                 )
                 break
             } catch {
-                if attempt == 2 { throw error }
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                if attempt == 9 { throw error }
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
             }
         }
         guard let contact = added else {
@@ -206,12 +206,28 @@ enum E2E {
     // MARK: helpers
 
     private static func waitForTor(_ tor: TorSession) async throws -> RelayTransport {
-        for _ in 0..<210 {
-            if let transport = tor.readyTransport { return transport }
+        var lastNote = Date.distantPast
+        for step in 0..<210 {
+            if let transport = tor.readyTransport,
+               (try? await RelayClient(transport: transport).ping()) == true {
+                report(["phase": "tor-ready"])
+                return transport
+            }
+            if step % 5 == 0 { tor.checkNow() }
+            if Date().timeIntervalSince(lastNote) > 10 {
+                lastNote = Date()
+                report([
+                    "tor": tor.statusText,
+                    "configured": tor.configured,
+                    "supports": tor.supportsTor,
+                    "lastError": tor.lastError ?? "",
+                ])
+            }
             try? await Task.sleep(nanoseconds: 2_000_000_000)
         }
-        throw NSError(domain: "e2e", code: 3,
-                      userInfo: [NSLocalizedDescriptionKey: "Tor/relay timeout"])
+        throw NSError(domain: "e2e", code: 3, userInfo: [
+            NSLocalizedDescriptionKey: "Tor/relay timeout (\(tor.statusText))",
+        ])
     }
 
     /// Exercise the Tor map path without MapLibre: fetch the bundled style and

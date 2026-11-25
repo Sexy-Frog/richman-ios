@@ -28,7 +28,34 @@ jobs:
           submodules: recursive
 
       - name: Install tools
-        run: brew install protobuf xcodegen
+        run: brew install protobuf xcodegen tor
+
+      - name: Cache libsignal FFI and Tor xcframework
+        uses: actions/cache@v4
+        with:
+          path: |
+            crypto/third_party/libsignal/target
+            tor/Vendor
+          key: e2e-ffi-${{ hashFiles('crypto/third_party/libsignal/rust-toolchain', 'crypto/third_party/libsignal/Cargo.lock') }}-v1
+
+      # The simulators share the host loopback, so a host Tor daemon keeps the
+      # embedded-Tor lifecycle out of this E2E signal path. Bootstrap runs while
+      # the Rust FFI compiles.
+      - name: Start host Tor daemon
+        run: |
+          mkdir -p /tmp/e2e-tor
+          cat > /tmp/e2e-torrc <<'EOF'
+          SocksPort 127.0.0.1:9050
+          DataDirectory /tmp/e2e-tor/data
+          ControlPort 0
+          Log notice file /tmp/e2e-tor/tor.log
+          EOF
+          tor -f /tmp/e2e-torrc --RunAsDaemon 1
+          for i in $(seq 1 90); do
+            grep -q "Bootstrapped 100" /tmp/e2e-tor/tor.log 2>/dev/null && break
+            sleep 2
+          done
+          tail -3 /tmp/e2e-tor/tor.log
 
       - name: Install Rust iOS simulator target
         working-directory: crypto/third_party/libsignal
@@ -69,6 +96,13 @@ jobs:
             EXCLUDED_ARCHS=x86_64 \
             build
 
+      - name: Verify relay host injection
+        working-directory: app
+        run: |
+          test -n "$(/usr/libexec/PlistBuddy \
+            -c 'Print :RMRelayHost' \
+            build/Build/Products/Debug-iphonesimulator/RichManCryptoApp.app/Info.plist)"
+
       - name: Boot two simulators and install
         working-directory: app
         run: |
@@ -102,13 +136,14 @@ jobs:
         run: |
           set -euo pipefail
           BUNDLE=works.kelvins.richman.crypto
-          xcrun simctl launch "$UDID1" "$BUNDLE" -rm.skipOnboarding 1 -rm.e2eRole host
+          xcrun simctl launch "$UDID1" "$BUNDLE" -rm.skipOnboarding 1 \
+            -rm.e2eRole host -rm.tor off -rm.socksPort 9050
           HOST_DATA=$(xcrun simctl get_app_container "$UDID1" "$BUNDLE" data)
           HOST_JSON="$HOST_DATA/Documents/e2e.json"
           echo "HOST_DATA=$HOST_DATA" >> "$GITHUB_ENV"
 
           INVITE=""
-          for i in $(seq 1 300); do
+          for i in $(seq 1 210); do
             if [ -f "$HOST_JSON" ]; then
               INVITE=$(jq -r '.invite // empty' "$HOST_JSON" 2>/dev/null || true)
               [ -n "$INVITE" ] && break
@@ -123,7 +158,8 @@ jobs:
 
           INVITE_B64=$(printf '%s' "$INVITE" | base64 | tr -d '\n' | tr '+/' '-_' | tr -d '=')
           xcrun simctl launch "$UDID2" "$BUNDLE" -rm.skipOnboarding 1 \
-            -rm.e2eRole join -rm.e2eInvite "$INVITE_B64"
+            -rm.e2eRole join -rm.e2eInvite "$INVITE_B64" \
+            -rm.tor off -rm.socksPort 9050
           JOIN_DATA=$(xcrun simctl get_app_container "$UDID2" "$BUNDLE" data)
           JOIN_JSON="$JOIN_DATA/Documents/e2e.json"
           echo "JOIN_DATA=$JOIN_DATA" >> "$GITHUB_ENV"
@@ -159,7 +195,14 @@ jobs:
             d=$(xcrun simctl get_app_container "$u" "$BUNDLE" data 2>/dev/null)
             [ -n "$d" ] && cp "$d/Documents/e2e.json" "e2e-artifacts/e2e-$n.json"
             [ -n "$d" ] && cp "$d/Library/Application Support/tor/tor.log" "e2e-artifacts/tor-$n.log"
+            xcrun simctl spawn "$u" log show --last 20m \
+              --predicate 'process == "RichManCryptoApp"' \
+              > "e2e-artifacts/app-$n.log" 2>&1
           done
+          cp build/Build/Products/Debug-iphonesimulator/RichManCryptoApp.app/Info.plist \
+            e2e-artifacts/Info.plist 2>/dev/null || true
+          cp /tmp/e2e-tor/tor.log e2e-artifacts/host-tor.log 2>/dev/null || true
+          cp ~/Library/Logs/DiagnosticReports/*RichMan* e2e-artifacts/ 2>/dev/null || true
           ls -la e2e-artifacts
 
       - uses: actions/upload-artifact@v4
