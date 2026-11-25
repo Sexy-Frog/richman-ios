@@ -6,6 +6,7 @@ struct RootView: View {
     @AppStorage("rm.onboarded") private var onboarded = false
     @AppStorage("rm.displayName") private var savedName = ""
     @StateObject private var store = ChatStore(displayName: "自分")
+    @StateObject private var calls = CallStore()
 
     /// Screenshot/CI hook: launch with `-rm.skipOnboarding 1` to bypass setup.
     /// DEBUG only, so release builds always start at onboarding.
@@ -30,12 +31,21 @@ struct RootView: View {
             }
         }
         .environmentObject(store)
+        .environmentObject(calls)
         .tint(RM.primary)
         .onAppear {
             if !savedName.isEmpty { store.displayName = savedName }
             #if DEBUG
             if skipOnboarding, savedName.isEmpty { store.displayName = "テスト" }
             #endif
+        }
+        .fullScreenCover(
+            isPresented: Binding(
+                get: { calls.phase != .idle },
+                set: { if !$0 { calls.end() } }
+            )
+        ) {
+            CallOverlay().environmentObject(calls)
         }
     }
 
@@ -71,15 +81,18 @@ struct HubView: View {
 
     var body: some View {
         TabView(selection: $tab) {
+            MapHomeView()
+                .tabItem { Label("マップ", systemImage: "map.fill") }
+                .tag(0)
             TalksView()
                 .tabItem { Label("トーク", systemImage: "bubble.left.and.bubble.right.fill") }
-                .tag(0)
+                .tag(1)
             FriendsView()
                 .tabItem { Label("友だち", systemImage: "person.2.fill") }
-                .tag(1)
+                .tag(2)
             SettingsView()
                 .tabItem { Label("設定", systemImage: "gearshape.fill") }
-                .tag(2)
+                .tag(3)
         }
     }
 }

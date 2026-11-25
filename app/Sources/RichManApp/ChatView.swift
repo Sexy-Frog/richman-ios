@@ -7,6 +7,7 @@ import SwiftUI
 struct ChatView: View {
     let contact: Contact
     @EnvironmentObject private var store: ChatStore
+    @EnvironmentObject private var calls: CallStore
     @AppStorage("rm.ttl") private var ttlSeconds = 0
 
     @State private var draft = ""
@@ -67,6 +68,11 @@ struct ChatView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { store.markRead(contact.id) }
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { calls.start(contact.name) } label: {
+                    Image(systemName: "phone.fill")
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button(
@@ -223,7 +229,7 @@ private struct MessageBubble: View {
                 HStack(spacing: 3) {
                     Text(timeLabel)
                         .font(.caption2)
-                        .foregroundStyle(message.mine ? Color.white.opacity(0.8) : RM.onSurfaceVariant)
+                        .foregroundStyle(RM.onSurfaceVariant)
                     if message.mine { deliveryIcon }
                 }
             }
@@ -284,7 +290,7 @@ private struct MessageBubble: View {
             }
         }
         .font(.caption2)
-        .foregroundStyle(Color.white.opacity(0.85))
+        .foregroundStyle(message.delivery == .read ? RM.primary : RM.onSurfaceVariant)
     }
 }
 

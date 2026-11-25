@@ -66,11 +66,18 @@ jobs:
             sleep 3
             xcrun simctl io "$UDID" screenshot "shots/${name}.png"
           }
-          shoot talks -rm.tab 0
-          shoot friends -rm.tab 1
-          shoot settings -rm.tab 2
+          # Map needs time to fetch the style + first tiles.
+          xcrun simctl terminate "$UDID" works.kelvins.richman >/dev/null 2>&1 || true
+          xcrun simctl launch "$UDID" works.kelvins.richman \
+            -rm.skipOnboarding 1 -rm.demo 1 -rm.tab 0 >/dev/null
+          sleep 12
+          xcrun simctl io "$UDID" screenshot shots/map.png
+          shoot talks -rm.tab 1
+          shoot friends -rm.tab 2
+          shoot settings -rm.tab 3
           shoot chat -rm.chat demo-alice
           shoot group -rm.group demo-group
+          shoot call -rm.call active -rm.chat demo-alice
 
       - name: Upload screenshots
         uses: actions/upload-artifact@v4
