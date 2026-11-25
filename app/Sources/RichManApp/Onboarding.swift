@@ -93,7 +93,8 @@ struct OnboardingView: View {
     private var introStep: some View {
         VStack(spacing: 14) {
             TabView(selection: $introPage) {
-                ForEach(Array(Self.introPages.enumerated()), id: \.offset) { index, page in
+                ForEach(0..<Self.introPages.count, id: \.self) { index in
+                    let page = Self.introPages[index]
                     VStack(spacing: 18) {
                         Spacer(minLength: 0)
                         Image(systemName: page.icon)
