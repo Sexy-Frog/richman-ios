@@ -50,7 +50,7 @@ final class TorSmokeTests: XCTestCase {
         address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         let bound = withUnsafePointer(to: &address) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
             }
         }
         guard bound == 0 else { return 0 }
@@ -75,7 +75,7 @@ final class TorSmokeTests: XCTestCase {
         address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         let result = withUnsafePointer(to: &address) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
             }
         }
         return result == 0
