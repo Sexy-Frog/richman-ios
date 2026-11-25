@@ -67,3 +67,10 @@ jobs:
           /usr/libexec/PlistBuddy \
             -c "Print :RMRelayHost" \
             build/Build/Products/Debug-iphonesimulator/RichMan.app/Info.plist
+
+      - name: Verify the bundled map style is packaged
+        working-directory: app
+        run: |
+          test -f build/Build/Products/Debug-iphonesimulator/RichMan.app/map_style_ja.json
+          grep -q "__MAP_BASE__" \
+            build/Build/Products/Debug-iphonesimulator/RichMan.app/map_style_ja.json
