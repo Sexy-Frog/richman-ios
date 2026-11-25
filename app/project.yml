@@ -1,0 +1,43 @@
+# XcodeGen spec — generates RichMan.xcodeproj on the macOS CI runner
+# (`brew install xcodegen && xcodegen generate`). Hand-writing a .pbxproj is
+# avoided; the project is reproducible from this file. The app depends ONLY on
+# RichManCore for now so it compiles for the iOS Simulator with no signing and
+# no libsignal FFI; RichManCrypto is wired in later via the CryptoProvider
+# boundary once its macOS/iOS FFI build is green.
+name: RichMan
+options:
+  bundleIdPrefix: works.kelvins
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+packages:
+  RichManCore:
+    path: ..
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: ""          # filled by CI secret for signed .ipa builds
+    CODE_SIGN_STYLE: Automatic
+
+targets:
+  RichMan:
+    type: application
+    platform: iOS
+    sources:
+      - Sources/RichManApp
+    dependencies:
+      - package: RichManCore
+        product: RichManCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: works.kelvins.richman
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: RichMan
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        TARGETED_DEVICE_FAMILY: "1"

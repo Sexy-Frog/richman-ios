@@ -10,6 +10,9 @@ DerivedData/
 crypto/third_party/libsignal/target/
 **/libsignal_ffi.a
 
+# XcodeGen output (generated on CI from app/project.yml)
+app/*.xcodeproj/
+
 # OS / editor
 .DS_Store
 *.swp

@@ -59,3 +59,33 @@ jobs:
       - name: Build & test RichManCrypto
         working-directory: crypto
         run: swift test -v
+
+  # SwiftUI app — compile for the iOS Simulator. No signing and no Apple
+  # Developer account needed (that is only for a device .ipa), and no libsignal
+  # FFI: the app depends on RichManCore + the CryptoProvider boundary (mock),
+  # so this catches all UI/Swift errors for free on every main push.
+  app:
+    name: RichMan app (iOS Simulator build)
+    runs-on: macos-13
+    if: github.event_name != 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: app
+        run: xcodegen generate
+
+      - name: Build for iOS Simulator (unsigned)
+        working-directory: app
+        run: |
+          xcodebuild \
+            -project RichMan.xcodeproj \
+            -scheme RichMan \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            build
