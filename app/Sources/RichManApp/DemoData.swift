@@ -32,7 +32,7 @@ enum DemoData {
             )
         }
 
-        let alice = Contact(id: "demo-alice", name: "アリス")
+        let alice = Contact(id: "demo-alice", name: "アリス", unread: 2)
         let bob = Contact(id: "demo-bob", name: "ボブ")
 
         var aliceMessages = [

@@ -86,6 +86,15 @@ jobs:
           shoot call -rm.call active -rm.chat demo-alice
           shoot lock -rm.locked 1
 
+          # Security-zone enforcement runs last: it seeds a persistent zone.
+          xcrun simctl privacy "$UDID" grant location works.kelvins.richman || true
+          xcrun simctl location "$UDID" set 35.6812,139.7671 || true
+          xcrun simctl terminate "$UDID" works.kelvins.richman >/dev/null 2>&1 || true
+          xcrun simctl launch "$UDID" works.kelvins.richman \
+            -rm.skipOnboarding 1 -rm.demo 1 -rm.tab 0 -rm.zone lock >/dev/null
+          sleep 10
+          xcrun simctl io "$UDID" screenshot shots/zone-lock.png
+
       - name: Upload screenshots
         uses: actions/upload-artifact@v4
         with:
