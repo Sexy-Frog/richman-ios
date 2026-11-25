@@ -7,16 +7,19 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var store: ChatStore
     @EnvironmentObject private var lock: LockStore
+    @EnvironmentObject private var location: LocationProvider
     @AppStorage("rm.displayName") private var savedName = ""
     @AppStorage("rm.preview") private var previewInNotifications = false
     @AppStorage("rm.autoLockSeconds") private var autoLockSeconds = 0
     @AppStorage("rm.retentionDays") private var retentionDays = 30
+    @AppStorage("rm.shareLocation") private var shareLocation = true
 
     @State private var showNameEdit = false
     @State private var showPolicy = false
     @State private var showPINChange = false
     @State private var confirmClearChats = false
     @State private var confirmClearFriends = false
+    @State private var zone: SecurityZone? = SecurityZoneStore.current
 
     var body: some View {
         NavigationStack {
@@ -53,6 +56,35 @@ struct SettingsView: View {
                     Text("通知")
                 } footer: {
                     Text("オフの場合は「新しいメッセージ」だけを表示します。")
+                }
+
+                Section {
+                    Toggle("友達に位置情報を共有", isOn: $shareLocation)
+                    if location.hasPermission {
+                        LabeledContent("位置情報の権限", value: "許可済み")
+                    } else {
+                        Button("位置情報を許可") { location.requestPermission() }
+                    }
+                } header: {
+                    Text("位置情報")
+                } footer: {
+                    Text("共有はTor・リレー実装後に有効になります。現在は地図の現在地表示のみです。")
+                }
+
+                Section {
+                    if let zone {
+                        LabeledContent("半径", value: "\(Int(zone.radius))m")
+                        LabeledContent("入室時の動作", value: zone.action.label)
+                        Button("セキュリティゾーンを削除", role: .destructive) {
+                            SecurityZoneStore.current = nil
+                            self.zone = nil
+                        }
+                    } else {
+                        Text("未設定（オンボーディングで設定できます）")
+                            .foregroundStyle(RM.onSurfaceVariant)
+                    }
+                } header: {
+                    Text("セキュリティゾーン")
                 }
 
                 Section {
@@ -120,6 +152,7 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("設定")
+            .onAppear { zone = SecurityZoneStore.current }
             .sheet(isPresented: $showNameEdit) {
                 NameEditSheet().environmentObject(store)
             }

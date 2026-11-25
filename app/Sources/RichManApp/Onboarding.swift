@@ -1,23 +1,24 @@
 import SwiftUI
+import CoreLocation
 
-/// First-launch setup: set a passcode, then a display name. Mirrors the Android
-/// onboarding order (PIN → name → [security zone, later]).
-///
-/// NOTE: the passcode is only collected here; secure at-rest storage (Keychain /
-/// Secure Enclave, and the lock-screen gate) is a later device-only increment —
-/// we deliberately do NOT persist the PIN in UserDefaults.
+/// First-launch setup: PIN → display name → optional security zone.
 struct OnboardingView: View {
     @AppStorage("rm.onboarded") private var onboarded = false
     @AppStorage("rm.displayName") private var savedName = ""
     @EnvironmentObject private var store: ChatStore
     @EnvironmentObject private var lock: LockStore
 
-    private enum Step { case pin, name }
+    private enum Step { case pin, name, zone }
     @State private var step: Step = .pin
     @State private var pin = ""
     @State private var pinConfirm = ""
     @State private var name = ""
     @State private var error: String?
+
+    @State private var zoneCenter = CLLocationCoordinate2D(latitude: 35.6812, longitude: 139.7671)
+    @State private var zoneRadius: Double = 300
+    @State private var zoneAction: SecurityZone.Action = .lock
+    @State private var useZone = false
 
     var body: some View {
         VStack(spacing: 24) {
@@ -27,6 +28,7 @@ struct OnboardingView: View {
             switch step {
             case .pin:  pinStep
             case .name: nameStep
+            case .zone: zoneStep
             }
             if let error { Text(error).font(.footnote).foregroundStyle(RM.error) }
             Spacer()
@@ -58,9 +60,56 @@ struct OnboardingView: View {
             Text("友だちに表示される名前です。").font(.subheadline).foregroundStyle(RM.onSurfaceVariant)
             TextField("表示名", text: $name)
                 .padding().background(RM.surface, in: RoundedRectangle(cornerRadius: 12))
-            Button("はじめる") { finish() }
+            Button("次へ") { step = .zone }
                 .buttonStyle(.borderedProminent).tint(RM.primary)
                 .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+        }
+    }
+
+    private var zoneStep: some View {
+        VStack(spacing: 12) {
+            Text("セキュリティゾーン（任意）").font(.title2.weight(.bold))
+            Text("指定した場所に入ると、選んだ動作を実行します。")
+                .font(.subheadline)
+                .foregroundStyle(RM.onSurfaceVariant)
+                .multilineTextAlignment(.center)
+
+            ZStack {
+                ZonePickerMap(center: $zoneCenter, styleURL: MapConfig.styleURL)
+                    .frame(height: 190)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                Image(systemName: "plus")
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(RM.primary)
+            }
+
+            HStack(spacing: 10) {
+                Text("半径").font(.caption)
+                Slider(value: $zoneRadius, in: 100...1000, step: 50)
+                Text("\(Int(zoneRadius))m")
+                    .font(.caption.monospacedDigit())
+                    .frame(width: 52, alignment: .trailing)
+            }
+
+            Picker("入室時の動作", selection: $zoneAction) {
+                ForEach(SecurityZone.Action.allCases) { action in
+                    Text(action.label).tag(action)
+                }
+            }
+            .pickerStyle(.menu)
+
+            Button("このゾーンを設定してはじめる") {
+                useZone = true
+                finish()
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(RM.primary)
+
+            Button("設定せずにはじめる") {
+                useZone = false
+                finish()
+            }
+            .font(.footnote)
         }
     }
 
@@ -77,6 +126,14 @@ struct OnboardingView: View {
         guard lock.setPIN(pin) else {
             error = "パスコードを保存できませんでした。もう一度お試しください。"
             return
+        }
+        if useZone {
+            SecurityZoneStore.current = SecurityZone(
+                latitude: zoneCenter.latitude,
+                longitude: zoneCenter.longitude,
+                radius: zoneRadius,
+                action: zoneAction
+            )
         }
         savedName = trimmed
         store.displayName = trimmed

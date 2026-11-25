@@ -63,6 +63,7 @@ enum MapConfig {
 
 struct MapHomeView: View {
     @EnvironmentObject private var store: ChatStore
+    @EnvironmentObject private var location: LocationProvider
     @StateObject private var actions = MapActions()
     @State private var selectedId: String? = MapConfig.initialFocus
     @State private var chatTarget: Contact?
@@ -70,12 +71,16 @@ struct MapHomeView: View {
 
     private var people: [MapPerson] { MapDemo.people }
     private var selected: MapPerson? { people.first { $0.id == selectedId } }
+    private var me: CLLocationCoordinate2D {
+        location.location?.coordinate ?? MapDemo.me
+    }
 
     var body: some View {
         ZStack {
             MapContainer(
                 people: people,
-                me: MapDemo.me,
+                me: me,
+                hasUserLocation: location.location != nil,
                 focusId: selectedId,
                 onSelect: { selectedId = $0 },
                 actions: actions,
@@ -100,10 +105,22 @@ struct MapHomeView: View {
 
             VStack(spacing: 0) {
                 HStack(spacing: 8) {
-                    pill {
-                        HStack(spacing: 7) {
-                            Circle().fill(Color(hex: 0x06C755)).frame(width: 8, height: 8)
-                            Text("位置情報を共有中").font(.caption.weight(.semibold))
+                    if location.hasPermission {
+                        pill {
+                            HStack(spacing: 7) {
+                                Circle().fill(Color(hex: 0x06C755)).frame(width: 8, height: 8)
+                                Text("位置情報を共有中").font(.caption.weight(.semibold))
+                            }
+                        }
+                    } else {
+                        Button { location.requestPermission() } label: {
+                            pill {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "location.fill")
+                                        .font(.caption2)
+                                    Text("現在地を許可").font(.caption.weight(.semibold))
+                                }
+                            }
                         }
                     }
                     Spacer()
@@ -128,7 +145,7 @@ struct MapHomeView: View {
                         mapButton("plus") { actions.zoomIn() }
                         mapButton("minus") { actions.zoomOut() }
                         mapButton("location") {
-                            actions.center(MapDemo.me, zoom: 14.5)
+                            actions.center(me, zoom: 15.5)
                         }
                     }
                 }
@@ -237,7 +254,7 @@ struct MapHomeView: View {
     }
 
     private func distanceLabel(_ person: MapPerson) -> String {
-        let from = CLLocation(latitude: MapDemo.me.latitude, longitude: MapDemo.me.longitude)
+        let from = CLLocation(latitude: me.latitude, longitude: me.longitude)
         let to = CLLocation(latitude: person.latitude, longitude: person.longitude)
         let meters = from.distance(from: to)
         if meters >= 1000 {
@@ -272,6 +289,7 @@ final class MapActions: ObservableObject {
 struct MapContainer: UIViewRepresentable {
     let people: [MapPerson]
     let me: CLLocationCoordinate2D
+    let hasUserLocation: Bool
     let focusId: String?
     let onSelect: (String) -> Void
     let actions: MapActions
@@ -290,7 +308,12 @@ struct MapContainer: UIViewRepresentable {
             zoomLevel: focus == nil ? 14.5 : 15.5,
             animated: false
         )
-        map.addAnnotations(makeAnnotations())
+        let annotations = makeAnnotations()
+        map.addAnnotations(annotations)
+        context.coordinator.meAnnotation = annotations
+            .compactMap { $0 as? MLNPointAnnotation }
+            .first { $0.subtitle == "__me__" }
+        context.coordinator.lastMe = me
         actions.map = map
         context.coordinator.lastFocus = focusId
         context.coordinator.lastStyleURL = styleURL
@@ -304,6 +327,20 @@ struct MapContainer: UIViewRepresentable {
             context.coordinator.lastStyleURL = styleURL
             map.styleURL = styleURL
         }
+
+        let previous = context.coordinator.lastMe
+        if previous == nil ||
+            previous!.latitude != me.latitude ||
+            previous!.longitude != me.longitude {
+            context.coordinator.meAnnotation?.coordinate = me
+            context.coordinator.lastMe = me
+        }
+
+        if hasUserLocation, !context.coordinator.centeredOnUser, focusId == nil {
+            context.coordinator.centeredOnUser = true
+            map.setCenter(me, zoomLevel: 15.5, animated: true)
+        }
+
         if let focusId, focusId != context.coordinator.lastFocus,
            let person = people.first(where: { $0.id == focusId }) {
             context.coordinator.lastFocus = focusId
@@ -333,6 +370,9 @@ struct MapContainer: UIViewRepresentable {
         var parent: MapContainer
         var lastFocus: String?
         var lastStyleURL: URL?
+        var meAnnotation: MLNPointAnnotation?
+        var lastMe: CLLocationCoordinate2D?
+        var centeredOnUser = false
 
         init(_ parent: MapContainer) {
             self.parent = parent

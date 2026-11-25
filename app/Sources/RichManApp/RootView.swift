@@ -13,6 +13,7 @@ struct RootView: View {
     @StateObject private var store = ChatStore(displayName: "自分")
     @StateObject private var calls = CallStore()
     @StateObject private var lock = LockStore()
+    @StateObject private var location = LocationProvider()
     @State private var backgroundedAt: Date?
     @State private var privacyCover = false
     @State private var screenCaptured = UIScreen.main.isCaptured
@@ -50,12 +51,16 @@ struct RootView: View {
         .environmentObject(store)
         .environmentObject(calls)
         .environmentObject(lock)
+        .environmentObject(location)
         .tint(RM.primary)
         .onAppear {
             if !savedName.isEmpty { store.displayName = savedName }
             #if DEBUG
             if skipOnboarding, savedName.isEmpty { store.displayName = "テスト" }
+            SecurityZoneStore.seedDebugZoneIfNeeded()
             #endif
+            location.startIfAuthorized()
+            applySecurityZoneIfNeeded()
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
@@ -66,6 +71,8 @@ struct RootView: View {
                     lock.lock()
                 }
                 backgroundedAt = nil
+                location.startIfAuthorized()
+                applySecurityZoneIfNeeded()
             case .background:
                 privacyCover = true
                 backgroundedAt = Date()
@@ -79,6 +86,9 @@ struct RootView: View {
             NotificationCenter.default.publisher(for: UIScreen.capturedDidChangeNotification)
         ) { _ in
             screenCaptured = UIScreen.main.isCaptured
+        }
+        .onChange(of: location.location?.timestamp) { _, _ in
+            if scenePhase == .active { applySecurityZoneIfNeeded() }
         }
         .fullScreenCover(
             isPresented: Binding(
@@ -122,6 +132,21 @@ struct RootView: View {
         UserDefaults.standard.set(false, forKey: "rm.onboarded")
         UserDefaults.standard.removeObject(forKey: "rm.displayName")
         savedName = ""
+    }
+
+    /// Applies the security-zone action when the user is inside the zone.
+    private func applySecurityZoneIfNeeded() {
+        guard let zone = SecurityZoneStore.current,
+              let fix = location.location,
+              zone.contains(fix.coordinate) else { return }
+        switch zone.action {
+        case .lock:
+            lock.lock()
+        case .clearChats:
+            store.clearAllMessages()
+        case .clearAccount:
+            wipeLocalData()
+        }
     }
 
     /// Screenshot/CI hook: `-rm.chat <peerId>` opens that conversation directly.
