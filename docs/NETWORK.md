@@ -41,8 +41,13 @@ xcodebuild -project RichManCrypto.xcodeproj -scheme RichManCryptoApp \
   -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
   -configuration Debug CODE_SIGNING_ALLOWED=NO \
   LIBRARY_SEARCH_PATHS="<libsignal_ffi.a のあるディレクトリ>" \
-  OTHER_LDFLAGS="-lsignal_ffi" build
+  OTHER_LDFLAGS="-lsignal_ffi" \
+  ARCHS=arm64 ONLY_ACTIVE_ARCH=YES EXCLUDED_ARCHS=x86_64 build
 ```
+
+シミュレータ用 FFI は `aarch64-apple-ios-sim` のみビルドするため、
+`generic/platform=iOS Simulator` でも x86_64 を除外する（Intel Mac の
+シミュレータは非対応。実機 arm64 と Apple Silicon シミュレータは可）。
 
 CI（`iOS Crypto`）では `secrets.RM_RELAY_HOST` を xcodegen に渡している。
 未設定のビルドでは設定画面に「リレー未設定」と表示し、招待は
