@@ -27,7 +27,7 @@ final class ChatStore: ObservableObject {
     let relay: RelayService
 
     init(displayName: String,
-         crypto: CryptoProvider = MockCryptoProvider(),
+         crypto: CryptoProvider = CryptoProviderFactory.make(),
          transport: RelayTransport = StubRelayTransport()) {
         self.displayName = displayName
         self.crypto = crypto

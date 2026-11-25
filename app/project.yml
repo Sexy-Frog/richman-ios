@@ -1,9 +1,8 @@
 # XcodeGen spec — generates RichMan.xcodeproj on the macOS CI runner
 # (`brew install xcodegen && xcodegen generate`). Hand-writing a .pbxproj is
 # avoided; the project is reproducible from this file. The app depends ONLY on
-# RichManCore for now so it compiles for the iOS Simulator with no signing and
-# no libsignal FFI; RichManCrypto is wired in later via the CryptoProvider
-# boundary once its macOS/iOS FFI build is green.
+# RichManCore + MapLibre so it compiles for the iOS Simulator with no signing and
+# no libsignal FFI; the real-crypto build uses project-crypto.yml instead.
 name: RichMan
 options:
   bundleIdPrefix: works.kelvins

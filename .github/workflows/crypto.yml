@@ -9,6 +9,8 @@ on:
     branches: [ main, master ]
     paths:
       - 'crypto/**'
+      - 'app/project-crypto.yml'
+      - 'app/Sources/RichManApp/LibSignalCryptoProvider.swift'
       - '.gitmodules'
       - '.github/workflows/crypto.yml'
   workflow_dispatch:
@@ -57,3 +59,33 @@ jobs:
           echo "libsignal_ffi.a dir: $FFI_DIR"
           test -n "$FFI_DIR"
           swift test -v -Xlinker -L"$FFI_DIR"
+
+      - name: Build libsignal FFI (iOS Simulator)
+        working-directory: crypto
+        run: CARGO_BUILD_TARGET=aarch64-apple-ios-sim ./third_party/libsignal/swift/build_ffi.sh --release
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate app project (real-crypto spec)
+        working-directory: app
+        run: xcodegen generate --spec project-crypto.yml
+
+      - name: Build RichManCrypto app (Simulator)
+        working-directory: app
+        run: |
+          FFI_ROOT="$(cd ../crypto && pwd)"
+          FFI_DIR=$(dirname "$(find "$FFI_ROOT/third_party/libsignal/target/aarch64-apple-ios-sim" -name libsignal_ffi.a | head -n1)")
+          echo "simulator FFI dir: $FFI_DIR"
+          test -n "$FFI_DIR"
+          xcodebuild \
+            -project RichManCrypto.xcodeproj \
+            -scheme RichManCryptoApp \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Debug \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            LIBRARY_SEARCH_PATHS="$FFI_DIR" \
+            OTHER_LDFLAGS="-lsignal_ffi" \
+            build

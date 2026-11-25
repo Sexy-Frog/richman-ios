@@ -15,6 +15,17 @@ protocol CryptoProvider: CryptoEngine {
     func startSession(peerId: String, bundle: Data) throws
 }
 
+enum CryptoProviderFactory {
+    static func make() -> CryptoProvider {
+        #if REAL_CRYPTO
+        if let real = try? LibSignalCryptoProvider() {
+            return real
+        }
+        #endif
+        return MockCryptoProvider()
+    }
+}
+
 /// No-crypto stand-in for Simulator / UI development. Produces well-shaped but
 /// non-secure values so screens render and flows wire up; never ships in a
 /// device build.
