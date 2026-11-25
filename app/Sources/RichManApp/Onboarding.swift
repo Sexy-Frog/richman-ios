@@ -114,8 +114,16 @@ struct OnboardingView: View {
                     .tag(index)
                 }
             }
-            .tabViewStyle(.page(indexDisplayMode: .always))
+            .tabViewStyle(.page(indexDisplayMode: .never))
             .frame(height: 380)
+
+            HStack(spacing: 8) {
+                ForEach(0..<Self.introPages.count, id: \.self) { index in
+                    Circle()
+                        .fill(index == introPage ? RM.primary : RM.outline.opacity(0.35))
+                        .frame(width: 8, height: 8)
+                }
+            }
 
             Button(introPage == Self.introPages.count - 1 ? "さあ始めよう" : "次へ") {
                 if introPage == Self.introPages.count - 1 {
