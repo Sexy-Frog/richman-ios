@@ -204,6 +204,13 @@ public struct GroupInviteMessage: Codable, Equatable {
     public var members: [GroupMember]
     public var n: String?
     public var ts: Int64?
+
+    public init(gid: String, name: String, hub: String, hub_box: String,
+                hub_tag: String, members: [GroupMember], n: String? = nil,
+                ts: Int64? = nil) {
+        self.gid = gid; self.name = name; self.hub = hub; self.hub_box = hub_box
+        self.hub_tag = hub_tag; self.members = members; self.n = n; self.ts = ts
+    }
 }
 
 /// `group_msg` carries text (`b`) or a media manifest string (`m`) per `kind`.
@@ -221,6 +228,15 @@ public struct GroupMessage: Codable, Equatable {
     public var ren: String?
     public var ret: String?
     public var mentions: [String]?
+
+    public init(gid: String, kind: String, b: String? = nil, m: String? = nil,
+                n: String, sender: String, ts: Int64? = nil, mid: String? = nil,
+                re: String? = nil, ren: String? = nil, ret: String? = nil,
+                mentions: [String]? = nil) {
+        self.gid = gid; self.kind = kind; self.b = b; self.m = m
+        self.n = n; self.sender = sender; self.ts = ts; self.mid = mid
+        self.re = re; self.ren = ren; self.ret = ret; self.mentions = mentions
+    }
 }
 
 /// group_add / group_leave / group_remove membership signals (from/forwarded by hub).
@@ -231,6 +247,12 @@ public struct GroupMembershipMessage: Codable, Equatable {
     public var name: String?
     public var n: String?          // actor display name
     public var ts: Int64?
+
+    public init(t: String, gid: String, id: String? = nil, name: String? = nil,
+                n: String? = nil, ts: Int64? = nil) {
+        self.t = t; self.gid = gid; self.id = id; self.name = name
+        self.n = n; self.ts = ts
+    }
 }
 
 /// `{"t":"group_del","gid":"...","ids":[...],"sender":"...","ts":...}`

@@ -230,6 +230,45 @@ final class ChatStore: ObservableObject {
                 text: "位置情報の共有が停止されました",
                 remoteId: nil
             )
+        case .groupInvite?:
+            guard let invite = try? JSONDecoder().decode(
+                GroupInviteMessage.self, from: opened.payload
+            ) else { return }
+            ensureGroup(
+                invite.gid,
+                name: invite.name,
+                members: invite.members.map(\.id) + [opened.senderId]
+            )
+            appendGroupMessage(
+                invite.gid,
+                message: ChatMessage(
+                    id: UUID().uuidString,
+                    body: "\(invite.n ?? contact(opened.senderId)?.name ?? "友だち")がグループ「\(invite.name)」に招待しました",
+                    mine: false,
+                    ts: Date()
+                )
+            )
+        case .groupMsg?:
+            guard let groupMessage = try? JSONDecoder().decode(
+                GroupMessage.self, from: opened.payload
+            ) else { return }
+            ensureGroup(groupMessage.gid, name: nil, members: [groupMessage.sender])
+            appendGroupMessage(
+                groupMessage.gid,
+                message: ChatMessage(
+                    id: UUID().uuidString,
+                    body: groupMessage.b ?? "メッセージ",
+                    mine: false,
+                    ts: Date(),
+                    senderName: groupMessage.n,
+                    remoteId: groupMessage.mid
+                )
+            )
+        case .groupAdd?, .groupRemove?, .groupLeave?:
+            guard let membership = try? JSONDecoder().decode(
+                GroupMembershipMessage.self, from: opened.payload
+            ) else { return }
+            handleMembership(membership)
         case .read?:
             markMyMessagesRead(opened.senderId)
         case .del?:
@@ -742,16 +781,59 @@ final class ChatStore: ObservableObject {
         groups.append(group)
         groupMessages[group.id] = []
         scheduleSave()
+        sendInvites(for: group, to: group.memberIds)
         return group
+    }
+
+    private func memberList(of group: ChatGroup) -> [GroupMember] {
+        group.memberIds.map { id in
+            GroupMember(id: id, name: contact(id)?.name ?? "メンバー")
+        }
+    }
+
+    private func invitePayload(for group: ChatGroup) -> Data? {
+        let invite = GroupInviteMessage(
+            gid: group.id,
+            name: group.name,
+            hub: crypto.myId,
+            hub_box: "",
+            hub_tag: "",
+            members: memberList(of: group),
+            n: displayName,
+            ts: Int64(Date().timeIntervalSince1970 * 1000)
+        )
+        return try? invite.toPayloadJSON()
+    }
+
+    private func sendInvites(for group: ChatGroup, to ids: [String]) {
+        guard let json = invitePayload(for: group) else { return }
+        for id in ids where id != crypto.myId {
+            transmit(json, to: id, markMid: "")
+        }
     }
 
     func send(toGroup id: String, text: String) {
         let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !body.isEmpty else { return }
+        guard !body.isEmpty, let group = self.group(id) else { return }
+        let mid = UUID().uuidString
         groupMessages[id, default: []].append(
-            ChatMessage(id: UUID().uuidString, body: body, mine: true, ts: Date())
+            ChatMessage(id: mid, body: body, mine: true, ts: Date(), remoteId: mid)
         )
         scheduleSave()
+
+        let message = GroupMessage(
+            gid: id,
+            kind: "text",
+            b: body,
+            n: displayName,
+            sender: crypto.myId,
+            ts: Int64(Date().timeIntervalSince1970 * 1000),
+            mid: mid
+        )
+        guard let json = try? message.toPayloadJSON() else { return }
+        for member in group.memberIds where member != crypto.myId {
+            transmit(json, to: member, markMid: "")
+        }
     }
 
     func receive(inGroup id: String, from sender: String, text: String) {
@@ -773,16 +855,101 @@ final class ChatStore: ObservableObject {
 
     func addMembers(_ ids: [String], to groupId: String) {
         guard let index = groups.firstIndex(where: { $0.id == groupId }) else { return }
-        var members = Set(groups[index].memberIds)
-        members.formUnion(ids)
-        groups[index].memberIds = Array(members)
+        let existing = Set(groups[index].memberIds)
+        let added = ids.filter { !existing.contains($0) && $0 != crypto.myId }
+        guard !added.isEmpty else { return }
+        groups[index].memberIds.append(contentsOf: added)
         scheduleSave()
+
+        let group = groups[index]
+        // New members get the full invite; existing ones get a membership add.
+        sendInvites(for: group, to: added)
+        for newMember in added {
+            let add = GroupMembershipMessage(
+                t: MessageType.groupAdd.rawValue,
+                gid: groupId,
+                id: newMember,
+                name: contact(newMember)?.name ?? "メンバー",
+                n: displayName,
+                ts: Int64(Date().timeIntervalSince1970 * 1000)
+            )
+            guard let json = try? add.toPayloadJSON() else { continue }
+            for member in group.memberIds where member != crypto.myId && member != newMember {
+                transmit(json, to: member, markMid: "")
+            }
+        }
     }
 
     func removeMember(_ id: String, from groupId: String) {
         guard let index = groups.firstIndex(where: { $0.id == groupId }) else { return }
         groups[index].memberIds.removeAll { $0 == id }
         scheduleSave()
+
+        let remove = GroupMembershipMessage(
+            t: MessageType.groupRemove.rawValue,
+            gid: groupId,
+            id: id,
+            name: contact(id)?.name ?? "メンバー",
+            n: displayName,
+            ts: Int64(Date().timeIntervalSince1970 * 1000)
+        )
+        guard let json = try? remove.toPayloadJSON() else { return }
+        transmit(json, to: id, markMid: "")
+        for member in groups[index].memberIds where member != crypto.myId {
+            transmit(json, to: member, markMid: "")
+        }
+    }
+
+    /// Create the group locally when a message arrives before/without an invite.
+    private func ensureGroup(_ gid: String, name: String?, members: [String]) {
+        if let index = groups.firstIndex(where: { $0.id == gid }) {
+            if let name, !name.isEmpty { groups[index].name = name }
+            var set = Set(groups[index].memberIds)
+            for member in members where member != crypto.myId { set.insert(member) }
+            groups[index].memberIds = Array(set)
+        } else {
+            let resolved = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+            groups.append(
+                ChatGroup(
+                    id: gid,
+                    name: (resolved?.isEmpty == false ? resolved! : "グループ"),
+                    memberIds: members.filter { $0 != crypto.myId }
+                )
+            )
+            groupMessages[gid] = groupMessages[gid] ?? []
+        }
+        scheduleSave()
+    }
+
+    private func handleMembership(_ membership: GroupMembershipMessage) {
+        guard let index = groups.firstIndex(where: { $0.id == membership.gid }) else {
+            return
+        }
+        switch membership.t {
+        case MessageType.groupAdd.rawValue:
+            if let id = membership.id, id != crypto.myId,
+               !groups[index].memberIds.contains(id) {
+                groups[index].memberIds.append(id)
+            }
+        case MessageType.groupRemove.rawValue, MessageType.groupLeave.rawValue:
+            if let id = membership.id {
+                groups[index].memberIds.removeAll { $0 == id }
+            }
+        default:
+            break
+        }
+        scheduleSave()
+    }
+
+    private func appendGroupMessage(_ groupId: String, message: ChatMessage) {
+        groupMessages[groupId, default: []].append(message)
+        scheduleSave()
+        if UIApplication.shared.applicationState != .active {
+            NotificationManager.shared.message(
+                from: message.senderName ?? "グループ",
+                preview: message.body
+            )
+        }
     }
 
     func seedGroups(_ groups: [ChatGroup], messages: [String: [ChatMessage]]) {
