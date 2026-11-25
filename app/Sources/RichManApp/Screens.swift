@@ -81,36 +81,6 @@ struct FriendsView: View {
     }
 }
 
-// MARK: 設定
-
-struct SettingsView: View {
-    @EnvironmentObject private var store: ChatStore
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("プロフィール") {
-                    LabeledContent("表示名", value: store.displayName)
-                    LabeledContent("ID", value: store.myId).font(.footnote)
-                }
-                Section("セキュリティ") {
-                    NavigationLink("パスコード") { PlaceholderDetail(title: "パスコード") }
-                    NavigationLink("自動ロック") { PlaceholderDetail(title: "自動ロック") }
-                    NavigationLink("セキュリティゾーン") { PlaceholderDetail(title: "セキュリティゾーン") }
-                }
-                Section("データ") {
-                    NavigationLink("トークを全部消す") { PlaceholderDetail(title: "トークを全部消す") }
-                    NavigationLink("友だちを全員消す") { PlaceholderDetail(title: "友だちを全員消す") }
-                }
-                Section("このアプリ") {
-                    LabeledContent("バージョン", value: "0.1.0 (開発中)")
-                }
-            }
-            .navigationTitle("設定")
-        }
-    }
-}
-
 // MARK: shared bits
 
 struct EmptyState: View {
@@ -139,13 +109,5 @@ struct Avatar: View {
             .font(.headline).foregroundStyle(.white)
             .frame(width: 40, height: 40)
             .background(Brand.signalBlue, in: Circle())
-    }
-}
-
-private struct PlaceholderDetail: View {
-    let title: String
-    var body: some View {
-        EmptyState(icon: "hammer", title: title, message: "この画面は移植中です。")
-            .navigationTitle(title)
     }
 }

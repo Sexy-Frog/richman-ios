@@ -1,0 +1,70 @@
+name: iOS Screenshots
+
+# Builds the app for the iOS Simulator, launches it with DEBUG-only launch
+# arguments that skip onboarding and open a specific tab, then uploads a
+# screenshot as an artifact. Used for visual verification without a local Mac.
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'app/**'
+      - '.github/workflows/screenshots.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: shots-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  settings:
+    name: Settings screen (Simulator)
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: app
+        run: xcodegen generate
+
+      - name: Build for iOS Simulator (unsigned)
+        working-directory: app
+        run: |
+          xcodebuild \
+            -project RichMan.xcodeproj \
+            -scheme RichMan \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Debug \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Boot simulator
+        run: |
+          UDID=$(xcrun simctl list devices available | grep -E "iPhone" | head -1 | sed -E 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/')
+          test -n "$UDID"
+          echo "Simulator: $UDID"
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl ui "$UDID" appearance light
+
+      - name: Install and launch (settings tab)
+        run: |
+          APP="app/build/Build/Products/Debug-iphonesimulator/RichMan.app"
+          xcrun simctl install "$UDID" "$APP"
+          xcrun simctl launch "$UDID" works.kelvins.richman \
+            -rm.skipOnboarding 1 -rm.displayName テスト -rm.tab 2
+          sleep 5
+          mkdir -p shots
+          xcrun simctl io "$UDID" screenshot shots/settings.png
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-screenshots
+          path: shots
+          if-no-files-found: error

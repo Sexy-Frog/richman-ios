@@ -78,6 +78,23 @@ final class ChatStore: ObservableObject {
         if let i = contacts.firstIndex(where: { $0.id == peerId }) { contacts[i].unread = 0 }
     }
 
+    // MARK: data deletion (this device only)
+
+    /// Delete every message on this device, keeping contacts.
+    func clearAllMessages() {
+        messagesByPeer.removeAll()
+        for i in contacts.indices {
+            contacts[i].lastMessage = ""
+            contacts[i].unread = 0
+        }
+    }
+
+    /// Delete contacts and messages on this device. The peer's copy is untouched.
+    func clearAllContacts() {
+        contacts.removeAll()
+        messagesByPeer.removeAll()
+    }
+
     /// My one-time invite to show as a QR. For the mock this is a QRInvite JSON;
     /// the live provider will mint a relay-backed invite (createInvite).
     func makeInvite() throws -> String {
