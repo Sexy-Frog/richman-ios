@@ -127,6 +127,16 @@ final class ChatStore: ObservableObject {
         messagesByPeer.removeValue(forKey: peerId)
     }
 
+    /// Full local wipe (duress / repeated wrong PIN). Includes the official feed.
+    func wipeAllLocal() {
+        contacts.removeAll()
+        groups.removeAll()
+        messagesByPeer.removeAll()
+        groupMessages.removeAll()
+        blockedIds.removeAll()
+        UserDefaults.standard.removeObject(forKey: blockedKey)
+    }
+
     // MARK: official account (one-way broadcast, local only)
 
     private func seedOfficialIfNeeded() {

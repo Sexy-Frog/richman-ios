@@ -5,8 +5,13 @@ import SwiftUI
 struct RootView: View {
     @AppStorage("rm.onboarded") private var onboarded = false
     @AppStorage("rm.displayName") private var savedName = ""
+    @AppStorage("rm.autoLockSeconds") private var autoLockSeconds = 0
+    @Environment(\.scenePhase) private var scenePhase
+
     @StateObject private var store = ChatStore(displayName: "自分")
     @StateObject private var calls = CallStore()
+    @StateObject private var lock = LockStore()
+    @State private var backgroundedAt: Date?
 
     /// Screenshot/CI hook: launch with `-rm.skipOnboarding 1` to bypass setup.
     /// DEBUG only, so release builds always start at onboarding.
@@ -20,7 +25,9 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if let gid = debugGroupId, let group = store.group(gid) {
+            if lock.locked {
+                LockScreenView(onWipe: wipeLocalData)
+            } else if let gid = debugGroupId, let group = store.group(gid) {
                 NavigationStack { GroupChatView(group: group) }
             } else if let peer = debugChatPeer, let contact = store.contact(peer) {
                 NavigationStack { ChatView(contact: contact) }
@@ -32,12 +39,27 @@ struct RootView: View {
         }
         .environmentObject(store)
         .environmentObject(calls)
+        .environmentObject(lock)
         .tint(RM.primary)
         .onAppear {
             if !savedName.isEmpty { store.displayName = savedName }
             #if DEBUG
             if skipOnboarding, savedName.isEmpty { store.displayName = "テスト" }
             #endif
+        }
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .background:
+                backgroundedAt = Date()
+            case .active:
+                if let at = backgroundedAt, autoLockSeconds > 0,
+                   Date().timeIntervalSince(at) >= Double(autoLockSeconds) {
+                    lock.lock()
+                }
+                backgroundedAt = nil
+            default:
+                break
+            }
         }
         .fullScreenCover(
             isPresented: Binding(
@@ -47,6 +69,16 @@ struct RootView: View {
         ) {
             CallOverlay().environmentObject(calls)
         }
+    }
+
+    /// Local wipe after repeated wrong PINs. Remote copies are unaffected.
+    private func wipeLocalData() {
+        store.wipeAllLocal()
+        MediaStore.clearAll()
+        lock.reset()
+        UserDefaults.standard.set(false, forKey: "rm.onboarded")
+        UserDefaults.standard.removeObject(forKey: "rm.displayName")
+        savedName = ""
     }
 
     /// Screenshot/CI hook: `-rm.chat <peerId>` opens that conversation directly.

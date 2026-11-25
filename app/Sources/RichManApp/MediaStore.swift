@@ -51,11 +51,24 @@ enum MediaStore {
         UIImage(contentsOfFile: directory.appendingPathComponent(name).path)
     }
 
+    static func clearAll() {
+        guard let items = try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: nil
+        ) else { return }
+        for item in items {
+            try? FileManager.default.removeItem(at: item)
+        }
+    }
+
     static func fileURL(named name: String) -> URL {
         directory.appendingPathComponent(name)
     }
 
     static func demoImage() -> String? {
+        let name = "demo-welcome.jpg"
+        let url = directory.appendingPathComponent(name)
+        if FileManager.default.fileExists(atPath: url.path) { return name }
+
         let size = CGSize(width: 640, height: 420)
         let renderer = UIGraphicsImageRenderer(size: size)
         let image = renderer.image { context in
@@ -87,7 +100,12 @@ enum MediaStore {
             )
         }
         guard let data = image.jpegData(compressionQuality: 0.9) else { return nil }
-        return saveImage(data)
+        do {
+            try data.write(to: url, options: [.atomic, .completeFileProtection])
+            return name
+        } catch {
+            return nil
+        }
     }
 
     private static func downsample(_ data: Data, maxPixel: Int) -> UIImage? {

@@ -6,12 +6,14 @@ import SwiftUI
 /// labelled honestly instead of pretending to work.
 struct SettingsView: View {
     @EnvironmentObject private var store: ChatStore
+    @EnvironmentObject private var lock: LockStore
     @AppStorage("rm.displayName") private var savedName = ""
     @AppStorage("rm.preview") private var previewInNotifications = false
     @AppStorage("rm.autoLockSeconds") private var autoLockSeconds = 0
 
     @State private var showNameEdit = false
     @State private var showPolicy = false
+    @State private var showPINChange = false
     @State private var confirmClearChats = false
     @State private var confirmClearFriends = false
 
@@ -58,16 +60,29 @@ struct SettingsView: View {
                         Text("1分").tag(60)
                         Text("5分").tag(300)
                     }
-                    NavigationLink("パスコード") {
-                        PlaceholderScreen(
-                            title: "パスコード",
-                            message: "Keychain 保存とロック画面は次の移植で入ります。"
-                        )
+                    Button { showPINChange = true } label: {
+                        HStack {
+                            Text("パスコードを変更")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
                     }
+                    .foregroundStyle(RM.onSurface)
+                    Button { lock.lock() } label: {
+                        HStack {
+                            Text("今すぐロック")
+                            Spacer()
+                            Image(systemName: "lock.fill")
+                                .foregroundStyle(RM.onSurfaceVariant)
+                        }
+                    }
+                    .foregroundStyle(RM.onSurface)
                 } header: {
                     Text("セキュリティ")
                 } footer: {
-                    Text("自動ロックの値は保存されます。実際のロック画面は次の移植で有効になります。")
+                    Text("自動ロックはバックグラウンドに移ってからの経過時間で判定します。")
                 }
 
                 Section {
@@ -96,6 +111,9 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $showPolicy) {
                 PrivacySheet()
+            }
+            .sheet(isPresented: $showPINChange) {
+                ChangePINView().environmentObject(lock)
             }
             .confirmationDialog(
                 "トークを全部消しますか？",
@@ -211,12 +229,63 @@ private struct PrivacySheet: View {
     }
 }
 
-private struct PlaceholderScreen: View {
-    let title: String
-    let message: String
+private struct ChangePINView: View {
+    @EnvironmentObject private var lock: LockStore
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var current = ""
+    @State private var next = ""
+    @State private var confirm = ""
+    @State private var error: String?
 
     var body: some View {
-        EmptyState(icon: "hammer", title: title, message: message)
-            .navigationTitle(title)
+        NavigationStack {
+            Form {
+                Section("現在の暗証番号") {
+                    SecureField("現在の暗証番号", text: $current)
+                        .keyboardType(.numberPad)
+                }
+                Section("新しい暗証番号") {
+                    SecureField("新しい暗証番号", text: $next)
+                        .keyboardType(.numberPad)
+                    SecureField("もう一度入力", text: $confirm)
+                        .keyboardType(.numberPad)
+                }
+                if let error {
+                    Text(error).foregroundStyle(RM.error)
+                }
+            }
+            .navigationTitle("パスコードを変更")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("キャンセル") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存") { save() }
+                        .disabled(next.count < 4)
+                }
+            }
+        }
+    }
+
+    private func save() {
+        guard lock.check(current) else {
+            error = "現在の暗証番号が違います"
+            return
+        }
+        guard next.count >= 4, next.allSatisfy(\.isNumber) else {
+            error = "数字4桁以上で設定してください"
+            return
+        }
+        guard next == confirm else {
+            error = "新しい暗証番号が一致しません"
+            return
+        }
+        if lock.setPIN(next) {
+            dismiss()
+        } else {
+            error = "保存できませんでした"
+        }
     }
 }

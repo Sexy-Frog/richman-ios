@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import VisionKit
 import RichManCore
 
 /// Friend-add: show my invite code, or paste a peer's to add them. The QR render
@@ -10,6 +11,7 @@ struct AddFriendView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var myInvite = ""
     @State private var scanned = ""
+    @State private var showScanner = false
     @State private var info: String?
     @State private var error: String?
 
@@ -39,10 +41,19 @@ struct AddFriendView: View {
                     }
                 }
                 Section("相手を追加") {
+                    Button {
+                        if DataScannerViewController.isSupported {
+                            showScanner = true
+                        } else {
+                            error = "この端末ではQRスキャンを利用できません。コードを貼り付けてください。"
+                        }
+                    } label: {
+                        Label("QRコードをスキャン", systemImage: "qrcode.viewfinder")
+                    }
                     TextField("招待コードを貼り付け", text: $scanned, axis: .vertical)
                     Button("追加") { add() }
                         .disabled(scanned.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    Text("カメラでのQRスキャンは実装予定です。コードを貼り付けて追加できます。")
+                    Text("カメラが使えない場合は、コードを貼り付けて追加できます。")
                         .font(.caption).foregroundStyle(RM.onSurfaceVariant)
                 }
                 if let info { Text(info).foregroundStyle(RM.primary) }
@@ -52,6 +63,22 @@ struct AddFriendView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { Button("閉じる") { dismiss() } }
+            }
+            .sheet(isPresented: $showScanner) {
+                ZStack(alignment: .topTrailing) {
+                    QRScannerView { code in
+                        showScanner = false
+                        scanned = code
+                        add()
+                    }
+                    .ignoresSafeArea()
+
+                    Button("閉じる") { showScanner = false }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .padding()
+                }
             }
         }
     }

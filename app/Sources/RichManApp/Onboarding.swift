@@ -10,6 +10,7 @@ struct OnboardingView: View {
     @AppStorage("rm.onboarded") private var onboarded = false
     @AppStorage("rm.displayName") private var savedName = ""
     @EnvironmentObject private var store: ChatStore
+    @EnvironmentObject private var lock: LockStore
 
     private enum Step { case pin, name }
     @State private var step: Step = .pin
@@ -73,6 +74,10 @@ struct OnboardingView: View {
     private func finish() {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
+        guard lock.setPIN(pin) else {
+            error = "パスコードを保存できませんでした。もう一度お試しください。"
+            return
+        }
         savedName = trimmed
         store.displayName = trimmed
         onboarded = true
