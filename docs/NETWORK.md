@@ -86,6 +86,19 @@ CI（`iOS Crypto`）では `secrets.RM_RELAY_HOST` を xcodegen に渡してい�
   配信し、MapLibre はループバックだけを見る。実際の取得は RelayClient が
   SOCKS 経由で `/v1/map/*` を叩く。ATS は `NSAllowsLocalNetworking` のみ許可。
   Tor 未接続時はプレースホルダー（リリース）／直接 CDN（DEBUG のみ）。
+- **通話**: `call_offer` / `call_answer` / `call_end` と ADPCM 音声
+  (`call_audio`) を同じ 1:1 暗号化経路で送る。音声は 16 kHz（相手が旧版なら
+  8 kHz）・300 ms チャンク・IMA ADPCM。通話中は相手メールボックスを
+  long-poll（wait 15s）して遅延を抑える。Tor の RTT が大きいため通話品質は
+  ネットワーク次第。`AVAudioEngine` + `AVAudioConverter` で 16 kHz に変換する。
+
+## E2E（CI）
+
+`iOS E2E` ワークフローが **2 台の iOS Simulator** で実リレーに対して
+「招待 → 双方向テキスト → 画像 → 位置 → グループ → Tor 地図（スタイル+タイル取得）」
+を実行する。アプリは `-rm.e2eRole host|join` で起動し、結果を
+`Documents/e2e.json` に書く（`E2E.swift`, DEBUG のみ）。Apple Developer
+アカウントは不要。
 
 ## 端末内の保存
 
@@ -98,7 +111,7 @@ CI（`iOS Crypto`）では `secrets.RM_RELAY_HOST` を xcodegen に渡してい�
 
 - **実機での疎通は未検証**。CI はビルドまで。実機で
   「招待作成 → 別端末で読み取り → 双方向メッセージ」を確認する必要がある。
-- 通話音声はまだリレー経路に載っていない（ローカル ADPCM のみ）。
+- 通話は Tor の遅延により品質が不安定（300ms チャンク、ジッタで破棄）。
 - グループ画像/ファイル、グループの未読バッジは未対応。
 - 地図プロキシは 1 リクエスト 1 SOCKS 接続。初回表示は Tor の遅延を伴う。
 - Tor 起動はプロセス常駐（Tor C API に停止関数がない）。Android と同じ。
