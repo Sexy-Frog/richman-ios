@@ -42,19 +42,22 @@ targets:
         product: RichManCrypto
       - package: TorSupport
         product: TorSupport
+    info:
+      path: Info-Crypto.plist
+      properties:
+        CFBundleDisplayName: RichMan
+        ITSAppUsesNonExemptEncryption: true
+        NSCameraUsageDescription: "QRコードを読み取って友だちを追加します。"
+        NSLocationWhenInUseUsageDescription: "現在地を地図に表示し、セキュリティゾーンの判定に使います。"
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        # Onion relay address is injected by CI (never committed).
+        RMRelayHost: $(RM_RELAY_HOST)
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: works.kelvins.richman.crypto
-        GENERATE_INFOPLIST_FILE: YES
-        # Onion relay address is injected by CI (never committed).
         RM_RELAY_HOST: ${RM_RELAY_HOST}
-        INFOPLIST_KEY_RMRelayHost: "$(RM_RELAY_HOST)"
-        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: YES
-        INFOPLIST_KEY_CFBundleDisplayName: RichMan
-        INFOPLIST_KEY_NSCameraUsageDescription: "QRコードを読み取って友だちを追加します。"
-        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "現在地を地図に表示し、セキュリティゾーンの判定に使います。"
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
-        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
         TARGETED_DEVICE_FAMILY: "1"
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: "DEBUG REAL_CRYPTO"

@@ -36,18 +36,23 @@ targets:
         product: RichManCore
       - package: MapLibre
         product: MapLibre
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: works.kelvins.richman
-        GENERATE_INFOPLIST_FILE: YES
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: RichMan
         # App Store export compliance: the app uses strong (non-exempt) encryption.
         # Declared here so uploads don't re-prompt; export self-classification is
         # still handled in App Store Connect (see docs/DESIGN.md §10).
-        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: YES
-        INFOPLIST_KEY_CFBundleDisplayName: RichMan
-        INFOPLIST_KEY_NSCameraUsageDescription: "QRコードを読み取って友だちを追加します。"
-        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "現在地を地図に表示し、セキュリティゾーンの判定に使います。"
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
-        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        ITSAppUsesNonExemptEncryption: true
+        NSCameraUsageDescription: "QRコードを読み取って友だちを追加します。"
+        NSLocationWhenInUseUsageDescription: "現在地を地図に表示し、セキュリティゾーンの判定に使います。"
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        # Empty in the mock build; the real build injects the onion at generation.
+        RMRelayHost: $(RM_RELAY_HOST)
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: works.kelvins.richman
         TARGETED_DEVICE_FAMILY: "1"
