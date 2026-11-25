@@ -81,6 +81,7 @@ jobs:
           shoot friends -rm.tab 2
           shoot settings -rm.tab 3
           shoot chat -rm.chat demo-alice
+          shoot official -rm.chat official
           shoot group -rm.group demo-group
           shoot call -rm.call active -rm.chat demo-alice
 

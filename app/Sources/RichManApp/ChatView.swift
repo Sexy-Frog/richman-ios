@@ -1,30 +1,41 @@
 import SwiftUI
+import PhotosUI
+import UniformTypeIdentifiers
 
 /// 1:1 chat backed by the shared `ChatStore`. UI parity with the Android client:
-/// date dividers, timestamps, delivery ticks, reply, disappearing-message setting,
-/// block/report, and demo attachments. The relay send/receive loop replaces the
-/// local echo at `ChatStore.send/receive` next.
+/// date dividers, timestamps, delivery ticks, reply, disappearing messages,
+/// attachments, block/report, and a one-way official account.
 struct ChatView: View {
     let contact: Contact
     @EnvironmentObject private var store: ChatStore
     @EnvironmentObject private var calls: CallStore
-    @AppStorage("rm.ttl") private var ttlSeconds = 0
 
     @State private var draft = ""
     @State private var replyTo: ChatMessage?
     @State private var showReport = false
     @State private var showTTL = false
     @State private var showAttach = false
+    @State private var showPhotos = false
+    @State private var showFiles = false
+    @State private var photoItem: PhotosPickerItem?
+    @State private var ttlSeconds = 0
 
     private var messages: [ChatMessage] { store.messages(for: contact.id) }
     private var isBlocked: Bool { store.isBlocked(contact.id) }
+    private var isOfficial: Bool { contact.official }
     private var canSend: Bool {
-        !isBlocked && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !isBlocked && !isOfficial &&
+            !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            if isBlocked { blockedBanner }
+            if isOfficial {
+                officialBanner
+            } else if isBlocked {
+                blockedBanner
+            }
+            if ttlSeconds > 0 { ttlBanner }
 
             ScrollViewReader { proxy in
                 ScrollView {
@@ -60,59 +71,116 @@ struct ChatView: View {
                 .defaultScrollAnchor(.bottom)
             }
 
-            if let replyTo { replyBar(replyTo) }
-            composer
+            if isOfficial {
+                officialFooter
+            } else {
+                if let replyTo { replyBar(replyTo) }
+                composer
+            }
         }
         .background(RM.chatBg)
         .navigationTitle(contact.name)
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { store.markRead(contact.id) }
+        .onAppear {
+            store.markRead(contact.id)
+            ttlSeconds = store.ttl(for: contact.id)
+            store.purgeExpired(contact.id)
+        }
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { calls.start(contact.name) } label: {
-                    Image(systemName: "phone.fill")
+            if !isOfficial {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { calls.start(contact.name) } label: {
+                        Image(systemName: "phone.fill")
+                    }
                 }
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button(
-                        isBlocked ? "ブロックを解除" : "ブロック",
-                        systemImage: isBlocked ? "hand.raised.slash" : "hand.raised"
-                    ) {
-                        store.setBlocked(contact.id, !isBlocked)
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button(
+                            isBlocked ? "ブロックを解除" : "ブロック",
+                            systemImage: isBlocked ? "hand.raised.slash" : "hand.raised"
+                        ) {
+                            store.setBlocked(contact.id, !isBlocked)
+                        }
+                        Button("通報", systemImage: "flag", role: .destructive) {
+                            showReport = true
+                        }
+                        Divider()
+                        Button("消えるメッセージ", systemImage: "timer") {
+                            showTTL = true
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
                     }
-                    Button("通報", systemImage: "flag", role: .destructive) {
-                        showReport = true
-                    }
-                    Divider()
-                    Button("消えるメッセージ", systemImage: "timer") {
-                        showTTL = true
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
                 }
             }
         }
         .sheet(isPresented: $showReport) {
             ReportSheet(contact: contact).environmentObject(store)
         }
-        .sheet(isPresented: $showTTL) {
+        .sheet(isPresented: $showTTL, onDismiss: {
+            store.setTTL(ttlSeconds, for: contact.id)
+        }) {
             TTLSheet(seconds: $ttlSeconds)
         }
+        .photosPicker(isPresented: $showPhotos, selection: $photoItem, matching: .images)
+        .fileImporter(
+            isPresented: $showFiles,
+            allowedContentTypes: [.data],
+            allowsMultipleSelection: false
+        ) { result in
+            guard case .success(let urls) = result, let url = urls.first else { return }
+            let access = url.startAccessingSecurityScopedResource()
+            defer { if access { url.stopAccessingSecurityScopedResource() } }
+            store.sendFile(to: contact.id, url: url)
+        }
+        .onChange(of: photoItem) { _, item in
+            guard let item else { return }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self) {
+                    store.sendImage(to: contact.id, data: data)
+                }
+                photoItem = nil
+            }
+        }
         .confirmationDialog("送信する", isPresented: $showAttach, titleVisibility: .visible) {
-            Button("画像（デモ）") { store.send(to: contact.id, text: "画像", kind: .image) }
-            Button("ファイル（デモ）") { store.send(to: contact.id, text: "ファイル", kind: .file) }
+            Button("写真") { showPhotos = true }
+            Button("ファイル") { showFiles = true }
             Button("キャンセル", role: .cancel) {}
         }
         .task {
-            // Simulated transport acks so the ticks match the Android UI.
             store.markDelivered(contact.id)
             try? await Task.sleep(nanoseconds: 700_000_000)
             store.markMyMessagesRead(contact.id)
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                store.purgeExpired(contact.id)
+            }
         }
     }
 
     // MARK: pieces
+
+    private var officialBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "megaphone.fill")
+            Text("公式アカウントからのお知らせです")
+                .font(.footnote.weight(.semibold))
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(RM.surfaceVariant)
+        .foregroundStyle(RM.onSurfaceVariant)
+    }
+
+    private var officialFooter: some View {
+        Text("配信専用のため返信できません")
+            .font(.caption)
+            .foregroundStyle(RM.onSurfaceVariant)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(RM.background)
+    }
 
     private var blockedBanner: some View {
         HStack(spacing: 8) {
@@ -129,6 +197,19 @@ struct ChatView: View {
         .foregroundStyle(RM.onSurfaceVariant)
     }
 
+    private var ttlBanner: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "timer")
+            Text("消えるメッセージ: \(ttlLabel(ttlSeconds))")
+            Spacer()
+        }
+        .font(.caption2)
+        .foregroundStyle(RM.onSurfaceVariant)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+        .background(RM.surface)
+    }
+
     private func replyBar(_ target: ChatMessage) -> some View {
         HStack(spacing: 8) {
             Rectangle()
@@ -137,7 +218,7 @@ struct ChatView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(target.mine ? "自分" : contact.name) に返信")
                     .font(.caption.weight(.semibold))
-                Text(target.body)
+                Text(target.kind == .text ? target.body : "添付ファイル")
                     .font(.caption)
                     .lineLimit(1)
                     .foregroundStyle(.secondary)
@@ -184,6 +265,15 @@ struct ChatView: View {
     private func replyPreview(for message: ChatMessage) -> String? {
         guard let id = message.replyTo else { return nil }
         return messages.first { $0.id == id }?.body
+    }
+
+    private func ttlLabel(_ seconds: Int) -> String {
+        switch seconds {
+        case 3600: return "1時間"
+        case 86_400: return "1日"
+        case 604_800: return "7日"
+        default: return "オフ"
+        }
     }
 
     private func send() {
@@ -244,33 +334,57 @@ private struct MessageBubble: View {
     private var content: some View {
         switch message.kind {
         case .text:
-            Text(message.body)
-                .foregroundStyle(message.mine ? RM.bubbleMeText : RM.bubbleThemText)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(
-                    message.mine ? RM.bubbleMe : RM.bubbleThem,
-                    in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-                )
+            bubbleText(message.body)
         case .image:
-            Label("画像", systemImage: "photo")
-                .foregroundStyle(message.mine ? RM.bubbleMeText : RM.bubbleThemText)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(
-                    message.mine ? RM.bubbleMe : RM.bubbleThem,
-                    in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-                )
+            if let name = message.mediaName, let image = MediaStore.image(named: name) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: 210)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            } else {
+                bubbleLabel("画像", icon: "photo")
+            }
         case .file:
-            Label("ファイル", systemImage: "doc")
-                .foregroundStyle(message.mine ? RM.bubbleMeText : RM.bubbleThemText)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(
-                    message.mine ? RM.bubbleMe : RM.bubbleThem,
-                    in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-                )
+            VStack(alignment: .leading, spacing: 2) {
+                Label(message.body, systemImage: "doc")
+                    .lineLimit(1)
+                if let size = message.fileSize {
+                    Text(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))
+                        .font(.caption2)
+                        .opacity(0.7)
+                }
+            }
+            .foregroundStyle(message.mine ? RM.bubbleMeText : RM.bubbleThemText)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                message.mine ? RM.bubbleMe : RM.bubbleThem,
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            )
         }
+    }
+
+    private func bubbleText(_ text: String) -> some View {
+        Text(text)
+            .foregroundStyle(message.mine ? RM.bubbleMeText : RM.bubbleThemText)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                message.mine ? RM.bubbleMe : RM.bubbleThem,
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            )
+    }
+
+    private func bubbleLabel(_ text: String, icon: String) -> some View {
+        Label(text, systemImage: icon)
+            .foregroundStyle(message.mine ? RM.bubbleMeText : RM.bubbleThemText)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                message.mine ? RM.bubbleMe : RM.bubbleThem,
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            )
     }
 
     private var timeLabel: String {
@@ -332,7 +446,7 @@ private struct TTLSheet: View {
                     }
                     .pickerStyle(.inline)
                 } footer: {
-                    Text("この端末の表示設定です。送信側の自動削除は次の移植で有効になります。")
+                    Text("この端末の履歴に適用されます。送信側の自動削除は次の移植で有効になります。")
                 }
             }
             .navigationTitle("消えるメッセージ")

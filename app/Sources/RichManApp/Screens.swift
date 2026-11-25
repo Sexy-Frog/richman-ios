@@ -62,9 +62,27 @@ private struct ContactRow: View {
     let contact: Contact
     var body: some View {
         HStack(spacing: 12) {
-            Avatar(name: contact.name)
+            if contact.official {
+                Image(systemName: "megaphone.fill")
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 40)
+                    .background(Brand.signalBlue, in: Circle())
+            } else {
+                Avatar(name: contact.name)
+            }
             VStack(alignment: .leading, spacing: 2) {
-                Text(contact.name).font(.body.weight(.semibold))
+                HStack(spacing: 6) {
+                    Text(contact.name).font(.body.weight(.semibold))
+                    if contact.official {
+                        Text("公式")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(RM.primary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(RM.primary.opacity(0.12), in: Capsule())
+                    }
+                }
                 Text(contact.lastMessage.isEmpty ? "トークを始めましょう" : contact.lastMessage)
                     .font(.subheadline).foregroundStyle(RM.onSurfaceVariant).lineLimit(1)
             }
@@ -86,10 +104,12 @@ struct FriendsView: View {
     @State private var showAdd = false
     @State private var reportTarget: Contact?
 
+    private var friends: [Contact] { store.contacts.filter { !$0.official } }
+
     var body: some View {
         NavigationStack {
             Group {
-                if store.contacts.isEmpty {
+                if friends.isEmpty {
                     EmptyState(
                         icon: "person.2",
                         title: "友だちがいません",
@@ -97,7 +117,7 @@ struct FriendsView: View {
                     )
                 } else {
                     List {
-                        ForEach(store.contacts) { friend in
+                        ForEach(friends) { friend in
                             NavigationLink(value: friend) {
                                 FriendRow(contact: friend, blocked: store.isBlocked(friend.id))
                             }

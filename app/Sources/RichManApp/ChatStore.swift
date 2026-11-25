@@ -34,6 +34,7 @@ final class ChatStore: ObservableObject {
             self.blockedIds = Set(saved)
         }
         DemoData.seed(into: self)
+        seedOfficialIfNeeded()
     }
 
     var myId: String { crypto.myId }
@@ -103,9 +104,10 @@ final class ChatStore: ObservableObject {
 
     // MARK: data deletion (this device only)
 
-    /// Delete every message on this device, keeping contacts.
+    /// Delete every message on this device, keeping contacts and the official feed.
     func clearAllMessages() {
-        messagesByPeer.removeAll()
+        let keep = contacts.first { $0.official }?.id
+        messagesByPeer = messagesByPeer.filter { $0.key == keep }
         for i in contacts.indices {
             contacts[i].lastMessage = ""
             contacts[i].unread = 0
@@ -114,13 +116,86 @@ final class ChatStore: ObservableObject {
 
     /// Delete contacts and messages on this device. The peer's copy is untouched.
     func clearAllContacts() {
-        contacts.removeAll()
-        messagesByPeer.removeAll()
+        let keep = contacts.first { $0.official }?.id
+        contacts.removeAll { !$0.official }
+        messagesByPeer = messagesByPeer.filter { $0.key == keep }
     }
 
     func removeContact(_ peerId: String) {
+        guard !(contacts.first { $0.id == peerId }?.official ?? false) else { return }
         contacts.removeAll { $0.id == peerId }
         messagesByPeer.removeValue(forKey: peerId)
+    }
+
+    // MARK: official account (one-way broadcast, local only)
+
+    private func seedOfficialIfNeeded() {
+        guard !contacts.contains(where: { $0.official }) else { return }
+        let official = Contact(id: "official", name: "Richman", official: true)
+        contacts.insert(official, at: 0)
+        messagesByPeer[official.id] = [
+            ChatMessage(
+                id: "official-welcome",
+                body: """
+                RichMan へようこそ。
+
+                ・メッセージ・画像・ファイル・通話は端末間で暗号化されます。
+                ・位置情報は友達とだけ共有され、設定でいつでも停止できます。
+                ・このアカウントは運営からの配信専用です（返信はできません）。
+                """,
+                mine: false,
+                ts: Date().addingTimeInterval(-3600)
+            ),
+        ]
+    }
+
+    // MARK: disappearing messages
+
+    func ttl(for peerId: String) -> Int {
+        UserDefaults.standard.integer(forKey: "rm.ttl.\(peerId)")
+    }
+
+    func setTTL(_ seconds: Int, for peerId: String) {
+        UserDefaults.standard.set(seconds, forKey: "rm.ttl.\(peerId)")
+        purgeExpired(peerId)
+    }
+
+    func purgeExpired(_ peerId: String) {
+        let seconds = ttl(for: peerId)
+        guard seconds > 0, let list = messagesByPeer[peerId] else { return }
+        let cutoff = Date().addingTimeInterval(-Double(seconds))
+        let kept = list.filter { $0.ts > cutoff }
+        if kept.count != list.count {
+            messagesByPeer[peerId] = kept
+        }
+    }
+
+    // MARK: media
+
+    func sendImage(to peerId: String, data: Data) {
+        guard !isBlocked(peerId), let name = MediaStore.saveImage(data) else { return }
+        messagesByPeer[peerId, default: []].append(
+            ChatMessage(
+                id: UUID().uuidString, body: "", mine: true, ts: Date(),
+                kind: .image, mediaName: name
+            )
+        )
+        if let i = contacts.firstIndex(where: { $0.id == peerId }) {
+            contacts[i].lastMessage = "画像"
+        }
+    }
+
+    func sendFile(to peerId: String, url: URL) {
+        guard !isBlocked(peerId), let saved = MediaStore.saveFile(url) else { return }
+        messagesByPeer[peerId, default: []].append(
+            ChatMessage(
+                id: UUID().uuidString, body: saved.name, mine: true, ts: Date(),
+                kind: .file, mediaName: saved.name, fileSize: saved.size
+            )
+        )
+        if let i = contacts.firstIndex(where: { $0.id == peerId }) {
+            contacts[i].lastMessage = "ファイル"
+        }
     }
 
     // MARK: groups (hub fan-out lands with the relay loop)
@@ -214,6 +289,7 @@ struct Contact: Identifiable, Hashable {
     var name: String
     var lastMessage: String = ""
     var unread: Int = 0
+    var official: Bool = false
 }
 
 struct ChatGroup: Identifiable, Hashable {
@@ -240,4 +316,7 @@ struct ChatMessage: Identifiable, Hashable {
     var delivery: Delivery = .sent
     /// Set for incoming group messages (nil in 1:1 chats).
     var senderName: String? = nil
+    /// Local media file name (image/file messages).
+    var mediaName: String? = nil
+    var fileSize: Int? = nil
 }

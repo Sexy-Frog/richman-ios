@@ -35,13 +35,22 @@ enum DemoData {
         let alice = Contact(id: "demo-alice", name: "アリス")
         let bob = Contact(id: "demo-bob", name: "ボブ")
 
-        let aliceMessages = [
+        var aliceMessages = [
             message("a1", "明日の待ち合わせ、渋谷でいい？", minutesAgo: 46),
             message("a2", "OK、11時にハチ公前で", mine: true, minutesAgo: 44, delivery: .read),
             message("a3", "了解！遅れそうなら連絡するね", minutesAgo: 42),
             message("a4", "ありがとう", mine: true, minutesAgo: 40, delivery: .delivered),
-            message("a5", "写真も送っておくね", minutesAgo: 12, kind: .image),
+            message("a5", "写真も送っておくね", minutesAgo: 12),
         ]
+        if let demoImage = MediaStore.demoImage() {
+            aliceMessages.append(
+                ChatMessage(
+                    id: "a6", body: "", mine: false,
+                    ts: now.addingTimeInterval(-11 * 60),
+                    kind: .image, mediaName: demoImage
+                )
+            )
+        }
 
         let bobMessages = [
             message("b1", "資料ありがとう！", minutesAgo: 180),
