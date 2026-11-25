@@ -10,6 +10,7 @@ struct SettingsView: View {
     @AppStorage("rm.displayName") private var savedName = ""
     @AppStorage("rm.preview") private var previewInNotifications = false
     @AppStorage("rm.autoLockSeconds") private var autoLockSeconds = 0
+    @AppStorage("rm.retentionDays") private var retentionDays = 30
 
     @State private var showNameEdit = false
     @State private var showPolicy = false
@@ -45,6 +46,9 @@ struct SettingsView: View {
 
                 Section {
                     Toggle("通知に本文を表示", isOn: $previewInNotifications)
+                    Button("通知を許可") {
+                        NotificationManager.shared.requestAuthorization()
+                    }
                 } header: {
                     Text("通知")
                 } footer: {
@@ -86,6 +90,16 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    Picker("メッセージの自動削除", selection: $retentionDays) {
+                        Text("オフ").tag(0)
+                        Text("7日").tag(7)
+                        Text("30日").tag(30)
+                        Text("90日").tag(90)
+                        Text("365日").tag(365)
+                    }
+                    .onChange(of: retentionDays) { _, days in
+                        store.purgeOldMessages(days: days)
+                    }
                     Button("トークを全部消す", role: .destructive) {
                         confirmClearChats = true
                     }

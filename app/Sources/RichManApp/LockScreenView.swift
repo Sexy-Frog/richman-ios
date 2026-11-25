@@ -1,14 +1,16 @@
 import SwiftUI
+import UIKit
 
-/// PIN unlock screen. The parent decides what "wipe" means after the configured
-/// number of wrong attempts.
+/// PIN unlock screen with a custom keypad (no system keyboard). Supports the
+/// 4–8 digit PINs accepted by onboarding and change-PIN.
 struct LockScreenView: View {
     @EnvironmentObject private var lock: LockStore
     let onWipe: () -> Void
 
-    @State private var pin = ""
+    @State private var digits = ""
     @State private var error: String?
-    @FocusState private var focused: Bool
+
+    private let maxDigits = 8
 
     var body: some View {
         ZStack {
@@ -27,21 +29,8 @@ struct LockScreenView: View {
                     .font(.subheadline)
                     .foregroundStyle(RM.onSurfaceVariant)
 
-                SecureField("暗証番号", text: $pin)
-                    .keyboardType(.numberPad)
-                    .textContentType(.oneTimeCode)
-                    .focused($focused)
-                    .multilineTextAlignment(.center)
-                    .font(.title3.monospaced())
-                    .padding()
-                    .background(RM.surface, in: RoundedRectangle(cornerRadius: 12))
-                    .padding(.horizontal, 32)
-                    .onSubmit(unlock)
-
-                Button("解除", action: unlock)
-                    .buttonStyle(.borderedProminent)
-                    .tint(RM.primary)
-                    .disabled(pin.count < 4)
+                dots
+                    .padding(.vertical, 6)
 
                 if let error {
                     Text(error)
@@ -55,18 +44,89 @@ struct LockScreenView: View {
                         .foregroundStyle(RM.onSurfaceVariant)
                 }
 
+                keypad
+                    .padding(.top, 4)
+
+                Button("解除", action: unlock)
+                    .buttonStyle(.borderedProminent)
+                    .tint(RM.primary)
+                    .disabled(digits.count < 4)
+
                 Spacer()
             }
+            .padding(.horizontal, 28)
         }
-        .onAppear { focused = true }
+    }
+
+    private var dots: some View {
+        HStack(spacing: 14) {
+            ForEach(0..<max(4, digits.count), id: \.self) { index in
+                Circle()
+                    .fill(index < digits.count ? RM.primary : RM.outline)
+                    .frame(width: 14, height: 14)
+            }
+        }
+        .animation(.easeOut(duration: 0.12), value: digits.count)
+    }
+
+    private var keypad: some View {
+        VStack(spacing: 14) {
+            ForEach(0..<3, id: \.self) { row in
+                HStack(spacing: 22) {
+                    ForEach(0..<3, id: \.self) { column in
+                        digitKey("\(row * 3 + column + 1)")
+                    }
+                }
+            }
+            HStack(spacing: 22) {
+                Color.clear.frame(width: 70, height: 70)
+                digitKey("0")
+                Button(action: deleteDigit) {
+                    Image(systemName: "delete.left")
+                        .font(.system(size: 24, weight: .medium))
+                        .foregroundStyle(RM.onSurface)
+                        .frame(width: 70, height: 70)
+                        .background(RM.surface, in: Circle())
+                        .overlay(Circle().stroke(RM.outline, lineWidth: 1))
+                }
+                .accessibilityLabel("1文字削除")
+            }
+        }
+    }
+
+    private func digitKey(_ value: String) -> some View {
+        Button {
+            append(value)
+        } label: {
+            Text(value)
+                .font(.system(size: 30, weight: .medium))
+                .foregroundStyle(RM.onSurface)
+                .frame(width: 70, height: 70)
+                .background(RM.surface, in: Circle())
+                .overlay(Circle().stroke(RM.outline, lineWidth: 1))
+        }
+        .accessibilityLabel(value)
+    }
+
+    private func append(_ value: String) {
+        guard digits.count < maxDigits else { return }
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        digits += value
+        error = nil
+    }
+
+    private func deleteDigit() {
+        guard !digits.isEmpty else { return }
+        digits.removeLast()
     }
 
     private func unlock() {
-        if lock.unlock(pin) {
-            pin = ""
+        if lock.unlock(digits) {
+            digits = ""
             error = nil
         } else {
-            pin = ""
+            digits = ""
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
             if lock.failedAttempts >= lock.wipeAfter {
                 onWipe()
             } else {

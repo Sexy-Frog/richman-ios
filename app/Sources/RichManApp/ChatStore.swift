@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 import RichManCore
 
 /// Shared app state across the hub tabs (contacts, conversations, messages) and
@@ -35,6 +36,8 @@ final class ChatStore: ObservableObject {
         }
         DemoData.seed(into: self)
         seedOfficialIfNeeded()
+        let stored = UserDefaults.standard.object(forKey: "rm.retentionDays") as? Int
+        purgeOldMessages(days: stored ?? 30)
     }
 
     var myId: String { crypto.myId }
@@ -95,6 +98,12 @@ final class ChatStore: ObservableObject {
         if let i = contacts.firstIndex(where: { $0.id == peerId }) {
             contacts[i].lastMessage = text
             contacts[i].unread += 1
+        }
+        if UIApplication.shared.applicationState != .active {
+            NotificationManager.shared.message(
+                from: contact(peerId)?.name ?? "RichMan",
+                preview: text
+            )
         }
     }
 
@@ -181,6 +190,14 @@ final class ChatStore: ObservableObject {
         if kept.count != list.count {
             messagesByPeer[peerId] = kept
         }
+    }
+
+    /// Global retention (Settings → データ). 0 keeps messages forever.
+    func purgeOldMessages(days: Int) {
+        guard days > 0 else { return }
+        let cutoff = Date().addingTimeInterval(-Double(days) * 86_400)
+        messagesByPeer = messagesByPeer.mapValues { $0.filter { $0.ts > cutoff } }
+        groupMessages = groupMessages.mapValues { $0.filter { $0.ts > cutoff } }
     }
 
     // MARK: media

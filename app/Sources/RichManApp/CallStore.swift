@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import Combine
 
 /// Mock call state for the ported overlay. The real audio path (ADPCM 16 kHz,
@@ -34,6 +35,9 @@ final class CallStore: ObservableObject {
         peerName = name
         seconds = 0
         phase = .incoming
+        if UIApplication.shared.applicationState != .active {
+            NotificationManager.shared.incomingCall(from: name)
+        }
     }
 
     func accept() {

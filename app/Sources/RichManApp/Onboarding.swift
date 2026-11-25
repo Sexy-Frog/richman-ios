@@ -81,5 +81,6 @@ struct OnboardingView: View {
         savedName = trimmed
         store.displayName = trimmed
         onboarded = true
+        NotificationManager.shared.requestAuthorization()
     }
 }

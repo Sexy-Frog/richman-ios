@@ -66,6 +66,7 @@ struct MapHomeView: View {
     @StateObject private var actions = MapActions()
     @State private var selectedId: String? = MapConfig.initialFocus
     @State private var chatTarget: Contact?
+    @State private var styleURL: URL? = MapConfig.styleURL
 
     private var people: [MapPerson] { MapDemo.people }
     private var selected: MapPerson? { people.first { $0.id == selectedId } }
@@ -77,7 +78,8 @@ struct MapHomeView: View {
                 me: MapDemo.me,
                 focusId: selectedId,
                 onSelect: { selectedId = $0 },
-                actions: actions
+                actions: actions,
+                styleURL: styleURL
             )
             .ignoresSafeArea()
 
@@ -143,6 +145,12 @@ struct MapHomeView: View {
         .sheet(item: $chatTarget) { contact in
             NavigationStack { ChatView(contact: contact) }
                 .environmentObject(store)
+        }
+        .task {
+            guard MapConfig.styleURL != nil else { return }
+            if let japanese = await MapStyleLoader.japaneseStyleFile() {
+                styleURL = japanese
+            }
         }
     }
 
@@ -267,11 +275,12 @@ struct MapContainer: UIViewRepresentable {
     let focusId: String?
     let onSelect: (String) -> Void
     let actions: MapActions
+    let styleURL: URL?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeUIView(context: Context) -> MLNMapView {
-        let map = MLNMapView(frame: .zero, styleURL: MapConfig.styleURL)
+        let map = MLNMapView(frame: .zero, styleURL: styleURL)
         map.delegate = context.coordinator
         map.showsLogoView = false
         map.showsAttributionButton = false
@@ -284,12 +293,17 @@ struct MapContainer: UIViewRepresentable {
         map.addAnnotations(makeAnnotations())
         actions.map = map
         context.coordinator.lastFocus = focusId
+        context.coordinator.lastStyleURL = styleURL
         return map
     }
 
     func updateUIView(_ map: MLNMapView, context: Context) {
         context.coordinator.parent = self
         actions.map = map
+        if styleURL != context.coordinator.lastStyleURL {
+            context.coordinator.lastStyleURL = styleURL
+            map.styleURL = styleURL
+        }
         if let focusId, focusId != context.coordinator.lastFocus,
            let person = people.first(where: { $0.id == focusId }) {
             context.coordinator.lastFocus = focusId
@@ -318,6 +332,7 @@ struct MapContainer: UIViewRepresentable {
     final class Coordinator: NSObject, MLNMapViewDelegate {
         var parent: MapContainer
         var lastFocus: String?
+        var lastStyleURL: URL?
 
         init(_ parent: MapContainer) {
             self.parent = parent

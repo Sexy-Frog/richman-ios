@@ -1,4 +1,6 @@
 import SwiftUI
+import UIKit
+import Combine
 
 /// Gate: first launch → onboarding; afterwards → the hub. The single `ChatStore`
 /// is created here and shared with every screen.
@@ -12,6 +14,8 @@ struct RootView: View {
     @StateObject private var calls = CallStore()
     @StateObject private var lock = LockStore()
     @State private var backgroundedAt: Date?
+    @State private var privacyCover = false
+    @State private var screenCaptured = UIScreen.main.isCaptured
 
     /// Screenshot/CI hook: launch with `-rm.skipOnboarding 1` to bypass setup.
     /// DEBUG only, so release builds always start at onboarding.
@@ -24,17 +28,23 @@ struct RootView: View {
     }
 
     var body: some View {
-        Group {
-            if lock.locked {
-                LockScreenView(onWipe: wipeLocalData)
-            } else if let gid = debugGroupId, let group = store.group(gid) {
-                NavigationStack { GroupChatView(group: group) }
-            } else if let peer = debugChatPeer, let contact = store.contact(peer) {
-                NavigationStack { ChatView(contact: contact) }
-            } else if onboarded || skipOnboarding {
-                HubView()
-            } else {
-                OnboardingView()
+        ZStack {
+            Group {
+                if lock.locked {
+                    LockScreenView(onWipe: wipeLocalData)
+                } else if let gid = debugGroupId, let group = store.group(gid) {
+                    NavigationStack { GroupChatView(group: group) }
+                } else if let peer = debugChatPeer, let contact = store.contact(peer) {
+                    NavigationStack { ChatView(contact: contact) }
+                } else if onboarded || skipOnboarding {
+                    HubView()
+                } else {
+                    OnboardingView()
+                }
+            }
+
+            if privacyCover || screenCaptured {
+                privacyOverlay
             }
         }
         .environmentObject(store)
@@ -49,17 +59,26 @@ struct RootView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
-            case .background:
-                backgroundedAt = Date()
             case .active:
+                privacyCover = false
                 if let at = backgroundedAt, autoLockSeconds > 0,
                    Date().timeIntervalSince(at) >= Double(autoLockSeconds) {
                     lock.lock()
                 }
                 backgroundedAt = nil
-            default:
+            case .background:
+                privacyCover = true
+                backgroundedAt = Date()
+            case .inactive:
+                privacyCover = true
+            @unknown default:
                 break
             }
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(for: UIScreen.capturedDidChangeNotification)
+        ) { _ in
+            screenCaptured = UIScreen.main.isCaptured
         }
         .fullScreenCover(
             isPresented: Binding(
@@ -69,6 +88,30 @@ struct RootView: View {
         ) {
             CallOverlay().environmentObject(calls)
         }
+    }
+
+    /// Hides content in the app switcher and while the screen is being recorded.
+    private var privacyOverlay: some View {
+        ZStack {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .ignoresSafeArea()
+
+            VStack(spacing: 10) {
+                Image(systemName: "lock.shield.fill")
+                    .font(.system(size: 46))
+                    .foregroundStyle(RM.primary)
+                Text(screenCaptured ? "画面収録中" : "RichMan")
+                    .font(.headline)
+                if screenCaptured {
+                    Text("録画中は内容を表示しません")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .transition(.opacity)
+        .zIndex(10)
     }
 
     /// Local wipe after repeated wrong PINs. Remote copies are unaffected.
