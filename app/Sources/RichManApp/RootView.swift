@@ -64,8 +64,11 @@ struct RootView: View {
             #endif
             location.startIfAuthorized()
             applySecurityZoneIfNeeded()
-            // No-op in the mock build (TorSupport not linked).
+            // No-op in the mock build (TorSupport not linked). With an external
+            // SOCKS (CI) the phase is ready synchronously, so attach here too;
+            // otherwise the onChange below attaches when Tor bootstraps.
             tor.start()
+            store.attachRelay(tor.readyTransport)
             wireCalls()
         }
         .onChange(of: scenePhase) { _, phase in

@@ -71,6 +71,19 @@ jobs:
         working-directory: tor
         run: bash scripts/fetch-tor.sh
 
+      # Populate the cache even when the E2E itself later fails; the default
+      # post-job cache save only runs on success, which made every retry pay
+      # the ~20 min Rust build again.
+      - name: Save FFI + Tor cache
+        if: always()
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            crypto/third_party/libsignal/target
+            tor/Vendor
+          key: e2e-ffi-${{ hashFiles('crypto/third_party/libsignal/rust-toolchain', 'crypto/third_party/libsignal/Cargo.lock') }}-v1
+
       - name: Generate app project
         working-directory: app
         env:

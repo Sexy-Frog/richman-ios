@@ -43,6 +43,7 @@ enum E2E {
             "cryptoError": CryptoProviderFactory.lastError ?? "",
         ])
         let transport = try await waitForTor(tor)
+        store.attachRelay(transport)
         let mapOK = await verifyTorMap(tor: tor)
         report(["phase": "invite", "map": mapOK])
 
@@ -138,6 +139,7 @@ enum E2E {
             "cryptoError": CryptoProviderFactory.lastError ?? "",
         ])
         let transport = try await waitForTor(tor)
+        store.attachRelay(transport)
 
         guard let encoded = UserDefaults.standard.string(forKey: "rm.e2eInvite"),
               let data = try? Base64URL.decode(encoded),
@@ -167,6 +169,7 @@ enum E2E {
         store.send(to: contact.id, text: "ping")
 
         let deadline = Date().addingTimeInterval(420)
+        var pingSent = false
         var textSeen = false
         var imageSeen = false
         var placeSeen = false
@@ -175,6 +178,11 @@ enum E2E {
 
         while Date() < deadline {
             let messages = store.messages(for: contact.id)
+            if !pingSent,
+               messages.contains(where: { $0.mine && $0.body == "ping" && $0.delivery != .sent }) {
+                pingSent = true
+                report(["phase": "ping-delivered"])
+            }
             if messages.contains(where: { !$0.mine && $0.body == "pong" }) {
                 textSeen = true
                 if !mediaSent {
