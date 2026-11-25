@@ -494,18 +494,7 @@ final class ChatStore: ObservableObject {
 
         // `/locate` is a command, never visible text (Android parity).
         if kind == .text, Self.isLocateCommand(body) {
-            messagesByPeer[peerId, default: []].append(
-                ChatMessage(
-                    id: mid, body: "位置情報をリクエストしました", mine: true, ts: Date()
-                )
-            )
-            if let i = contacts.firstIndex(where: { $0.id == peerId }) {
-                contacts[i].lastMessage = "位置情報をリクエスト"
-            }
-            scheduleSave()
-            if let json = try? LocationRequest(id: mid).toPayloadJSON() {
-                transmit(json, to: peerId, markMid: mid)
-            }
+            requestLocation(from: peerId)
             return
         }
 
@@ -998,6 +987,27 @@ final class ChatStore: ObservableObject {
     }
 
     // MARK: media
+
+    /// Ask a contact for a one-shot position (`loc_req`). The peer answers only
+    /// if their sharing toggle is on and they have a current fix.
+    func requestLocation(from peerId: String) {
+        guard !isBlocked(peerId), !(contact(peerId)?.official ?? false) else {
+            return
+        }
+        let mid = UUID().uuidString
+        messagesByPeer[peerId, default: []].append(
+            ChatMessage(
+                id: mid, body: "位置情報をリクエストしました", mine: true, ts: Date()
+            )
+        )
+        if let i = contacts.firstIndex(where: { $0.id == peerId }) {
+            contacts[i].lastMessage = "位置情報をリクエスト"
+        }
+        scheduleSave()
+        if let json = try? LocationRequest(id: mid).toPayloadJSON() {
+            transmit(json, to: peerId, markMid: mid)
+        }
+    }
 
     /// Send my current position as a one-shot `loc_once` (user-initiated only;
     /// there is no background or covert tracking).

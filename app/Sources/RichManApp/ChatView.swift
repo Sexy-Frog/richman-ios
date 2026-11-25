@@ -134,6 +134,9 @@ struct ChatView: View {
                         Button("トークを削除", systemImage: "trash", role: .destructive) {
                             confirmClearChat = true
                         }
+                        Button("位置情報をリクエスト", systemImage: "location") {
+                            store.requestLocation(from: contact.id)
+                        }
                     } label: {
                         Image(systemName: "ellipsis.circle")
                     }

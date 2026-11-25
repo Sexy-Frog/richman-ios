@@ -143,6 +143,11 @@ struct FriendsView: View {
                                 }
                                 .tint(.red)
                             }
+                            .contextMenu {
+                                Button("現在地をリクエスト", systemImage: "location") {
+                                    store.requestLocation(from: friend.id)
+                                }
+                            }
                         }
                     }
                     .listStyle(.plain)
