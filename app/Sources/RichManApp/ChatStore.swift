@@ -31,6 +31,7 @@ final class ChatStore: ObservableObject {
         if let saved = UserDefaults.standard.stringArray(forKey: blockedKey) {
             self.blockedIds = Set(saved)
         }
+        DemoData.seed(into: self)
     }
 
     var myId: String { crypto.myId }
@@ -50,16 +51,36 @@ final class ChatStore: ObservableObject {
 
     /// Append an outgoing message. TODO: stamp rb → crypto.encrypt →
     /// OutgoingSealer.seal → RelayClient.send(to: peer.box).
-    func send(to peerId: String, text: String) {
+    func send(to peerId: String, text: String,
+              kind: ChatMessage.Kind = .text,
+              replyTo: String? = nil) {
         let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty, !isBlocked(peerId) else { return }
         messagesByPeer[peerId, default: []].append(
-            ChatMessage(id: UUID().uuidString, body: body, mine: true, ts: Date())
+            ChatMessage(id: UUID().uuidString, body: body, mine: true, ts: Date(),
+                        kind: kind, replyTo: replyTo)
         )
         if let i = contacts.firstIndex(where: { $0.id == peerId }) {
-            contacts[i].lastMessage = body
+            contacts[i].lastMessage = kind == .text ? body : (kind == .image ? "画像" : "ファイル")
         }
         objectWillChange.send()
+    }
+
+    /// Simulated transport acknowledgements (the relay loop will drive these).
+    func markDelivered(_ peerId: String) {
+        guard var list = messagesByPeer[peerId] else { return }
+        for i in list.indices where list[i].mine && list[i].delivery == .sent {
+            list[i].delivery = .delivered
+        }
+        messagesByPeer[peerId] = list
+    }
+
+    func markMyMessagesRead(_ peerId: String) {
+        guard var list = messagesByPeer[peerId] else { return }
+        for i in list.indices where list[i].mine {
+            list[i].delivery = .read
+        }
+        messagesByPeer[peerId] = list
     }
 
     /// Record an inbound message (will be called by the relay receive loop).
@@ -95,6 +116,25 @@ final class ChatStore: ObservableObject {
         messagesByPeer.removeAll()
     }
 
+    func removeContact(_ peerId: String) {
+        contacts.removeAll { $0.id == peerId }
+        messagesByPeer.removeValue(forKey: peerId)
+    }
+
+    /// Seed deterministic content for screenshots/demo builds (DEBUG only).
+    func seed(contacts: [Contact], messages: [String: [ChatMessage]]) {
+        var list = contacts
+        self.messagesByPeer = messages
+        for i in list.indices {
+            if let last = messages[list[i].id]?.last {
+                list[i].lastMessage = last.kind == .text
+                    ? last.body
+                    : (last.kind == .image ? "画像" : "ファイル")
+            }
+        }
+        self.contacts = list
+    }
+
     /// My one-time invite to show as a QR. For the mock this is a QRInvite JSON;
     /// the live provider will mint a relay-backed invite (createInvite).
     func makeInvite() throws -> String {
@@ -124,8 +164,19 @@ struct Contact: Identifiable, Hashable {
 }
 
 struct ChatMessage: Identifiable, Hashable {
+    enum Kind: String, Hashable {
+        case text, image, file
+    }
+
+    enum Delivery: String, Hashable {
+        case sent, delivered, read
+    }
+
     let id: String
     var body: String
     var mine: Bool
     var ts: Date
+    var kind: Kind = .text
+    var replyTo: String? = nil
+    var delivery: Delivery = .sent
 }

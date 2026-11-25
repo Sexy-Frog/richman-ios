@@ -53,6 +53,7 @@ private struct ContactRow: View {
 struct FriendsView: View {
     @EnvironmentObject private var store: ChatStore
     @State private var showAdd = false
+    @State private var reportTarget: Contact?
 
     var body: some View {
         NavigationStack {
@@ -64,10 +65,37 @@ struct FriendsView: View {
                         message: "QRコード（招待コード）を見せ合って友だちを追加します。"
                     )
                 } else {
-                    List(store.contacts) { f in
-                        HStack(spacing: 12) { Avatar(name: f.name); Text(f.name) }
+                    List {
+                        ForEach(store.contacts) { friend in
+                            NavigationLink(value: friend) {
+                                FriendRow(contact: friend, blocked: store.isBlocked(friend.id))
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    store.removeContact(friend.id)
+                                } label: {
+                                    Label("削除", systemImage: "trash")
+                                }
+                                Button {
+                                    store.setBlocked(friend.id, !store.isBlocked(friend.id))
+                                } label: {
+                                    Label(
+                                        store.isBlocked(friend.id) ? "解除" : "ブロック",
+                                        systemImage: "hand.raised"
+                                    )
+                                }
+                                .tint(.orange)
+                                Button {
+                                    reportTarget = friend
+                                } label: {
+                                    Label("通報", systemImage: "flag")
+                                }
+                                .tint(.red)
+                            }
+                        }
                     }
                     .listStyle(.plain)
+                    .navigationDestination(for: Contact.self) { ChatView(contact: $0) }
                 }
             }
             .navigationTitle("友だち")
@@ -77,7 +105,42 @@ struct FriendsView: View {
                 }
             }
             .sheet(isPresented: $showAdd) { AddFriendView().environmentObject(store) }
+            .sheet(item: $reportTarget) { ReportSheet(contact: $0).environmentObject(store) }
         }
+    }
+}
+
+private struct FriendRow: View {
+    let contact: Contact
+    let blocked: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Avatar(name: contact.name)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(contact.name).font(.body.weight(.semibold))
+                    if blocked {
+                        Image(systemName: "hand.raised.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                    }
+                }
+                Text(contact.lastMessage.isEmpty ? "トークを始めましょう" : contact.lastMessage)
+                    .font(.subheadline)
+                    .foregroundStyle(RM.onSurfaceVariant)
+                    .lineLimit(1)
+            }
+            Spacer()
+            if contact.unread > 0 {
+                Text("\(contact.unread)")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.white)
+                    .padding(6)
+                    .background(RM.primary, in: Circle())
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
 

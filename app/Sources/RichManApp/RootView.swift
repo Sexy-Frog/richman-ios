@@ -19,7 +19,9 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if onboarded || skipOnboarding {
+            if let peer = debugChatPeer, let contact = store.contact(peer) {
+                NavigationStack { ChatView(contact: contact) }
+            } else if onboarded || skipOnboarding {
                 HubView()
             } else {
                 OnboardingView()
@@ -33,6 +35,15 @@ struct RootView: View {
             if skipOnboarding, savedName.isEmpty { store.displayName = "テスト" }
             #endif
         }
+    }
+
+    /// Screenshot/CI hook: `-rm.chat <peerId>` opens that conversation directly.
+    private var debugChatPeer: String? {
+        #if DEBUG
+        return UserDefaults.standard.string(forKey: "rm.chat")
+        #else
+        return nil
+        #endif
     }
 }
 

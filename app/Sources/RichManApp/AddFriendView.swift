@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import RichManCore
 
 /// Friend-add: show my invite code, or paste a peer's to add them. The QR render
@@ -30,13 +31,18 @@ struct AddFriendView: View {
                         Text("相手にこのQRを見せて読み取ってもらいます。")
                             .font(.caption).foregroundStyle(RM.onSurfaceVariant)
                         Text(myInvite).font(.footnote.monospaced()).textSelection(.enabled)
+                        Button("コードをコピー") {
+                            UIPasteboard.general.string = myInvite
+                            info = "招待コードをコピーしました。"
+                        }
+                        .font(.footnote.weight(.semibold))
                     }
                 }
                 Section("相手を追加") {
                     TextField("招待コードを貼り付け", text: $scanned, axis: .vertical)
                     Button("追加") { add() }
                         .disabled(scanned.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    Text("カメラでのQRスキャンは実装予定です。")
+                    Text("カメラでのQRスキャンは実装予定です。コードを貼り付けて追加できます。")
                         .font(.caption).foregroundStyle(RM.onSurfaceVariant)
                 }
                 if let info { Text(info).foregroundStyle(RM.primary) }

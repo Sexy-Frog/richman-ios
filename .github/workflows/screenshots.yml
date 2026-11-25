@@ -52,15 +52,24 @@ jobs:
           xcrun simctl bootstatus "$UDID" -b
           xcrun simctl ui "$UDID" appearance light
 
-      - name: Install and launch (settings tab)
+      - name: Install and capture screens
         run: |
           APP="app/build/Build/Products/Debug-iphonesimulator/RichMan.app"
           xcrun simctl install "$UDID" "$APP"
-          xcrun simctl launch "$UDID" works.kelvins.richman \
-            -rm.skipOnboarding 1 -rm.displayName テスト -rm.tab 2
-          sleep 5
           mkdir -p shots
-          xcrun simctl io "$UDID" screenshot shots/settings.png
+          shoot() {
+            name="$1"
+            shift
+            xcrun simctl terminate "$UDID" works.kelvins.richman >/dev/null 2>&1 || true
+            xcrun simctl launch "$UDID" works.kelvins.richman \
+              -rm.skipOnboarding 1 -rm.demo 1 "$@" >/dev/null
+            sleep 3
+            xcrun simctl io "$UDID" screenshot "shots/${name}.png"
+          }
+          shoot talks -rm.tab 0
+          shoot friends -rm.tab 1
+          shoot settings -rm.tab 2
+          shoot chat -rm.chat demo-alice
 
       - name: Upload screenshots
         uses: actions/upload-artifact@v4
