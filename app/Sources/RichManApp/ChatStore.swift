@@ -341,7 +341,7 @@ final class ChatStore: ObservableObject {
         let envelope = try JSONSerialization.data(
             withJSONObject: ["e": Base64URL.encode(sealed)]
         )
-        let token = try await RelayClient(transport: transport).putInvite(envelope)
+        let token = try await RelayClient(transport: transport).putInvite(bundle: envelope)
         let qr = QRInvite(
             id: material.id,
             n: material.n,
