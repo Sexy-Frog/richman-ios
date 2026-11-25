@@ -102,3 +102,15 @@ jobs:
             LIBRARY_SEARCH_PATHS="$FFI_DIR" \
             OTHER_LDFLAGS="-lsignal_ffi" \
             build
+
+      - name: Verify relay host was injected (without printing it)
+        working-directory: app
+        run: |
+          PLIST=build/Build/Products/Debug-iphonesimulator/RichManCryptoApp.app/Info.plist
+          test -f "$PLIST"
+          HOST=$(/usr/libexec/PlistBuddy -c "Print :RMRelayHost" "$PLIST")
+          test -n "$HOST"
+          case "$HOST" in
+            *.onion) echo "relay host injected (.onion)" ;;
+            *) echo "::error::RM_RELAY_HOST did not resolve to an .onion address"; exit 1 ;;
+          esac

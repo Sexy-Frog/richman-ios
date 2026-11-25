@@ -54,9 +54,7 @@ final class ChatStore: ObservableObject {
     /// Attach/detach the Tor transport (called on foreground and when Tor
     /// finishes bootstrapping). Detaching stops the receive loop.
     func attachRelay(_ transport: RelayTransport?) {
-        guard (relayTransport == nil) != (transport == nil) || transport != nil else {
-            return
-        }
+        if relayTransport == nil && transport == nil { return }
         relayTransport = transport
         pollTask?.cancel()
         pollTask = nil
@@ -75,7 +73,9 @@ final class ChatStore: ObservableObject {
             while !Task.isCancelled {
                 guard let self else { return }
                 await self.pollOnce()
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                // One empty poll per mailbox every 5s. Long-polling would hold
+                // one Tor circuit per contact open, which is worse for a phone.
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
             }
         }
     }
