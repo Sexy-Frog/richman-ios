@@ -1,13 +1,13 @@
 import SwiftUI
 
-/// 1:1 chat. UI-complete against local state; the send/receive path is wired to
-/// the relay + CryptoProvider in a later increment (today it echoes locally so
-/// the screen is testable in the Simulator).
+/// 1:1 chat, backed by the shared `ChatStore`. Sends echo into the store for now;
+/// the relay send/receive path wires in at `ChatStore.send/receive` next.
 struct ChatView: View {
-    let conversation: Conversation
-    @EnvironmentObject private var model: AppModel
-    @State private var messages: [ChatMessage] = []
+    let contact: Contact
+    @EnvironmentObject private var store: ChatStore
     @State private var draft: String = ""
+
+    private var messages: [ChatMessage] { store.messages(for: contact.id) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -27,8 +27,9 @@ struct ChatView: View {
             composer
         }
         .background(RM.chatBg)
-        .navigationTitle(conversation.name)
+        .navigationTitle(contact.name)
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear { store.markRead(contact.id) }
     }
 
     private var composer: some View {
@@ -52,19 +53,9 @@ struct ChatView: View {
     private var canSend: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     private func send() {
-        let body = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !body.isEmpty else { return }
-        messages.append(ChatMessage(id: UUID().uuidString, body: body, mine: true, ts: Date()))
+        store.send(to: contact.id, text: draft)
         draft = ""
-        // TODO: encrypt via model.crypto + send over the relay (next increment).
     }
-}
-
-struct ChatMessage: Identifiable, Hashable {
-    let id: String
-    var body: String
-    var mine: Bool
-    var ts: Date
 }
 
 private struct MessageBubble: View {

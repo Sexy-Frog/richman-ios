@@ -1,0 +1,59 @@
+name: iOS Crypto (libsignal FFI)
+
+# macOS-only: builds the libsignal 0.86.5 Rust FFI from source and runs the
+# RichManCrypto handshake / SealedBox tests. A full FFI build is ~30 min, so this
+# runs ONLY when crypto code or the submodule changes — not on app/UI pushes —
+# plus manual dispatch. (macos-26 = current Apple Silicon; macos-14/13 retired.)
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'crypto/**'
+      - '.gitmodules'
+      - '.github/workflows/crypto.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: crypto-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  crypto:
+    name: RichManCrypto (macOS, libsignal FFI)
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive   # pulls crypto/third_party/libsignal @ v0.86.5
+
+      - name: Fail early if the libsignal submodule is missing
+        run: |
+          if [ ! -f crypto/third_party/libsignal/swift/build_ffi.sh ]; then
+            echo "::error::crypto/third_party/libsignal not found."
+            echo "Add it once:  git submodule add https://github.com/signalapp/libsignal crypto/third_party/libsignal && git -C crypto/third_party/libsignal checkout v0.86.5"
+            exit 1
+          fi
+
+      - name: Tool versions
+        run: |
+          swift --version
+          rustup show || true
+          cargo --version || true
+
+      - name: Install protobuf (protoc — required by the spqr/libsignal build)
+        run: brew install protobuf
+
+      - name: Build libsignal FFI (release)
+        working-directory: crypto
+        run: ./third_party/libsignal/swift/build_ffi.sh --release
+
+      - name: Build & test RichManCrypto
+        working-directory: crypto
+        run: |
+          # libsignal only adds the FFI -L path to ITS OWN test target, not to
+          # consumers of LibSignalClient, so point the linker at the built
+          # libsignal_ffi.a (robust to debug/release/target-triple layout).
+          FFI_DIR=$(dirname "$(find third_party/libsignal/target -name libsignal_ffi.a | head -n1)")
+          echo "libsignal_ffi.a dir: $FFI_DIR"
+          test -n "$FFI_DIR"
+          swift test -v -Xlinker -L"$FFI_DIR"

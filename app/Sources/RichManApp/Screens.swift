@@ -3,53 +3,43 @@ import SwiftUI
 // MARK: トーク
 
 struct TalksView: View {
-    @EnvironmentObject private var model: AppModel
-    @State private var conversations: [Conversation] = []
+    @EnvironmentObject private var store: ChatStore
 
     var body: some View {
         NavigationStack {
             Group {
-                if conversations.isEmpty {
+                if store.contacts.isEmpty {
                     EmptyState(
                         icon: "bubble.left.and.bubble.right",
                         title: "まだトークがありません",
                         message: "「友だち」から相手を追加すると、ここにトークが表示されます。"
                     )
                 } else {
-                    List(conversations) { c in
-                        NavigationLink(value: c) { ConversationRow(conversation: c) }
+                    List(store.contacts) { c in
+                        NavigationLink(value: c) { ContactRow(contact: c) }
                     }
                     .listStyle(.plain)
                 }
             }
             .navigationTitle("トーク")
-            .navigationDestination(for: Conversation.self) { c in
-                ChatView(conversation: c)
-            }
+            .navigationDestination(for: Contact.self) { ChatView(contact: $0) }
         }
     }
 }
 
-struct Conversation: Identifiable, Hashable {
-    let id: String          // peer id
-    var name: String
-    var lastMessage: String
-    var unread: Int
-}
-
-private struct ConversationRow: View {
-    let conversation: Conversation
+private struct ContactRow: View {
+    let contact: Contact
     var body: some View {
         HStack(spacing: 12) {
-            Avatar(name: conversation.name)
+            Avatar(name: contact.name)
             VStack(alignment: .leading, spacing: 2) {
-                Text(conversation.name).font(.body.weight(.semibold))
-                Text(conversation.lastMessage)
+                Text(contact.name).font(.body.weight(.semibold))
+                Text(contact.lastMessage.isEmpty ? "トークを始めましょう" : contact.lastMessage)
                     .font(.subheadline).foregroundStyle(RM.onSurfaceVariant).lineLimit(1)
             }
             Spacer()
-            if conversation.unread > 0 {
-                Text("\(conversation.unread)")
+            if contact.unread > 0 {
+                Text("\(contact.unread)")
                     .font(.caption2.weight(.bold)).foregroundStyle(.white)
                     .padding(6).background(RM.primary, in: Circle())
             }
@@ -61,21 +51,20 @@ private struct ConversationRow: View {
 // MARK: 友だち
 
 struct FriendsView: View {
-    @EnvironmentObject private var model: AppModel
-    @State private var friends: [Conversation] = []
+    @EnvironmentObject private var store: ChatStore
     @State private var showAdd = false
 
     var body: some View {
         NavigationStack {
             Group {
-                if friends.isEmpty {
+                if store.contacts.isEmpty {
                     EmptyState(
                         icon: "person.2",
                         title: "友だちがいません",
-                        message: "QRコードを見せ合って友だちを追加します。"
+                        message: "QRコード（招待コード）を見せ合って友だちを追加します。"
                     )
                 } else {
-                    List(friends) { f in
+                    List(store.contacts) { f in
                         HStack(spacing: 12) { Avatar(name: f.name); Text(f.name) }
                     }
                     .listStyle(.plain)
@@ -87,7 +76,7 @@ struct FriendsView: View {
                     Button { showAdd = true } label: { Image(systemName: "person.badge.plus") }
                 }
             }
-            .sheet(isPresented: $showAdd) { AddFriendView().environmentObject(model) }
+            .sheet(isPresented: $showAdd) { AddFriendView().environmentObject(store) }
         }
     }
 }
@@ -95,14 +84,14 @@ struct FriendsView: View {
 // MARK: 設定
 
 struct SettingsView: View {
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var store: ChatStore
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("プロフィール") {
-                    LabeledContent("表示名", value: model.displayName)
-                    LabeledContent("ID", value: model.crypto.myId).font(.footnote)
+                    LabeledContent("表示名", value: store.displayName)
+                    LabeledContent("ID", value: store.myId).font(.footnote)
                 }
                 Section("セキュリティ") {
                     NavigationLink("パスコード") { PlaceholderDetail(title: "パスコード") }

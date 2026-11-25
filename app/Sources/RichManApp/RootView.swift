@@ -1,9 +1,28 @@
 import SwiftUI
 
-/// The hub shell, matching the Android app: トーク / 友だち / 設定.
+/// Gate: first launch → onboarding; afterwards → the hub. The single `ChatStore`
+/// is created here and shared with every screen.
 struct RootView: View {
-    @StateObject private var model = AppModel()
+    @AppStorage("rm.onboarded") private var onboarded = false
+    @AppStorage("rm.displayName") private var savedName = ""
+    @StateObject private var store = ChatStore(displayName: "自分")
 
+    var body: some View {
+        Group {
+            if onboarded {
+                HubView()
+            } else {
+                OnboardingView()
+            }
+        }
+        .environmentObject(store)
+        .tint(RM.primary)
+        .onAppear { if !savedName.isEmpty { store.displayName = savedName } }
+    }
+}
+
+/// The hub tabs, matching the Android app: トーク / 友だち / 設定.
+struct HubView: View {
     var body: some View {
         TabView {
             TalksView()
@@ -13,17 +32,5 @@ struct RootView: View {
             SettingsView()
                 .tabItem { Label("設定", systemImage: "gearshape.fill") }
         }
-        .environmentObject(model)
-    }
-}
-
-/// Top-level app state. Holds the crypto boundary (mock in Simulator, real
-/// libsignal on device) and will own the chat/relay controllers as they land.
-final class AppModel: ObservableObject {
-    @Published var displayName: String = "自分"
-    let crypto: CryptoProvider
-
-    init(crypto: CryptoProvider = MockCryptoProvider()) {
-        self.crypto = crypto
     }
 }

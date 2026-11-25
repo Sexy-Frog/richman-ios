@@ -1,19 +1,26 @@
 name: iOS CI
 
+# Core (Linux, free) + app (iOS Simulator, unsigned). The crypto job lives in
+# crypto.yml so an app-only change does NOT trigger the ~30-min libsignal FFI
+# rebuild.
 on:
   push:
     branches: [ main, master ]
+    paths:
+      - 'Sources/**'
+      - 'Tests/**'
+      - 'Package.swift'
+      - 'app/**'
+      - '.github/workflows/ci.yml'
   pull_request:
   workflow_dispatch:
 
-# A newer run for the same ref cancels the older one — don't waste (macOS) minutes.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # Platform-agnostic protocol core. Runs on a Linux Swift container (free
-  # minutes, and identical to the local Docker `swift:5.10` verification).
+  # Platform-agnostic protocol core. Linux Swift container (free, == local Docker).
   core:
     name: RichManCore (Linux)
     runs-on: ubuntu-latest
@@ -24,57 +31,9 @@ jobs:
       - name: Build & test RichManCore
         run: swift test -v
 
-  # libsignal-backed crypto layer. macOS ONLY (the Rust FFI is Apple-only and is
-  # built from source at v0.86.5). macOS runner minutes are billed (10x on
-  # private repos), so this job runs only on main pushes and manual dispatch —
-  # NOT on every pull_request. Trigger it by hand from the Actions tab while the
-  # repo is private to control cost; make the repo public for free macOS minutes.
-  crypto:
-    name: RichManCrypto (macOS, libsignal FFI)
-    runs-on: macos-26          # macos-14/13 retired/unavailable; 26 = current Apple Silicon
-    if: github.event_name != 'pull_request'
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive   # pulls crypto/third_party/libsignal @ v0.86.5
-
-      - name: Fail early if the libsignal submodule is missing
-        run: |
-          if [ ! -f crypto/third_party/libsignal/swift/build_ffi.sh ]; then
-            echo "::error::crypto/third_party/libsignal not found."
-            echo "Add it once:  git submodule add https://github.com/signalapp/libsignal crypto/third_party/libsignal && git -C crypto/third_party/libsignal checkout v0.86.5"
-            exit 1
-          fi
-
-      - name: Tool versions
-        run: |
-          swift --version
-          rustup show || true
-          cargo --version || true
-
-      - name: Install protobuf (protoc — required by the spqr/libsignal build)
-        run: brew install protobuf
-
-      - name: Build libsignal FFI (release)
-        working-directory: crypto
-        run: ./third_party/libsignal/swift/build_ffi.sh --release
-
-      - name: Build & test RichManCrypto
-        working-directory: crypto
-        run: |
-          # libsignal's Package.swift only adds the FFI -L path to ITS OWN test
-          # target, not to consumers of the LibSignalClient library. So point the
-          # linker at wherever build_ffi.sh produced libsignal_ffi.a (robust to
-          # debug/release/target-triple layout).
-          FFI_DIR=$(dirname "$(find third_party/libsignal/target -name libsignal_ffi.a | head -n1)")
-          echo "libsignal_ffi.a dir: $FFI_DIR"
-          test -n "$FFI_DIR"
-          swift test -v -Xlinker -L"$FFI_DIR"
-
-  # SwiftUI app — compile for the iOS Simulator. No signing and no Apple
-  # Developer account needed (that is only for a device .ipa), and no libsignal
-  # FFI: the app depends on RichManCore + the CryptoProvider boundary (mock),
-  # so this catches all UI/Swift errors for free on every main push.
+  # SwiftUI app — compile for the iOS Simulator. No signing / no Apple Developer
+  # account, and no libsignal FFI: the app depends on RichManCore + the
+  # CryptoProvider boundary (mock), so this catches all UI/Swift errors cheaply.
   app:
     name: RichMan app (iOS Simulator build)
     runs-on: macos-26
