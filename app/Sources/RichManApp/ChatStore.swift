@@ -14,10 +14,16 @@ final class ChatStore: ObservableObject {
     @Published private(set) var messagesByPeer: [String: [ChatMessage]] = [:]
 
     let crypto: CryptoProvider
+    /// Real relay pipeline (seal/send, fetch/open). Transport is a Simulator stub
+    /// for now; the Tor transport + box plumbing activate it on device.
+    let relay: RelayService
 
-    init(displayName: String, crypto: CryptoProvider = MockCryptoProvider()) {
+    init(displayName: String,
+         crypto: CryptoProvider = MockCryptoProvider(),
+         transport: RelayTransport = StubRelayTransport()) {
         self.displayName = displayName
         self.crypto = crypto
+        self.relay = RelayService(transport: transport, crypto: crypto)
     }
 
     var myId: String { crypto.myId }

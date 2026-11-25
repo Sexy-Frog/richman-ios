@@ -36,6 +36,10 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: works.kelvins.richman
         GENERATE_INFOPLIST_FILE: YES
+        # App Store export compliance: the app uses strong (non-exempt) encryption.
+        # Declared here so uploads don't re-prompt; export self-classification is
+        # still handled in App Store Connect (see docs/DESIGN.md §10).
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: YES
         INFOPLIST_KEY_CFBundleDisplayName: RichMan
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
