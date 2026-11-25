@@ -8,7 +8,7 @@ name: RichMan
 options:
   bundleIdPrefix: works.kelvins
   deploymentTarget:
-    iOS: "16.0"
+    iOS: "17.0"   # modern floor; runs on the latest iOS (built with the macos-26 runner's Xcode)
   createIntermediateGroups: true
 
 packages:

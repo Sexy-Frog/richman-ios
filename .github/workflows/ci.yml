@@ -31,7 +31,7 @@ jobs:
   # repo is private to control cost; make the repo public for free macOS minutes.
   crypto:
     name: RichManCrypto (macOS, libsignal FFI)
-    runs-on: macos-13
+    runs-on: macos-26          # macos-14/13 retired/unavailable; 26 = current Apple Silicon
     if: github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@v4
@@ -66,7 +66,7 @@ jobs:
   # so this catches all UI/Swift errors for free on every main push.
   app:
     name: RichMan app (iOS Simulator build)
-    runs-on: macos-13
+    runs-on: macos-26
     if: github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@v4
