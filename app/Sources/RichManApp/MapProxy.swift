@@ -161,6 +161,11 @@ final class MapProxy: @unchecked Sendable {
             return
         }
         let subpath = String(path.dropFirst("/v1/map/".count))
+        // Never let a request climb out of the relay's map namespace.
+        guard !subpath.isEmpty, !subpath.contains("..") else {
+            respond(client, status: 404, type: "text/plain", body: Data())
+            return
+        }
         guard let data = fetch(subpath) else {
             // 5xx is treated as temporary by MapLibre, so it retries.
             respond(client, status: 503, type: "text/plain", body: Data())

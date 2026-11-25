@@ -21,6 +21,9 @@ SwiftUI
 | `tor/` | `tor.xcframework` を SwiftPM から使う薄いラッパー（`TorLauncher` / `TorConfig`）。 |
 | `app/Sources/RichManApp/TorSession.swift` | Tor 起動、ブートストラップ判定（`/healthz`）、フェーズ公開。 |
 | `app/Sources/RichManApp/TorSession.swift` + `ChatStore.attachRelay` | Tor 準備完了〜フォアグラウンドの間だけ送受信ループを回す。 |
+| `app/Sources/RichManApp/MapProxy.swift` | 127.0.0.1 のループバック HTTP。MapLibre のタイル/グリフ/スプライトを `/v1/map/*` 経由で Tor に流す。 |
+| `app/Sources/RichManApp/Resources/map_style_ja.json` | `__MAP_BASE__` 入りスタイル（日本語ラベル）。プロキシ起動時にループバック URL へ置換。 |
+| `app/Sources/RichManApp/LocalStore.swift` | 連絡先・履歴・グループ・場所・メールボックスの封緘保存（Keychain 鍵）。 |
 
 - SOCKS のユーザー名は「default」。Tor の `IsolateSOCKSAuth` により
   メールボックス単位でサーキットを分離できる（将来 `box` をユーザー名にする）。
@@ -66,15 +69,37 @@ CI（`iOS Crypto`）では `secrets.RM_RELAY_HOST` を xcodegen に渡してい�
    以後の返信先が確定する。招待者は未使用の招待 box をポーリングして
    最初のメッセージで連絡先を作る（`ChatStore.pendingBoxes`）。
 
+## 画像・ファイル・位置・グループ
+
+- **画像/ファイル**: 送信時に AES-256-GCM（blob ごとに新しい鍵）で暗号化し、
+  `/v1/blob` に置いて `img`/`file` ペイロードで鍵と nonce を送る。受信側は
+  blob を取得して復号し、`MediaStore`（10MB 上限・完全保護）に保存する。
+  blob id は base64url 64 文字に制限（経路注入防止）。
+- **位置**: チャットの「現在地」から **その場限り** の `loc_once` を送る。
+  バックグラウンド共有は無い。受信した位置は `ChatStore.places` に入り、
+  マップの友だちピンとして表示される（`loc_stop` で消える）。
+- **グループ**: 作成時に `group_invite` をメンバーへ 1:1 送信し、本文は
+  `group_msg` を各メンバーへファンアウトする（フルメッシュ、ハブ不要）。
+  `group_add` / `group_remove` / `group_leave` でメンバーを同期。
+  グループ画像/ファイルはまだ未対応。
+- **地図**: Tor 接続後、`MapProxy` が `http://127.0.0.1:<port>/style.json` を
+  配信し、MapLibre はループバックだけを見る。実際の取得は RelayClient が
+  SOCKS 経由で `/v1/map/*` を叩く。ATS は `NSAllowsLocalNetworking` のみ許可。
+  Tor 未接続時はプレースホルダー（リリース）／直接 CDN（DEBUG のみ）。
+
+## 端末内の保存
+
+`LocalStore` が Application Support の `state.bin` に
+`[1][nonce12][ciphertext][tag16]`（AES-256-GCM）で保存する。鍵は Keychain の
+`WhenUnlockedThisDeviceOnly`。デモ/スクリーンショットビルド（`-rm.demo`）は
+読み書きしない。緊急消去は state・メディア・libsignal ストア・両方の鍵を破棄。
+
 ## 既知の制約 / 次の増分
 
 - **実機での疎通は未検証**。CI はビルドまで。実機で
   「招待作成 → 別端末で読み取り → 双方向メッセージ」を確認する必要がある。
-- 連絡先・メッセージ・pending box はまだメモリのみ（DB 永続化は未実装）。
-  アプリ再起動で招待 box のポーリングは失われる。
-- 画像/ファイル/位置/グループ/通話はまだ暗号化リレー経路に載っていない
-  （テキストと既読・削除のみ）。
-- 地図タイルは DEBUG のみ直接取得。リリースは Tor 経由 `/v1/map/*` へ
-  切り替えるまでプレースホルダー。
+- 通話音声はまだリレー経路に載っていない（ローカル ADPCM のみ）。
+- グループ画像/ファイル、グループの未読バッジは未対応。
+- 地図プロキシは 1 リクエスト 1 SOCKS 接続。初回表示は Tor の遅延を伴う。
 - Tor 起動はプロセス常駐（Tor C API に停止関数がない）。Android と同じ。
 - App Store 審査では Tor 内蔵の説明が必要（DESIGN §9 の運用方針を参照）。
