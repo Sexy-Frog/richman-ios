@@ -40,22 +40,24 @@ public struct TorConfig: Sendable {
 
     /// The arguments passed to `tor_run_main` (without argv[0]).
     public func arguments() -> [String] {
+        // Tor's CLI parser wants `--Key value` (two argv entries). It rejects
+        // `--SocksPort=9050` with "Unknown option" and aborts at startup.
         var args: [String] = [
             "--ignore-missing-torrc",
-            "--SocksPort=\(socksPort)",
-            "--DataDirectory=\(dataDirectory.path)",
-            "--ControlPort=0",
+            "--SocksPort", "\(socksPort)",
+            "--DataDirectory", dataDirectory.path,
+            "--ControlPort", "0",
             // Every SOCKS username gets its own circuit, which the app uses to
             // keep each friend's mailbox on a separate connection path.
-            "--IsolateSOCKSAuth=1",
+            "--IsolateSOCKSAuth", "1",
         ]
-        if clientOnly { args.append("--ClientOnly=1") }
-        if avoidDiskWrites { args.append("--AvoidDiskWrites=1") }
+        if clientOnly { args += ["--ClientOnly", "1"] }
+        if avoidDiskWrites { args += ["--AvoidDiskWrites", "1"] }
         if let cacheDirectory {
-            args.append("--CacheDirectory=\(cacheDirectory.path)")
+            args += ["--CacheDirectory", cacheDirectory.path]
         }
         if let logFile {
-            args.append("--Log=warn file \(logFile.path)")
+            args += ["--Log", "warn file \(logFile.path)"]
         }
         return args
     }

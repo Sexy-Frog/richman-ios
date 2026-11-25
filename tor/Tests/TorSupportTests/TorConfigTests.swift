@@ -11,15 +11,19 @@ final class TorConfigTests: XCTestCase {
         )
         let args = config.arguments()
         XCTAssertTrue(args.contains("--ignore-missing-torrc"))
-        XCTAssertTrue(args.contains("--SocksPort=39050"))
-        XCTAssertTrue(args.contains("--DataDirectory=/tmp/rich man/tor"))
-        XCTAssertTrue(args.contains("--CacheDirectory=/tmp/rich man/cache"))
-        XCTAssertTrue(args.contains("--IsolateSOCKSAuth=1"))
-        XCTAssertTrue(args.contains("--ControlPort=0"))
-        XCTAssertTrue(args.contains("--ClientOnly=1"))
-        XCTAssertTrue(args.contains("--AvoidDiskWrites=1"))
-        XCTAssertTrue(args.contains("--Log=warn file /tmp/rich man/tor.log"))
-        // No option is a compound shell string.
+        XCTAssertEqual(args.firstIndex(of: "--SocksPort").map { args[$0 + 1] }, "39050")
+        XCTAssertEqual(args.firstIndex(of: "--DataDirectory").map { args[$0 + 1] },
+                       "/tmp/rich man/tor")
+        XCTAssertEqual(args.firstIndex(of: "--CacheDirectory").map { args[$0 + 1] },
+                       "/tmp/rich man/cache")
+        XCTAssertEqual(args.firstIndex(of: "--IsolateSOCKSAuth").map { args[$0 + 1] }, "1")
+        XCTAssertEqual(args.firstIndex(of: "--ControlPort").map { args[$0 + 1] }, "0")
+        XCTAssertEqual(args.firstIndex(of: "--ClientOnly").map { args[$0 + 1] }, "1")
+        XCTAssertEqual(args.firstIndex(of: "--AvoidDiskWrites").map { args[$0 + 1] }, "1")
+        XCTAssertEqual(args.firstIndex(of: "--Log").map { args[$0 + 1] },
+                       "warn file /tmp/rich man/tor.log")
+        // Tor rejects `--Key=Value` for these options.
+        XCTAssertFalse(args.contains { $0.hasPrefix("--") && $0.contains("=") })
         XCTAssertFalse(args.contains { $0.contains(";") || $0.contains("&&") })
     }
 
