@@ -347,6 +347,7 @@ struct ChatView: View {
             TextField(isBlocked ? "ブロック中" : "メッセージ", text: $draft, axis: .vertical)
                 .font(.body)
                 .textFieldStyle(.plain)
+                .autocorrectionDisabled()
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .frame(minHeight: 40)

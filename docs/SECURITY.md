@@ -124,18 +124,23 @@ independent audit.
 3. **The onion address is in `Info.plist`.** It is a public routing address
    shared with every contact anyway; it is not a secret. It can be obfuscated,
    but any local decoder is reversible.
-4. **The relay still sees mailbox ids and timing.** Fixed-size envelopes and
+4. **The embedded Tor SOCKS listener is loopback TCP.** Other apps on the same
+   device can, in principle, scan 127.0.0.1 and use the daemon as a proxy. Tor
+   only exits to the relay/clearnet through the user's circuits; the app cannot
+   distinguish those connections. A future version can move the SOCKS listener
+   to a Unix-domain socket inside the app container.
+5. **The relay still sees mailbox ids and timing.** Fixed-size envelopes and
    per-mailbox circuits reduce content/linkability, but traffic analysis remains
    possible. There is no cover traffic.
-5. **No independent security audit.** libsignal is well reviewed; the app's
+6. **No independent security audit.** libsignal is well reviewed; the app's
    protocol glue (envelopes, mailboxes, group fan-out, consent) is not.
-6. **A jailbroken/compromised device** can bypass the UI, hook Keychain access,
+7. **A jailbroken/compromised device** can bypass the UI, hook Keychain access,
    or dump memory. The app does not implement jailbreak/debugger detection
    (which is not a reliable boundary anyway).
-7. **Emergency wipe is local-only.** Peer copies, screenshots taken by the
+8. **Emergency wipe is local-only.** Peer copies, screenshots taken by the
    recipient, and relay metadata are unaffected. It also cannot defeat an
    attacker who has already extracted the Keychain.
-8. **Real-device gestures and microphone** cannot be fully tested in CI.
+9. **Real-device gestures and microphone** cannot be fully tested in CI.
 
 ## Recommendations before release
 

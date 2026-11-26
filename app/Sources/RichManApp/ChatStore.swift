@@ -1464,8 +1464,14 @@ final class ChatStore: ObservableObject {
     /// Creator: tell the members and remove it everywhere.
     func deleteGroup(_ id: String) {
         guard let group = group(id), group.ownerId == crypto.myId else { return }
-        let payload = GroupDeleteMessage(
-            gid: id, sender: crypto.myId,
+        // Android dissolves a group with group_remove(id = hub). Sending an
+        // empty group_del only deletes messages on Android.
+        let payload = GroupMembershipMessage(
+            t: MessageType.groupRemove.rawValue,
+            gid: id,
+            id: crypto.myId,
+            name: displayName,
+            n: displayName,
             ts: Int64(Date().timeIntervalSince1970 * 1000)
         )
         if let json = try? payload.toPayloadJSON() {
@@ -1570,19 +1576,41 @@ final class ChatStore: ObservableObject {
                 groups[index].memberIds.append(id)
             }
         case MessageType.groupRemove.rawValue:
-            guard isOwner else { return }
-            if let id = membership.id, id != crypto.myId {
-                groups[index].memberIds.removeAll { $0 == id }
-            }
-        case MessageType.groupLeave.rawValue:
-            // A member can only leave as themselves. The creator leaving
-            // dissolves the group for everyone.
-            guard membership.id == actor, isMember || isOwner else { return }
-            if isOwner {
-                removeGroupLocally(membership.gid)
+            // Android and iOS both require the owner/hub to remove or dissolve.
+            guard isOwner, let id = membership.id else { return }
+            if id == crypto.myId || id == group.ownerId {
+                removeGroupLocally(group.id)
                 return
             }
-            groups[index].memberIds.removeAll { $0 == actor }
+            groups[index].memberIds.removeAll { $0 == id }
+        case MessageType.groupLeave.rawValue:
+            // Android's non-hub members omit `id`; the authenticated sender is
+            // the leaver. Only the leaver can remove themselves.
+            let leaver = membership.id ?? actor
+            guard leaver == actor, isMember || isOwner else { return }
+            if leaver == group.ownerId {
+                removeGroupLocally(group.id)
+                return
+            }
+            groups[index].memberIds.removeAll { $0 == leaver }
+            // If we are the hub, fan out the removal so Android members (which
+            // ignore a non-hub group_leave) also drop the member.
+            if isOwner {
+                let remove = GroupMembershipMessage(
+                    t: MessageType.groupRemove.rawValue,
+                    gid: group.id,
+                    id: leaver,
+                    name: membership.name,
+                    n: displayName,
+                    ts: Int64(Date().timeIntervalSince1970 * 1000)
+                )
+                if let json = try? remove.toPayloadJSON() {
+                    for member in groups[index].memberIds
+                    where member != crypto.myId && member != leaver {
+                        transmit(json, to: member, markMid: "")
+                    }
+                }
+            }
         default:
             break
         }
@@ -1615,11 +1643,15 @@ final class ChatStore: ObservableObject {
         }
     }
 
-    /// Leave a group (members) — the creator deletes it for everyone instead.
+    /// Leave a group (members) — the creator dissolves it for everyone instead.
     func leaveGroup(_ id: String) {
         guard let group = group(id) else { return }
+        let isOwner = group.ownerId == crypto.myId
+        // Android hubs dissolve with group_remove(id = hub); members send
+        // group_leave to the hub. Send to the owner too (it is not in memberIds).
         let payload = GroupMembershipMessage(
-            t: MessageType.groupLeave.rawValue,
+            t: isOwner ? MessageType.groupRemove.rawValue
+                       : MessageType.groupLeave.rawValue,
             gid: id,
             id: crypto.myId,
             name: displayName,
@@ -1627,7 +1659,10 @@ final class ChatStore: ObservableObject {
             ts: Int64(Date().timeIntervalSince1970 * 1000)
         )
         if let json = try? payload.toPayloadJSON() {
-            for member in group.memberIds {
+            var recipients = Set(group.memberIds)
+            if let owner = group.ownerId { recipients.insert(owner) }
+            recipients.remove(crypto.myId)
+            for member in recipients {
                 transmit(json, to: member, markMid: "")
             }
         }
