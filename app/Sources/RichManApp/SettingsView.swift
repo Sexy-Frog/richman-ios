@@ -14,6 +14,7 @@ struct SettingsView: View {
     @AppStorage("rm.autoLockSeconds") private var autoLockSeconds = 30
     @AppStorage("rm.retentionDays") private var retentionDays = 30
     @AppStorage("rm.zoneWanted") private var zoneWanted = false
+    @AppStorage("rm.locationAutoReply") private var locationAutoReply = true
 
     @State private var showNameEdit = false
     @State private var showPolicy = false
@@ -86,6 +87,7 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    Toggle("位置情報の確認に自動で応じる", isOn: $locationAutoReply)
                     if location.hasPermission {
                         LabeledContent("位置情報の権限", value: "許可済み")
                     } else {
@@ -117,7 +119,7 @@ struct SettingsView: View {
                 } header: {
                     Text("プライバシーゾーン")
                 } footer: {
-                    Text("たとえば「自宅で自動ロック」「職場でトーク消去」。判定は端末内で行い、位置情報をサーバーに送りません。位置情報はプライバシーゾーンの判定と設定にのみ使い、友だちに送信しません。位置情報の利用許可はこの画面で行います。")
+                    Text("たとえば「自宅で自動ロック」「職場でトーク消去」。判定は端末内で行い、位置情報をサーバーに送りません。「位置情報の確認に自動で応じる」は既定でオンです。オンのとき、友だちからの位置情報の確認リクエストに現在地を1回だけ暗号化して送ります。オフの場合は送りません。位置情報の利用許可はこの画面で行います。")
                 }
 
                 if !store.blockedContacts.isEmpty {
@@ -344,7 +346,7 @@ private struct PrivacySheet: View {
                     Text("RichMan は、電話番号・メールアドレスを登録せず、メッセージ・画像・ファイル・通話音声を端末間でエンドツーエンド暗号化します。通信は Tor を経由します。")
                     Group {
                         Text("収集する情報").font(.headline)
-                        Text("・アカウント識別子: 端末内で生成する公開鍵。電話番号・メール・広告IDは収集しません。\n・メッセージと添付: 暗号文を中継サーバーが一時的に預かり、配信確認後に削除します。\n・位置情報: プライバシーゾーンを有効化すると位置情報の利用許可を求め、許可後に端末で位置情報を取得します。取得した位置はプライバシーゾーンの判定にのみ使い、友だちに送信しません。判定は端末内で行い、位置情報をサーバーに保存しません。")
+                        Text("・アカウント識別子: 端末内で生成する公開鍵。電話番号・メール・広告IDは収集しません。\n・メッセージと添付: 暗号文を中継サーバーが一時的に預かり、配信確認後に削除します。\n・位置情報: プライバシーゾーンを有効化すると位置情報の利用許可を求め、許可後に端末で位置情報を取得します。取得した位置は、ゾーン判定と、設定の「位置情報の確認に自動で応じる」がオンの場合の位置確認リクエストへの1回の応答に使います（既定でオン、オフにできます）。判定は端末内で行い、位置情報をサーバーに保存しません。")
                         Text("保存期間").font(.headline)
                         Text("未配信の暗号文は配信確認後または7日で削除。端末内の履歴は既定30日で自動削除（変更可）。")
                         Text("端末内のデータ").font(.headline)

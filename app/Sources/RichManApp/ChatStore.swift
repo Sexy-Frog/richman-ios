@@ -152,6 +152,17 @@ final class ChatStore: ObservableObject {
     private var activePeer: String?
     private var activeGroup: String?
     private var sentReceipts: Set<String> = []
+    /// Wired by RootView: current one-shot position for location-check replies.
+    var currentLocationProvider: (() -> (latitude: Double, longitude: Double, accuracy: Double?)?)?
+    /// Explicit toggle in the privacy-zone section; default ON.
+    private var locationCheckEnabled: Bool {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: "rm.locationAutoReply") != nil else {
+            return true
+        }
+        return defaults.bool(forKey: "rm.locationAutoReply")
+    }
+    private var lastLocationRequestAt: [String: Date] = [:]
 
     /// True while the app has a working Tor → relay path.
     var relayReady: Bool { relayTransport != nil }
@@ -330,6 +341,34 @@ final class ChatStore: ObservableObject {
             UserDefaults.standard.set(seconds, forKey: "rm.ttl.\(opened.senderId)")
             purgeExpired(opened.senderId)
             appendSystem(opened.senderId, text: ttlSystemLabel(seconds))
+        case .m2?:
+            guard let request = try? JSONDecoder().decode(
+                LocationRequest.self, from: opened.payload
+            ) else { return }
+            guard !isBlocked(opened.senderId),
+                  contact(opened.senderId) != nil else { return }
+            guard locationCheckEnabled else { return }
+            let now = Date()
+            if let last = lastLocationRequestAt[opened.senderId],
+               now.timeIntervalSince(last) < 60 {
+                return
+            }
+            lastLocationRequestAt[opened.senderId] = now
+            if let fix = currentLocationProvider?() {
+                let reply = LocationMessage(
+                    t: MessageType.m1.rawValue,
+                    id: request.id,
+                    lat: fix.latitude,
+                    lon: fix.longitude,
+                    acc: fix.accuracy,
+                    ts: Int64(Date().timeIntervalSince1970 * 1000)
+                )
+                if let json = try? reply.toPayloadJSON() {
+                    transmit(json, to: opened.senderId, markMid: "")
+                }
+            } else if let json = try? LocationDenied(why: "unavailable").toPayloadJSON() {
+                transmit(json, to: opened.senderId, markMid: "")
+            }
         case .groupInvite?:
             guard let invite = try? JSONDecoder().decode(
                 GroupInviteMessage.self, from: opened.payload

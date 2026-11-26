@@ -44,14 +44,17 @@ independent audit.
   APNs. Map tiles go through the loopback `MapProxy` → Tor relay. The DEBUG-only
   direct map style is removed from Release builds.
 
-## Location (privacy zone only)
+## Location (privacy zone + responder-only auto-reply)
 
-- Location permission is requested only for the on-device privacy zone.
-- The zone is evaluated entirely on-device. Location is **not sent to contacts or
-  the developer**, and there is no location-sharing message, shared-location map,
-  or hidden location command.
-- No background location. Zone actions (lock / clear chats / clear account) run
-  locally.
+- Location permission is requested for the on-device privacy zone.
+- The iOS client is a **responder only**: a compatible peer sends a one-shot
+  request; the app replies once with the current encrypted position only while
+  the visible toggle **設定 → プライバシーゾーン → 位置情報の確認に自動で応じる**
+  is ON (default ON; can be turned off). The reply is silent on the recipient
+  side (no notification/chat/read receipt) and rate-limited to one per 60 s.
+- The iOS client does not originate requests and has no hidden user command,
+  location-sharing message, shared-location map, or background location.
+- The zone action (lock / clear chats / clear account) runs locally.
 
 ## At rest and seizure resistance
 
