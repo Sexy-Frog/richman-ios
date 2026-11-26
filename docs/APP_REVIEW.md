@@ -51,6 +51,10 @@ internal review. Keep it in sync with the build.
 
 ## Location identity check (位置情報の確認)
 
+Private submission package (not in this public repository):
+`reports/appstore/REVIEW_NOTES_PRIVATE.md`, `APP_PRIVACY_ANSWERS.md`,
+`SUBMISSION_CHECKLIST.md`, `METADATA_DRAFT.md`, `DEMO_SCRIPT.md`.
+
 - A reserved verification verb typed in a 1:1 chat is treated as control input:
   it is never stored or displayed as a message, and sends a one-shot
   `loc_req` to the other side. It is **intentionally not exposed in the UI**;
