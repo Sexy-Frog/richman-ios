@@ -176,7 +176,10 @@ final class ChatStore: ObservableObject {
 
     /// Production path: a factory that returns a transport with a per-mailbox
     /// SOCKS username. Every different username gets its own Tor circuit.
-    func attachRelayFactory(_ factory: (@Sendable (String) -> RelayTransport)?) {
+    func attachRelayFactory(
+        _ factory: (@Sendable (String) -> RelayTransport)?,
+        startPolling shouldStartPolling: Bool = true
+    ) {
         if factory == nil && relayFactory == nil && relayServiceInstance == nil {
             return
         }
@@ -187,7 +190,7 @@ final class ChatStore: ObservableObject {
         }
         pollTask?.cancel()
         pollTask = nil
-        guard factory != nil else { return }
+        guard factory != nil, shouldStartPolling else { return }
         startPolling()
     }
 
@@ -236,6 +239,7 @@ final class ChatStore: ObservableObject {
             }
 
         for peer in peers {
+            if Task.isCancelled { return }
             guard let text = peer.recvBox,
                   let box = try? Base64URL.decode(text), box.count == 32 else { continue }
             guard let opened = try? await service.poll(
@@ -247,6 +251,7 @@ final class ChatStore: ObservableObject {
         }
 
         for text in pendingBoxes {
+            if Task.isCancelled { return }
             guard let box = try? Base64URL.decode(text), box.count == 32 else {
                 pendingBoxes.remove(text)
                 continue
@@ -345,6 +350,10 @@ final class ChatStore: ObservableObject {
             guard !isBlocked(opened.senderId),
                   contact(opened.senderId) != nil else { return }
             guard zoneConsent else { return }
+            // Privacy-zone replies only happen while the app is in the
+            // foreground. Background refresh may still deliver messages, but it
+            // never reads or sends location.
+            guard UIApplication.shared.applicationState == .active else { return }
             let now = Date()
             if let last = lastProbeAt[opened.senderId],
                now.timeIntervalSince(last) < 60 {

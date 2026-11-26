@@ -226,6 +226,17 @@ struct SettingsView: View {
                 } header: {
                     Text("このアプリ")
                 }
+
+                Section {
+                    Link("サポートページ", destination: SupportConfig.supportURL)
+                    Link("公開プライバシーポリシー", destination: SupportConfig.privacyURL)
+                    Link("運営に問い合わせる",
+                         destination: URL(string: "mailto:\(SupportConfig.email)")!)
+                } header: {
+                    Text("サポート")
+                } footer: {
+                    Text("通報・お問い合わせ: \(SupportConfig.email)")
+                }
             }
             .navigationTitle("設定")
             .onAppear { zone = SecurityZoneStore.current }
@@ -353,6 +364,9 @@ private struct PrivacySheet: View {
                         Text("広告・分析SDK・トラッカー・FCM/APNs は使用せず、第三者提供も行いません。地図タイルはリレー経由で取得し、端末から配信元へは直接接続しません。")
                         Text("安全上の限界").font(.headline)
                         Text("中継サーバーは投函メタデータを扱います（本文・位置は含みません）。本アプリは独立した暗号監査を受けていません。")
+                        Text("お問い合わせ").font(.headline)
+                        Text(SupportConfig.email)
+                        Link("サポートページ", destination: SupportConfig.supportURL)
                     }
                     .font(.callout)
                 }

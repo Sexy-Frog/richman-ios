@@ -20,5 +20,8 @@ struct RichManApp: App {
             RootView()
                 .tint(RM.primary)
         }
+        .backgroundTask(.appRefresh(BackgroundRefresh.identifier)) {
+            await AppServices.shared.pollInBackground()
+        }
     }
 }

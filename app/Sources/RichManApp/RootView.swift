@@ -83,6 +83,7 @@ struct RootView: View {
                 store.attachRelayFactory(tor.readyTransportFactory)
             }
             wireCalls()
+            AppServices.shared.register(store: store, tor: tor, lock: lock)
             #if DEBUG
             if UserDefaults.standard.bool(forKey: "rm.locationPrimer") {
                 Task { @MainActor in
@@ -124,6 +125,7 @@ struct RootView: View {
                 privacyCover = true
                 backgroundedAt = Date()
                 store.attachRelayFactory(nil)
+                AppServices.shared.scheduleRefresh()
             case .inactive:
                 privacyCover = true
             @unknown default:
