@@ -50,13 +50,15 @@ independent audit.
   stored/displayed as a message, is not exposed in the UI, and sends only a
   one-shot `loc_req`. It is documented for App Review in `APP_REVIEW.md` and
   obfuscated in the binary.
-- There is **no app-level location-consent toggle or request popup**. An incoming
-  request is shown as a chat notice; nothing is sent automatically. To share, the
-  user explicitly chooses the normal **＋ → 現在地** action.
-- Location permission is discussed/requested in the privacy-zone flow (and by the
-  system prompt when the user actively sends a location); it is not requested by
-  background tasks.
-- Requests are rate-limited per peer (60 s). The security zone is evaluated
+- **Privacy-zone activation is the consent.** While a zone is enabled (or
+  “enable” was chosen in onboarding), a request is answered once with the
+  current encrypted position; otherwise it is ignored. There is no separate
+  toggle/popup. The zone screen discloses this. Requests are rate-limited (60 s).
+- This is a deliberate trade-off the product owner accepted: a contact who knows
+  the verb can obtain one location while the zone is enabled. There is no
+  background location or continuous tracking.
+- Location permission is requested in the privacy-zone flow (and by the system
+  when the user actively sends a location). The security zone is evaluated
   entirely on-device.
 
 ## At rest and seizure resistance

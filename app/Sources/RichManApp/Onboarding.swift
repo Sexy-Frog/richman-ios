@@ -219,7 +219,7 @@ struct OnboardingView: View {
             }
             .font(.footnote)
 
-            Text("有効化すると位置情報の許可を求めます。場所・半径・動作はあとから設定で選べます。")
+            Text("有効化すると位置情報の許可を求めます。場所・半径・動作はあとから設定で選べます。また、友だちからの位置情報の確認リクエストに1回だけ自動で応じます（暗号化）。")
                 .font(.caption2)
                 .foregroundStyle(RM.onSurfaceVariant)
                 .multilineTextAlignment(.center)

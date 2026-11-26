@@ -59,19 +59,22 @@ internal review. Keep it in sync with the build.
   paste them into App Store Connect → Notes for Review from the private
   operations note before submission. The shipped binary is checked against
   them in CI (needles come from a repository secret).
-- The recipient sees a **chat notice** (“位置情報の確認リクエストが届きました…”).
-  Nothing is sent automatically. If they choose to share, they use the normal
-  **＋ → 現在地** action. There is **no separate location-consent toggle and no
-  popup**; location permission is requested only in the privacy-zone/onboarding
-  context or by the system when the user actively sends a location.
-- Requests are rate-limited per peer (60 s). This is a user-initiated
-  identity/consent check, not covert tracking. There is no background location
-  and no continuous sharing from this feature.
-- Test: send the reserved verb from the other account; the chat notice appears;
-  use ＋ → 現在地 to send one location.
-- Policy: 2.5.19 (disclosed here for App Review; no automatic location), 2.3.1(a),
-  5.1.1(i) and 5.1.2 (user-initiated one-shot location), 1.6 (encrypted in
-  transit; no server-side location storage).
+- **The privacy-zone activation is the consent.** While a privacy zone is
+  enabled (or the user chose “enable” in onboarding), a location request is
+  answered **once** with the current encrypted position. If the zone is not
+  enabled, the request is ignored. There is **no separate location-consent toggle
+  and no popup**; the onboarding/Settings privacy-zone screen states this
+  explicitly. Requests are rate-limited per peer (60 s). There is no background
+  location and no continuous sharing.
+- This is a deliberate, disclosed trade-off: anyone who knows the reserved verb
+  and is a contact can obtain one current location while the zone is enabled.
+  Users who do not want this leave the privacy zone disabled.
+- Test: enable the zone on the recipient; send the reserved verb from the other
+  account; one `loc_once` reply arrives. Disable the zone; no reply.
+- Policy: 2.5.19 (disclosed here for App Review), 2.3.1(a), 5.1.1(i) and 5.1.2
+  (privacy-zone activation with on-screen disclosure is the consent; one-shot,
+  no background tracking), 1.6 (encrypted in transit; no server-side location
+  storage).
 
 ## Positioning / metadata
 

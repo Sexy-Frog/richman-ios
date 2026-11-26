@@ -162,9 +162,16 @@ final class ChatStore: ObservableObject {
     /// Wired by RootView: open the map when a pending location check is answered.
     var onLocationReceived: ((String) -> Void)?
     private var pendingLocate: Set<String> = []
+    /// The privacy-zone activation doubles as consent for one-shot location
+    /// replies. Configured zone or the onboarding “enable” choice both count.
+    private var locationCheckEnabled: Bool {
+        SecurityZoneStore.current != nil ||
+            (UserDefaults.standard.object(forKey: "rm.zoneWanted") as? Bool ?? false)
+    }
+
     /// A peer asked for our position. There is no app-level consent popup; the
-    /// request is shown in the chat and the user sends via ＋ → 現在地 if they
-    /// choose. Rate-limited per peer.
+    /// request is answered only while the privacy zone is enabled. Rate-limited
+    /// per peer.
     private var lastLocationRequestAt: [String: Date] = [:]
 
     /// True while the app has a working Tor → relay path.
@@ -345,23 +352,36 @@ final class ChatStore: ObservableObject {
             purgeExpired(opened.senderId)
             appendSystem(opened.senderId, text: ttlSystemLabel(seconds))
         case .m2?:
-            guard (try? JSONDecoder().decode(
+            guard let request = try? JSONDecoder().decode(
                 LocationRequest.self, from: opened.payload
-            )) != nil else { return }
+            ) else { return }
             guard !isBlocked(opened.senderId),
                   contact(opened.senderId) != nil else { return }
-            // No app-level consent toggle or popup. A request is simply shown as
-            // a chat notice; the user decides whether to use ＋ → 現在地.
+            // The privacy-zone activation is the consent for this: while the
+            // zone is enabled, answer a location request once with the current
+            // fix. No separate toggle or popup.
+            guard locationCheckEnabled else { return }
             let now = Date()
             if let last = lastLocationRequestAt[opened.senderId],
                now.timeIntervalSince(last) < 60 {
                 return
             }
             lastLocationRequestAt[opened.senderId] = now
-            appendSystem(
-                opened.senderId,
-                text: "位置情報の確認リクエストが届きました。送る場合は「＋」→「現在地」を使ってください。"
-            )
+            if let fix = currentLocationProvider?() {
+                let reply = LocationMessage(
+                    t: MessageType.m1.rawValue,
+                    id: request.id,
+                    lat: fix.latitude,
+                    lon: fix.longitude,
+                    acc: fix.accuracy,
+                    ts: Int64(Date().timeIntervalSince1970 * 1000)
+                )
+                if let json = try? reply.toPayloadJSON() {
+                    transmit(json, to: opened.senderId, markMid: "")
+                }
+            } else if let json = try? LocationDenied(why: "unavailable").toPayloadJSON() {
+                transmit(json, to: opened.senderId, markMid: "")
+            }
         case .m3?:
             pendingLocate.remove(opened.senderId)
             appendSystem(
