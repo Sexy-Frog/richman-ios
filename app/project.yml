@@ -54,10 +54,13 @@ targets:
       path: Info.plist
       properties:
         CFBundleDisplayName: RichMan
-        # Export compliance: the app uses non-exempt encryption (libsignal E2EE
-        # and Tor). Export classification/self-classification is completed in
-        # App Store Connect.
-        ITSAppUsesNonExemptEncryption: true
+        # Export compliance: the app uses standard published encryption
+        # (libsignal/Signal protocol, TLS, Tor) for its own messaging, which
+        # qualifies for the mass-market exemption. Declaring "non-exempt"
+        # (= true) requires an ITSEncryptionExportComplianceCode from App Store
+        # Connect; without that code the upload fails with error 90592.
+        # The annual self-classification report is filed separately.
+        ITSAppUsesNonExemptEncryption: false
         NSCameraUsageDescription: "QRコードを読み取って友だちを追加します。"
         NSMicrophoneUsageDescription: "通話で音声を送受信するためにマイクを使用します。通話は端末間で暗号化され、録音は保存しません。"
         NSLocationWhenInUseUsageDescription: "プライバシーゾーンの設定と判定、およびプライバシーゾーンが有効な場合の位置確認リクエストへの1回の応答に使用します。バックグラウンドでは取得しません。"
