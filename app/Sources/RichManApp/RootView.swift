@@ -78,7 +78,12 @@ struct RootView: View {
             // SOCKS (CI) the phase is ready synchronously, so attach here too;
             // otherwise the onChange below attaches when Tor bootstraps.
             tor.start()
-            store.attachRelayFactory(tor.readyTransportFactory)
+            if lock.locked {
+                store.suspendSensitiveState()
+                store.attachRelayFactory(nil)
+            } else {
+                store.attachRelayFactory(tor.readyTransportFactory)
+            }
             wireCalls()
             store.onLocationReceived = { [weak mapPresenter] peer in
                 mapPresenter?.show(focusPeer: peer)
@@ -120,7 +125,11 @@ struct RootView: View {
                 }
                 backgroundedAt = nil
                 location.startIfAuthorized()
-                store.attachRelayFactory(tor.readyTransportFactory)
+                if lock.locked {
+                    store.attachRelayFactory(nil)
+                } else {
+                    store.attachRelayFactory(tor.readyTransportFactory)
+                }
                 applySecurityZoneIfNeeded()
             case .background:
                 privacyCover = true
@@ -191,11 +200,24 @@ struct RootView: View {
         .onChange(of: location.location?.timestamp) { _, _ in
             if scenePhase == .active { applySecurityZoneIfNeeded() }
         }
+        .onChange(of: lock.locked) { _, locked in
+            if locked {
+                store.suspendSensitiveState()
+                store.attachRelayFactory(nil)
+            } else {
+                store.restoreSensitiveState()
+                store.attachRelayFactory(tor.readyTransportFactory)
+            }
+        }
         .onChange(of: tor.phase) { _, _ in
             // Tor becomes usable some seconds after launch; attach then so the
             // send/receive loop only runs over a live circuit. (The background
             // transition detaches again, so this cannot poll while hidden.)
-            store.attachRelayFactory(tor.readyTransportFactory)
+            if lock.locked {
+                store.attachRelayFactory(nil)
+            } else {
+                store.attachRelayFactory(tor.readyTransportFactory)
+            }
         }
         .task {
             #if DEBUG

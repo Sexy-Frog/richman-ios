@@ -58,15 +58,7 @@ final class ChatStore: ObservableObject {
         if let saved = UserDefaults.standard.stringArray(forKey: blockedKey) {
             self.blockedIds = Set(saved)
         }
-        if persistenceEnabled, let state = LocalStore.load() {
-            contacts = state.contacts
-            groups = state.groups
-            messagesByPeer = state.messages
-            groupMessages = state.groupMessages
-            places = state.places
-            pendingBoxes = Set(state.pendingBoxes)
-            blockedIds = Set(state.blocked)
-        }
+        if persistenceEnabled { loadFromDisk() }
         DemoData.seed(into: self)
         seedOfficialIfNeeded()
         let stored = UserDefaults.standard.object(forKey: "rm.retentionDays") as? Int
@@ -75,6 +67,47 @@ final class ChatStore: ObservableObject {
     }
 
     // MARK: sealed local persistence
+
+    private func loadFromDisk() {
+        guard persistenceEnabled, let state = LocalStore.load() else { return }
+        contacts = state.contacts
+        groups = state.groups
+        messagesByPeer = state.messages
+        groupMessages = state.groupMessages
+        places = state.places
+        pendingBoxes = Set(state.pendingBoxes)
+        blockedIds = Set(state.blocked)
+    }
+
+    /// Drop decrypted chat state from memory when the app locks. The sealed
+    /// files stay on disk; `restoreSensitiveState()` reloads them after a
+    /// successful PIN entry. This does not unload libsignal keys (see
+    /// docs/SECURITY.md) but removes the most sensitive plaintext from memory.
+    func suspendSensitiveState() {
+        guard persistenceEnabled, loaded else { return }
+        saveTask?.cancel()
+        saveTask = nil
+        loaded = false
+        contacts.removeAll()
+        groups.removeAll()
+        messagesByPeer.removeAll()
+        groupMessages.removeAll()
+        places.removeAll()
+        pendingBoxes.removeAll()
+        blockedIds.removeAll()
+        locationRequest = nil
+    }
+
+    func restoreSensitiveState() {
+        guard persistenceEnabled, !loaded else { return }
+        loadFromDisk()
+        if blockedIds.isEmpty,
+           let saved = UserDefaults.standard.stringArray(forKey: blockedKey) {
+            blockedIds = Set(saved)
+        }
+        seedOfficialIfNeeded()
+        loaded = true
+    }
 
     private func scheduleSave() {
         guard persistenceEnabled, loaded else { return }
@@ -87,6 +120,7 @@ final class ChatStore: ObservableObject {
     }
 
     private func persistNow() {
+        guard persistenceEnabled, loaded else { return }
         LocalStore.save(
             LocalStore.State(
                 contacts: contacts,
