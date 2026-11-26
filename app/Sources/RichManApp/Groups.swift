@@ -202,9 +202,11 @@ struct GroupChatView: View {
             if let replyTo { replyBar(replyTo) }
             HStack(alignment: .bottom, spacing: 8) {
                 Button { showAttach = true } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.system(size: 26))
+                    Image(systemName: "plus")
+                        .font(.system(size: 20, weight: .semibold))
                         .foregroundStyle(RM.primary)
+                        .frame(width: 40, height: 40)
+                        .contentShape(Rectangle())
                 }
                 Menu {
                     ForEach(group.memberIds, id: \.self) { id in
@@ -215,24 +217,33 @@ struct GroupChatView: View {
                         }
                     }
                 } label: {
-                    Image(systemName: "at.circle.fill")
-                        .font(.system(size: 24))
+                    Image(systemName: "at")
+                        .font(.system(size: 20, weight: .semibold))
                         .foregroundStyle(RM.primary)
+                        .frame(width: 40, height: 40)
+                        .contentShape(Rectangle())
                 }
                 TextField("メッセージ", text: $draft, axis: .vertical)
+                    .font(.body)
                     .textFieldStyle(.plain)
                     .padding(.horizontal, 14)
-                    .padding(.vertical, 9)
+                    .padding(.vertical, 10)
+                    .frame(minHeight: 40)
                     .background(RM.surface, in: Capsule())
                     .overlay(Capsule().stroke(RM.outline, lineWidth: 1))
                 Button(action: send) {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 30))
-                        .foregroundStyle(canSend ? RM.primary : RM.onSurfaceVariant)
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(.white.opacity(canSend ? 1 : 0.75))
+                        .frame(width: 40, height: 40)
+                        .background(
+                            canSend ? RM.primary : RM.onSurfaceVariant.opacity(0.35),
+                            in: Circle()
+                        )
                 }
                 .disabled(!canSend)
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, 12)
             .padding(.vertical, 8)
         }
         .background(RM.background)
