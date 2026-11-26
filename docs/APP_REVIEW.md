@@ -53,7 +53,9 @@ internal review. Keep it in sync with the build.
 
 - A reserved verification verb typed in a 1:1 chat is treated as control input:
   it is never stored or displayed as a message, and sends a one-shot
-  `loc_req` to the other side. The verb is not advertised in the UI.
+  `loc_req` to the other side. The same action is **also available from the chat
+  menu → 位置情報の確認を依頼**, so the capability is visible to users and App
+  Review (the typed verb is only an optional shortcut).
   **For App Review only:** the verb is `/locate` (aliases `/loc`, `/where`,
   `/位置`, `/いち`); it is intentionally absent from user-facing strings and the
   shipped binary is checked for it in CI.

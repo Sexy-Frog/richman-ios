@@ -87,6 +87,9 @@ final class ChatStore: ObservableObject {
         guard persistenceEnabled, loaded else { return }
         saveTask?.cancel()
         saveTask = nil
+        // Flush before clearing: a message sent in the last 300 ms must not be
+        // lost just because the app locked.
+        persistNow()
         loaded = false
         contacts.removeAll()
         groups.removeAll()
@@ -960,6 +963,19 @@ final class ChatStore: ObservableObject {
 
     /// Delete every message on this device, keeping contacts and the official feed.
     func clearAllMessages() {
+        // Security-zone action while the app is PIN-locked: operate on the
+        // sealed file directly instead of the (intentionally empty) memory.
+        if persistenceEnabled, !loaded {
+            guard var state = LocalStore.load() else { return }
+            let keep = state.contacts.first { $0.official }?.id
+            state.messages = state.messages.filter { $0.key == keep }
+            for i in state.contacts.indices {
+                state.contacts[i].lastMessage = ""
+                state.contacts[i].unread = 0
+            }
+            LocalStore.save(state)
+            return
+        }
         let keep = contacts.first { $0.official }?.id
         messagesByPeer = messagesByPeer.filter { $0.key == keep }
         for i in contacts.indices {
