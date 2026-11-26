@@ -84,7 +84,9 @@ CI（`iOS Crypto`）では `secrets.RM_RELAY_HOST` を xcodegen に渡してい�
 - **グループ**: 作成時に `group_invite` をメンバーへ 1:1 送信し、本文は
   `group_msg` を各メンバーへファンアウトする（フルメッシュ、ハブ不要）。
   `group_add` / `group_remove` / `group_leave` でメンバーを同期。
-  グループ画像/ファイルはまだ未対応。
+  返信（`re/ren/ret`）とメンション（`mentions`）に対応。`@名前` を入力するか
+  作曲欄の @ メニューから挿入すると、該当メンバーへ「あなた宛て」として表示・
+  通知される。グループ画像/ファイルにも対応。
 - **地図**: タブには置かない（Android と同じ）。`/locate` の返答・受信位置の
   タップ・プライバシーゾーン編集でシート表示する。Tor 接続後、`MapProxy` が
   `http://127.0.0.1:<port>/style.json` を配信し、MapLibre はループバックだけを
