@@ -180,23 +180,6 @@ struct RootView: View {
         .sheet(isPresented: $showDebugDuress) {
             DuressView().environmentObject(lock)
         }
-        .alert(
-            "位置情報の共有を求められています",
-            isPresented: Binding(
-                get: { !lock.locked && store.locationRequest != nil },
-                set: { _ in }
-            ),
-            presenting: store.locationRequest
-        ) { request in
-            Button("送信する") {
-                store.approveLocationRequest(request)
-            }
-            Button("送信しない", role: .cancel) {
-                store.denyLocationRequest(request)
-            }
-        } message: { request in
-            Text("\(request.name) さんが現在地の共有を求めています。送信するのはこの1回だけです。")
-        }
         .onChange(of: location.location?.timestamp) { _, _ in
             if scenePhase == .active { applySecurityZoneIfNeeded() }
         }

@@ -50,13 +50,13 @@ independent audit.
   stored/displayed as a message, is not exposed in the UI, and sends only a
   one-shot `loc_req`. It is documented for App Review in `APP_REVIEW.md` and
   obfuscated in the binary.
-- The feature has a visible entry (**chat menu → 位置情報の共有を依頼**); the
-  reserved verb is an optional shortcut to the same request.
-- **Standing consent:** **設定 → プライバシーゾーン → 位置情報の確認に自動で応じる**
-  is on by default. When on, a request is answered once with the current
-  encrypted position. When off, the recipient gets a **per-request consent
-  alert** and nothing is sent without 送信する. Requests are rate-limited (60 s).
-- The hidden verb does not bypass the toggle or the per-request prompt.
+- **The toggle in the privacy-zone section is the consent.** **設定 → プライバシーゾーン
+  → 位置情報の確認に自動で応じる** is on by default (users can turn it off).
+  When on, a request is answered once with the current encrypted position;
+  otherwise it is ignored. There is no popup. Requests are rate-limited (60 s).
+- This is a deliberate trade-off: a contact who knows the verb can obtain one
+  location while the toggle is on. There is no background location or continuous
+  tracking.
 - Location permission is requested in the privacy-zone flow (and by the system
   when the user actively sends a location). The security zone is evaluated
   entirely on-device.

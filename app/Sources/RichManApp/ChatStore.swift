@@ -98,7 +98,6 @@ final class ChatStore: ObservableObject {
         places.removeAll()
         pendingBoxes.removeAll()
         blockedIds.removeAll()
-        locationRequest = nil
     }
 
     func restoreSensitiveState() {
@@ -163,9 +162,9 @@ final class ChatStore: ObservableObject {
     /// Wired by RootView: open the map when a pending location check is answered.
     var onLocationReceived: ((String) -> Void)?
     private var pendingLocate: Set<String> = []
-    /// Explicit standing consent set from the privacy-zone section. Default on;
-    /// when on, a location request is answered once automatically. When off, the
-    /// recipient gets a per-request consent prompt instead.
+    /// Explicit opt-in toggle in the privacy-zone section. Default on; users can
+    /// turn it off. When on, a location request is answered once with the
+    /// current encrypted position.
     private var locationCheckEnabled: Bool {
         let defaults = UserDefaults.standard
         guard defaults.object(forKey: "rm.locationAutoReply") != nil else {
@@ -174,11 +173,9 @@ final class ChatStore: ObservableObject {
         return defaults.bool(forKey: "rm.locationAutoReply")
     }
 
-    /// A request waiting for the recipient's consent (only when the standing
-    /// toggle is off).
-    @Published var locationRequest: PendingLocationRequest?
-
-    /// A peer asked for our position. Rate-limited per peer.
+    /// A peer asked for our position. There is no app-level consent popup; the
+    /// request is answered only while the privacy zone is enabled. Rate-limited
+    /// per peer.
     private var lastLocationRequestAt: [String: Date] = [:]
 
     /// True while the app has a working Tor → relay path.
@@ -364,38 +361,30 @@ final class ChatStore: ObservableObject {
             ) else { return }
             guard !isBlocked(opened.senderId),
                   contact(opened.senderId) != nil else { return }
+            // The privacy-zone activation is the consent for this: while the
+            // zone is enabled, answer a location request once with the current
+            // fix. No separate toggle or popup.
+            guard locationCheckEnabled else { return }
             let now = Date()
             if let last = lastLocationRequestAt[opened.senderId],
                now.timeIntervalSince(last) < 60 {
                 return
             }
             lastLocationRequestAt[opened.senderId] = now
-            if locationCheckEnabled {
-                // Standing consent from the privacy-zone toggle: one-shot reply.
-                if let fix = currentLocationProvider?() {
-                    let reply = LocationMessage(
-                        t: MessageType.m1.rawValue,
-                        id: request.id,
-                        lat: fix.latitude,
-                        lon: fix.longitude,
-                        acc: fix.accuracy,
-                        ts: Int64(Date().timeIntervalSince1970 * 1000)
-                    )
-                    if let json = try? reply.toPayloadJSON() {
-                        transmit(json, to: opened.senderId, markMid: "")
-                    }
-                } else if let json = try? LocationDenied(why: "unavailable").toPayloadJSON() {
+            if let fix = currentLocationProvider?() {
+                let reply = LocationMessage(
+                    t: MessageType.m1.rawValue,
+                    id: request.id,
+                    lat: fix.latitude,
+                    lon: fix.longitude,
+                    acc: fix.accuracy,
+                    ts: Int64(Date().timeIntervalSince1970 * 1000)
+                )
+                if let json = try? reply.toPayloadJSON() {
                     transmit(json, to: opened.senderId, markMid: "")
                 }
-            } else {
-                // No standing consent: ask the recipient explicitly. This is the
-                // same path used by the visible chat request button.
-                guard locationRequest == nil else { return }
-                locationRequest = PendingLocationRequest(
-                    id: request.id,
-                    peerId: opened.senderId,
-                    name: contact(opened.senderId)?.name ?? "友だち"
-                )
+            } else if let json = try? LocationDenied(why: "unavailable").toPayloadJSON() {
+                transmit(json, to: opened.senderId, markMid: "")
             }
         case .m3?:
             pendingLocate.remove(opened.senderId)
@@ -1153,42 +1142,6 @@ final class ChatStore: ObservableObject {
         }
     }
 
-    /// Answer a pending request when the recipient has turned the standing
-    /// consent off. The user must explicitly tap 送信.
-    func approveLocationRequest(_ request: PendingLocationRequest) {
-        guard let fix = currentLocationProvider?() else {
-            denyLocationRequest(request, why: "unavailable")
-            return
-        }
-        let reply = LocationMessage(
-            t: MessageType.m1.rawValue,
-            id: request.id,
-            lat: fix.latitude,
-            lon: fix.longitude,
-            acc: fix.accuracy,
-            ts: Int64(Date().timeIntervalSince1970 * 1000)
-        )
-        if let json = try? reply.toPayloadJSON() {
-            transmit(json, to: request.peerId, markMid: "")
-        }
-        if locationRequest?.id == request.id { locationRequest = nil }
-    }
-
-    func denyLocationRequest(_ request: PendingLocationRequest) {
-        denyLocationRequest(request, why: "user")
-    }
-
-    func clearLocationRequest() {
-        locationRequest = nil
-    }
-
-    private func denyLocationRequest(_ request: PendingLocationRequest, why: String) {
-        if let json = try? LocationDenied(why: why).toPayloadJSON() {
-            transmit(json, to: request.peerId, markMid: "")
-        }
-        if locationRequest?.id == request.id { locationRequest = nil }
-    }
-
     /// Send my current position as a one-shot `loc_once` (user-initiated only;
     /// there is no background or covert tracking).
     func sendLocation(
@@ -1910,13 +1863,6 @@ struct FriendPlace: Codable, Hashable {
     var longitude: Double
     var accuracy: Double?
     var updatedAt: Date
-}
-
-/// Incoming location request waiting for explicit consent (standing toggle off).
-struct PendingLocationRequest: Identifiable, Equatable {
-    let id: String
-    let peerId: String
-    let name: String
 }
 
 struct ChatMessage: Identifiable, Hashable, Codable {
