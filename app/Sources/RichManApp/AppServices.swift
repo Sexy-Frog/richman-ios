@@ -4,7 +4,6 @@ import BackgroundTasks
 /// Small app-level rendezvous for the SwiftUI background refresh task. The
 /// RootView owns the stores; this object only keeps weak references so the BG
 /// task can poll the relay once while the app is in the background.
-@MainActor
 final class AppServices {
     static let shared = AppServices()
 
@@ -12,6 +11,7 @@ final class AppServices {
     private weak var tor: TorSession?
     private weak var lock: LockStore?
 
+    @MainActor
     func register(store: ChatStore, tor: TorSession, lock: LockStore) {
         self.store = store
         self.tor = tor
@@ -20,6 +20,7 @@ final class AppServices {
 
     /// Ask iOS for an opportunistic background refresh. This is best-effort:
     /// iOS decides when/if it runs, and a force-quit app never gets one.
+    @MainActor
     func scheduleRefresh() {
         let request = BGAppRefreshTaskRequest(
             identifier: BackgroundRefresh.identifier
@@ -31,6 +32,7 @@ final class AppServices {
     /// Attach the Tor transport, poll every mailbox once, then detach. Polling
     /// is driven explicitly here so the regular 5-second loop never starts in
     /// the background.
+    @MainActor
     func pollInBackground() async {
         guard let store, let tor, lock?.locked == false else { return }
         store.attachRelayFactory(tor.readyTransportFactory, startPolling: false)
