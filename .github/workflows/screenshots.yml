@@ -44,7 +44,13 @@ jobs:
 
       - name: Boot simulator
         run: |
-          UDID=$(xcrun simctl list devices available | grep -E "iPhone" | head -1 | sed -E 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/')
+          # App Store Connect requires a 6.9" iPhone screenshot set. Prefer an
+          # available Pro Max device; fall back to any iPhone if the runner
+          # image lacks one.
+          UDID=$(xcrun simctl list devices available | grep -E "iPhone .*Pro Max" | head -1 | sed -E 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/')
+          if [ -z "$UDID" ]; then
+            UDID=$(xcrun simctl list devices available | grep -E "iPhone" | head -1 | sed -E 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/')
+          fi
           test -n "$UDID"
           echo "Simulator: $UDID"
           echo "UDID=$UDID" >> "$GITHUB_ENV"
