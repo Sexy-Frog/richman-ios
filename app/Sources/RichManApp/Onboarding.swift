@@ -2,14 +2,13 @@ import SwiftUI
 import CoreLocation
 
 /// First launch: a one-screen-at-a-time intro, then a guided setup
-/// (display name → privacy zone → PIN). The privacy zone comes before the PIN
-/// so the location permission has a concrete, user-chosen purpose.
+/// (display name → privacy zone → PIN). The privacy zone is a simple opt-in
+/// with a plain explanation; detailed tuning lives in Settings.
 struct OnboardingView: View {
     @AppStorage("rm.onboarded") private var onboarded = false
     @AppStorage("rm.displayName") private var savedName = ""
     @EnvironmentObject private var store: ChatStore
     @EnvironmentObject private var lock: LockStore
-    @EnvironmentObject private var tor: TorSession
     @EnvironmentObject private var location: LocationProvider
 
     private enum Step: Equatable { case intro, name, zone, pin }
@@ -29,16 +28,6 @@ struct OnboardingView: View {
     @State private var introPage = 0
     @State private var name = ""
     @State private var error: String?
-
-    @State private var zoneCenter = CLLocationCoordinate2D(
-        latitude: 35.6812, longitude: 139.7671
-    )
-    @State private var zoneRadius: Double = 300
-    @State private var zoneAction: SecurityZone.Action = .lock
-    @State private var useZone = false
-    @State private var showLocationPrimer = false
-    @State private var recenterToken = 0
-    @State private var pendingCenterOnMe = false
 
     @State private var pinEntry = ""
     @State private var pinFirst = ""
@@ -77,15 +66,6 @@ struct OnboardingView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(RM.background)
-        .sheet(isPresented: $showLocationPrimer) {
-            LocationPrimer().environmentObject(location)
-        }
-        .onChange(of: location.location?.timestamp) { _, _ in
-            guard pendingCenterOnMe, let fix = location.location else { return }
-            pendingCenterOnMe = false
-            zoneCenter = fix.coordinate
-            recenterToken += 1
-        }
     }
 
     // MARK: intro
@@ -185,74 +165,44 @@ struct OnboardingView: View {
     }
 
     private var zoneStep: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 16) {
             stepCaption("2 / 3")
-            Text("プライバシーゾーンを設定").font(.title2.weight(.bold))
-            Text("自宅など決めた場所に入ると、選んだ動作を自動で実行します。")
+            Image(systemName: "location.circle.fill")
+                .font(.system(size: 48))
+                .foregroundStyle(RM.primary)
+            Text("プライバシーゾーン").font(.title2.weight(.bold))
+            Text("自宅など決めた場所に入ると、自動でロックする機能です。")
                 .font(.subheadline)
                 .foregroundStyle(RM.onSurfaceVariant)
                 .multilineTextAlignment(.center)
 
-            ZStack {
-                ZonePickerMap(
-                    center: $zoneCenter,
-                    styleURL: tor.mapStyleURL ?? MapConfig.styleURL,
-                    recenter: recenterToken
-                )
-                .frame(height: 190)
-                .clipShape(RoundedRectangle(cornerRadius: 14))
-                Image(systemName: "plus")
-                    .font(.title2.weight(.bold))
-                    .foregroundStyle(RM.primary)
-            }
-
-            Button {
-                centerOnCurrentLocation()
-            } label: {
-                Label("現在地を中心にする", systemImage: "location.fill")
-                    .font(.footnote.weight(.semibold))
-            }
-
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "lock.shield.fill")
-                    .font(.caption)
-                    .foregroundStyle(RM.primary)
-                Text("位置情報は端末内のゾーン判定にだけ使い、送信するときは暗号化されます。バックグラウンドでは取得しません。")
-                    .font(.caption2)
-                    .foregroundStyle(RM.onSurfaceVariant)
+            VStack(alignment: .leading, spacing: 10) {
+                bullet("家に着いたら自動でロック")
+                bullet("位置情報は端末内の判定にだけ使用")
+                bullet("送信するときは暗号化・バックグラウンド取得なし")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(10)
-            .background(RM.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
-
-            HStack(spacing: 10) {
-                Text("半径").font(.caption)
-                Slider(value: $zoneRadius, in: 100...1000, step: 50)
-                Text("\(Int(zoneRadius))m")
-                    .font(.caption.monospacedDigit())
-                    .frame(width: 52, alignment: .trailing)
-            }
-
-            Picker("入室時の動作", selection: $zoneAction) {
-                ForEach(SecurityZone.Action.allCases) { action in
-                    Text(action.label).tag(action)
-                }
-            }
-            .pickerStyle(.menu)
+            .padding(14)
+            .background(RM.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
 
             Button("プライバシーゾーンを有効にする") {
-                useZone = true
-                step = .pin
+                enableZone()
             }
             .buttonStyle(.borderedProminent)
             .tint(RM.primary)
 
             Button("後で設定する") {
-                useZone = false
+                UserDefaults.standard.set(false, forKey: "rm.zoneWanted")
                 step = .pin
             }
             .font(.footnote)
+
+            Text("有効化すると位置情報の許可を求めます。場所・半径・動作はあとから設定で選べます。")
+                .font(.caption2)
+                .foregroundStyle(RM.onSurfaceVariant)
+                .multilineTextAlignment(.center)
         }
+        .padding(.top, 4)
     }
 
     private var pinStep: some View {
@@ -318,6 +268,15 @@ struct OnboardingView: View {
             .foregroundStyle(RM.onSurfaceVariant)
     }
 
+    private func bullet(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.caption)
+                .foregroundStyle(RM.primary)
+            Text(text).font(.footnote)
+        }
+    }
+
     // MARK: actions
 
     private func continueFromName() {
@@ -329,18 +288,17 @@ struct OnboardingView: View {
         step = .zone
     }
 
-    private func centerOnCurrentLocation() {
-        guard location.hasPermission else {
-            showLocationPrimer = true
-            return
-        }
-        if let fix = location.location {
-            zoneCenter = fix.coordinate
-            recenterToken += 1
+    /// Opt in to the zone and ask iOS for location permission right here (the
+    /// system prompt). The actual place/radius/action are chosen later in
+    /// Settings so onboarding stays to a single explanation + choice.
+    private func enableZone() {
+        UserDefaults.standard.set(true, forKey: "rm.zoneWanted")
+        if location.authorization == .notDetermined {
+            location.requestPermission()
         } else {
-            pendingCenterOnMe = true
             location.startIfAuthorized()
         }
+        step = .pin
     }
 
     private func appendPin(_ digit: Int) {
@@ -379,14 +337,6 @@ struct OnboardingView: View {
             pinFirst = ""
             pinConfirming = false
             return
-        }
-        if useZone {
-            SecurityZoneStore.current = SecurityZone(
-                latitude: zoneCenter.latitude,
-                longitude: zoneCenter.longitude,
-                radius: zoneRadius,
-                action: zoneAction
-            )
         }
         savedName = trimmed
         store.displayName = trimmed

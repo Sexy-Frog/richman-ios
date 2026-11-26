@@ -14,6 +14,7 @@ struct SettingsView: View {
     @AppStorage("rm.autoLockSeconds") private var autoLockSeconds = 0
     @AppStorage("rm.retentionDays") private var retentionDays = 30
     @AppStorage("rm.shareLocation") private var shareLocation = true
+    @AppStorage("rm.zoneWanted") private var zoneWanted = false
 
     @State private var showNameEdit = false
     @State private var showPolicy = false
@@ -106,10 +107,17 @@ struct SettingsView: View {
                         Button("プライバシーゾーンを削除", role: .destructive) {
                             SecurityZoneStore.current = nil
                             self.zone = nil
+                            zoneWanted = false
                         }
                     } else {
-                        Text("未設定")
-                            .foregroundStyle(RM.onSurfaceVariant)
+                        if zoneWanted {
+                            Text("オンボーディングで有効化しました。場所を設定してください。")
+                                .font(.footnote)
+                                .foregroundStyle(RM.primary)
+                        } else {
+                            Text("未設定")
+                                .foregroundStyle(RM.onSurfaceVariant)
+                        }
                         Button("地図で設定") { showZoneEditor = true }
                     }
                 } header: {
@@ -242,6 +250,7 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $showZoneEditor, onDismiss: {
                 zone = SecurityZoneStore.current
+                if zone != nil { zoneWanted = false }
             }) {
                 ZoneEditorView(zone: zone).environmentObject(tor)
             }
