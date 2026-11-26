@@ -36,8 +36,8 @@ SwiftUI
 
 ## ビルド（実リレー有効）
 
-リポジトリは公開のため、オニオンアドレスは**ソースに置かない**。
-ビルド時に環境変数 `RM_RELAY_HOST` で注入する。
+リポジトリは非公開だが、将来の公開やバイナリ解析に備えてオニオンアドレスは
+**ソースに置かない**。ビルド時に環境変数 `RM_RELAY_HOST` で注入する。
 
 ```bash
 cd tor && bash scripts/fetch-tor.sh   # Vendor/tor.xcframework（150MB、非コミット）

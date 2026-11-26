@@ -90,8 +90,8 @@ Android 版 RichMan（`D:\LINE_pt2\android`、稼働中 1.0.21）とバイト単
 ### CI トリガ方針（macOS 分の節約）
 
 - core: すべての push / PR。
-- crypto・app（macOS）: **main への push と手動実行のみ**（PR では回さない）。公開リポなので
-  macOS 分は無料だが、無駄打ちは避ける。同一 ref の新 run は旧 run を自動キャンセル。
+- crypto・app（macOS）: **main への push と手動実行のみ**（PR では回さない）。非公開リポの
+  macOS 分は課金対象になり得るため、無駄打ちは避ける。同一 ref の新 run は旧 run を自動キャンセル。
 
 ---
 
@@ -171,8 +171,8 @@ Android 版 RichMan（`D:\LINE_pt2\android`、稼働中 1.0.21）とバイト単
 ### コード・リポジトリ
 - サーバのオニオンアドレス/ホストは**ソースに持たせない**（実行時注入）。✅ 現状コアに無し。
 - コミット作者は noreply（`Sexy-Frog@users.noreply.github.com`）。実メール/実名を履歴に残さない。✅
-- GitHub は擬名アカウント（Sexy-Frog）。README/doc からライブサービス（kelvins.works）への
-  紐付けを除去済み。✅ 公開リポは説明・topics を空にして検索ヒットを下げる。✅
+- GitHub は擬名アカウント（Sexy-Frog）で、リポジトリは**非公開**。README/doc から
+  ライブサービス（kelvins.works）への紐付けを除去済み。説明・topics も空。✅
 - **CI（GitHubランナー）でビルド**＝バイナリに運営者のローカルPCのパス/ユーザ名が焼き込まれない
   （`/Users/runner/...` になる）。ローカルMacビルドより露出が少ない副次効果。✅
 

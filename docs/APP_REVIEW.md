@@ -67,7 +67,7 @@ internal review. Keep it in sync with the build.
   contact that knows the peer protocol can obtain one current location. Users
   who do not want this disable the zone.
 
-Private submission package (not in this public repository):
+Private submission package (not in this repository):
 `reports/appstore/REVIEW_NOTES_PRIVATE.md`, `APP_PRIVACY_ANSWERS.md`,
 `SUBMISSION_CHECKLIST.md`, `METADATA_DRAFT.md`, `DEMO_SCRIPT.md`.
 

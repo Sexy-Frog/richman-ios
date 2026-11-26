@@ -59,15 +59,26 @@ independent audit.
 ## At rest and seizure resistance
 
 - **Keychain keys** are `WhenUnlockedThisDeviceOnly` (state, libsignal store,
-  PIN/emergency hashes, media key). They are not synced or backed up.
+  PIN/emergency hashes, media key, privacy-zone key). They are not synced or
+  backed up.
+- **Privacy-zone coordinates** (which can reveal a home/work location) are
+  AES-256-GCM sealed with a separate device-only Keychain key before being
+  stored; the legacy plaintext `rm.securityZone` value is migrated and deleted
+  on first read.
+- **Preferences and caches** (`Library/Preferences`, `Library/Caches`) are
+  excluded from iCloud/iTunes backup in addition to Application Support and
+  Documents. MapLibre/URL caches are cleared on background and on lock, and
+  decrypted share exports are cleared on lock.
 - **State and libsignal stores** are AES-256-GCM sealed files with complete
   file protection; the media key seals images/files on disk. Sharing decrypts a
   single file into an `Exports/` directory that is also protected and excluded
   from backup.
 - **Backups are disabled** for Application Support and Documents
   (`isExcludedFromBackup`), including Tor state.
-- **Auto-lock defaults to 30 s** after backgrounding (previously off), with a
-  privacy cover for the app switcher and screen recording.
+- **Auto-lock defaults to 30 s** after backgrounding (previously off), with an
+  opaque privacy cover for the app switcher and screen recording. iOS does not
+  provide an API that blocks hardware screenshots; the app discloses this and
+  only hides content during recording/mirroring.
 - **PIN hashing** uses PBKDF2-HMAC-SHA256 (150,000 iterations); the old
   single-SHA256 item is migrated on first successful unlock. 4–8 digits.
 - **10 failed PINs** wipe local data (existing behavior, now uses the hashed
@@ -111,10 +122,9 @@ independent audit.
 
 ## Known limitations / residual risk
 
-1. **The GitHub repo is public.** Binary obfuscation raises the bar but cannot
-   hide a feature that is described in public source. Making the repository
-   private (or moving the protocol to a private module) is the only way to keep
-   the command out of reach of a source reader.
+1. **The GitHub repository is private.** Binary obfuscation raises the bar but
+   cannot hide a feature from a collaborator with repository access or from a
+   binary analyst. Keep the repository private and limit collaborators.
 2. **The app PIN is a UI gate, not the at-rest key.** The state/media/libsignal
    keys live in the iOS Keychain and are protected by the **device passcode**,
    not by the app PIN. On a seized, unlocked device with forensic tools, the
