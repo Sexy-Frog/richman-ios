@@ -49,7 +49,7 @@ struct ZoneEditorView: View {
                         Label("現在地を中心にする", systemImage: "location.fill")
                     }
                 } footer: {
-                    Text("地図を動かして中心を合わせます。位置情報はゾーンの判定と、あなたが送るときだけ使います。バックグラウンドでは取得しません。")
+                    Text("地図を動かして中心を合わせます。位置情報はゾーンの判定にのみ使い、バックグラウンドでは取得しません。")
                 }
 
                 Section("半径") {

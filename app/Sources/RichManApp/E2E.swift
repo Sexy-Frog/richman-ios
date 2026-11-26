@@ -62,7 +62,6 @@ enum E2E {
         let deadline = Date().addingTimeInterval(420)
         var peer: String?
         var imageSeen = false
-        var placeSeen = false
         var groupSeen = false
         var groupSentAt: Date?
 
@@ -75,21 +74,14 @@ enum E2E {
                 report(["phase": "connected", "peer": found.id])
                 store.send(to: found.id, text: "pong")
                 store.sendImage(to: found.id, data: testImage())
-                store.sendLocation(
-                    to: found.id,
-                    latitude: 35.6812,
-                    longitude: 139.7671,
-                    accuracy: 10
-                )
             }
 
             if let peer {
                 if store.messages(for: peer).contains(where: { $0.kind == .image }) {
                     imageSeen = true
                 }
-                if store.places[peer] != nil { placeSeen = true }
 
-                if !groupSeen, imageSeen, placeSeen {
+                if !groupSeen, imageSeen {
                     let group = store.createGroup(name: "E2E", memberIds: [peer])
                     store.send(toGroup: group.id, text: "group-hello")
                     groupSeen = true
@@ -98,7 +90,7 @@ enum E2E {
                 }
             }
 
-            if imageSeen, placeSeen, groupSeen {
+            if imageSeen, groupSeen {
                 // Allow the joiner to receive the invite/group message before
                 // the workflow asserts both reports.
                 if let sentAt = groupSentAt,
@@ -106,7 +98,6 @@ enum E2E {
                     report([
                         "done": true,
                         "image": imageSeen,
-                        "place": placeSeen,
                         "group": groupSeen,
                         "peer": peer ?? "",
                     ])
@@ -119,7 +110,6 @@ enum E2E {
             "done": true,
             "error": "timeout",
             "image": imageSeen,
-            "place": placeSeen,
             "group": groupSeen,
             "peer": peer ?? "",
         ])
@@ -172,7 +162,6 @@ enum E2E {
         var pingSent = false
         var textSeen = false
         var imageSeen = false
-        var placeSeen = false
         var groupSeen = false
         var mediaSent = false
 
@@ -187,12 +176,6 @@ enum E2E {
                 textSeen = true
                 if !mediaSent {
                     store.sendImage(to: contact.id, data: testImage())
-                    store.sendLocation(
-                        to: contact.id,
-                        latitude: 35.6580,
-                        longitude: 139.7016,
-                        accuracy: 12
-                    )
                     mediaSent = true
                     report(["phase": "media-sent"])
                 }
@@ -200,19 +183,17 @@ enum E2E {
             if messages.contains(where: { !$0.mine && $0.kind == .image }) {
                 imageSeen = true
             }
-            if store.places[contact.id] != nil { placeSeen = true }
             if let group = store.groups.first(where: { $0.name == "E2E" }) {
                 if store.messages(forGroup: group.id).contains(where: { !$0.mine }) {
                     groupSeen = true
                 }
             }
 
-            if textSeen, imageSeen, placeSeen, groupSeen {
+            if textSeen, imageSeen, groupSeen {
                 report([
                     "done": true,
                     "text": textSeen,
                     "image": imageSeen,
-                    "place": placeSeen,
                     "group": groupSeen,
                 ])
                 return
@@ -224,7 +205,6 @@ enum E2E {
             "error": "timeout",
             "text": textSeen,
             "image": imageSeen,
-            "place": placeSeen,
             "group": groupSeen,
         ])
     }

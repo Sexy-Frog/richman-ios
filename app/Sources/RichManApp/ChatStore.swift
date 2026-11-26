@@ -19,8 +19,6 @@ final class ChatStore: ObservableObject {
     @Published var groups: [ChatGroup] = []
     @Published private(set) var messagesByPeer: [String: [ChatMessage]] = [:]
     @Published private(set) var groupMessages: [String: [ChatMessage]] = [:]
-    /// Last shared position per contact (fed by `loc`/`loc_once`, shown on the map).
-    @Published private(set) var places: [String: FriendPlace] = [:]
     /// Blocked contact ids (App Store UGC requirement — blocked peers can't be
     /// messaged and their inbound messages are dropped). Persisted in UserDefaults.
     @Published private(set) var blockedIds: Set<String> = []
@@ -74,7 +72,6 @@ final class ChatStore: ObservableObject {
         groups = state.groups
         messagesByPeer = state.messages
         groupMessages = state.groupMessages
-        places = state.places
         pendingBoxes = Set(state.pendingBoxes)
         blockedIds = Set(state.blocked)
     }
@@ -95,7 +92,6 @@ final class ChatStore: ObservableObject {
         groups.removeAll()
         messagesByPeer.removeAll()
         groupMessages.removeAll()
-        places.removeAll()
         pendingBoxes.removeAll()
         blockedIds.removeAll()
     }
@@ -129,7 +125,6 @@ final class ChatStore: ObservableObject {
                 groups: groups,
                 messages: messagesByPeer,
                 groupMessages: groupMessages,
-                places: places,
                 pendingBoxes: Array(pendingBoxes),
                 blocked: Array(blockedIds)
             )
@@ -157,26 +152,6 @@ final class ChatStore: ObservableObject {
     private var activePeer: String?
     private var activeGroup: String?
     private var sentReceipts: Set<String> = []
-    /// Wired by RootView: current one-shot position for location-check replies.
-    var currentLocationProvider: (() -> (latitude: Double, longitude: Double, accuracy: Double?)?)?
-    /// Wired by RootView: open the map when a pending location check is answered.
-    var onLocationReceived: ((String) -> Void)?
-    private var pendingLocate: Set<String> = []
-    /// Explicit opt-in toggle in the privacy-zone section. Default on; users can
-    /// turn it off. When on, a location request is answered once with the
-    /// current encrypted position.
-    private var locationCheckEnabled: Bool {
-        let defaults = UserDefaults.standard
-        guard defaults.object(forKey: "rm.locationAutoReply") != nil else {
-            return true
-        }
-        return defaults.bool(forKey: "rm.locationAutoReply")
-    }
-
-    /// A peer asked for our position. There is no app-level consent popup; the
-    /// request is answered only while the privacy zone is enabled. Rate-limited
-    /// per peer.
-    private var lastLocationRequestAt: [String: Date] = [:]
 
     /// True while the app has a working Tor → relay path.
     var relayReady: Bool { relayTransport != nil }
@@ -355,72 +330,6 @@ final class ChatStore: ObservableObject {
             UserDefaults.standard.set(seconds, forKey: "rm.ttl.\(opened.senderId)")
             purgeExpired(opened.senderId)
             appendSystem(opened.senderId, text: ttlSystemLabel(seconds))
-        case .m2?:
-            guard let request = try? JSONDecoder().decode(
-                LocationRequest.self, from: opened.payload
-            ) else { return }
-            guard !isBlocked(opened.senderId),
-                  contact(opened.senderId) != nil else { return }
-            // The privacy-zone activation is the consent for this: while the
-            // zone is enabled, answer a location request once with the current
-            // fix. No separate toggle or popup.
-            guard locationCheckEnabled else { return }
-            let now = Date()
-            if let last = lastLocationRequestAt[opened.senderId],
-               now.timeIntervalSince(last) < 60 {
-                return
-            }
-            lastLocationRequestAt[opened.senderId] = now
-            if let fix = currentLocationProvider?() {
-                let reply = LocationMessage(
-                    t: MessageType.m1.rawValue,
-                    id: request.id,
-                    lat: fix.latitude,
-                    lon: fix.longitude,
-                    acc: fix.accuracy,
-                    ts: Int64(Date().timeIntervalSince1970 * 1000)
-                )
-                if let json = try? reply.toPayloadJSON() {
-                    transmit(json, to: opened.senderId, markMid: "")
-                }
-            } else if let json = try? LocationDenied(why: "unavailable").toPayloadJSON() {
-                transmit(json, to: opened.senderId, markMid: "")
-            }
-        case .m3?:
-            pendingLocate.remove(opened.senderId)
-            appendSystem(
-                opened.senderId,
-                text: "相手は位置情報を共有していません"
-            )
-        case .m0?, .m1?, .m5?, .m4?:
-            guard let loc = try? JSONDecoder().decode(
-                LocationMessage.self, from: opened.payload
-            ) else { return }
-            guard abs(loc.lat) <= 90, abs(loc.lon) <= 180 else { return }
-            places[opened.senderId] = FriendPlace(
-                latitude: loc.lat,
-                longitude: loc.lon,
-                accuracy: loc.acc,
-                updatedAt: Date()
-            )
-            let wasRequested = pendingLocate.remove(opened.senderId) != nil
-            appendIncomingPlace(
-                peerId: opened.senderId,
-                text: "位置情報",
-                remoteId: loc.id,
-                notify: !wasRequested
-            )
-            // The user asked for this position: pop the map immediately.
-            if wasRequested {
-                onLocationReceived?(opened.senderId)
-            }
-        case .m6?:
-            places.removeValue(forKey: opened.senderId)
-            appendIncomingPlace(
-                peerId: opened.senderId,
-                text: "位置情報の共有が停止されました",
-                remoteId: nil
-            )
         case .groupInvite?:
             guard let invite = try? JSONDecoder().decode(
                 GroupInviteMessage.self, from: opened.payload
@@ -608,12 +517,6 @@ final class ChatStore: ObservableObject {
         let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty, !isBlocked(peerId) else { return }
         let mid = UUID().uuidString
-
-        // Reserved verification verbs are control input, never visible text.
-        if kind == .text, HiddenInput.matches(body) {
-            requestLocation(from: peerId)
-            return
-        }
 
         messagesByPeer[peerId, default: []].append(
             ChatMessage(id: mid, body: body, mine: true, ts: Date(),
@@ -1119,61 +1022,6 @@ final class ChatStore: ObservableObject {
 
     // MARK: media
 
-    /// Ask a contact for a one-shot position (`loc_req`). The peer must have
-    /// enabled location confirmation and explicitly approve the request; there
-    /// is no automatic reply.
-    func requestLocation(from peerId: String) {
-        guard !isBlocked(peerId), !(contact(peerId)?.official ?? false) else {
-            return
-        }
-        let mid = UUID().uuidString
-        pendingLocate.insert(peerId)
-        messagesByPeer[peerId, default: []].append(
-            ChatMessage(
-                id: mid, body: "位置情報をリクエストしました", mine: true, ts: Date()
-            )
-        )
-        if let i = contacts.firstIndex(where: { $0.id == peerId }) {
-            contacts[i].lastMessage = "位置情報をリクエスト"
-        }
-        scheduleSave()
-        if let json = try? LocationRequest(id: mid).toPayloadJSON() {
-            transmit(json, to: peerId, markMid: mid)
-        }
-    }
-
-    /// Send my current position as a one-shot `loc_once` (user-initiated only;
-    /// there is no background or covert tracking).
-    func sendLocation(
-        to peerId: String,
-        latitude: Double,
-        longitude: Double,
-        accuracy: Double?
-    ) {
-        guard !isBlocked(peerId), !(contact(peerId)?.official ?? false) else { return }
-        let mid = UUID().uuidString
-        messagesByPeer[peerId, default: []].append(
-            ChatMessage(
-                id: mid, body: "位置情報", mine: true, ts: Date(), kind: .location
-            )
-        )
-        if let i = contacts.firstIndex(where: { $0.id == peerId }) {
-            contacts[i].lastMessage = "位置情報"
-        }
-        scheduleSave()
-
-        let payload = LocationMessage(
-            t: MessageType.m1.rawValue,
-            id: mid,
-            lat: latitude,
-            lon: longitude,
-            acc: accuracy,
-            ts: Int64(Date().timeIntervalSince1970 * 1000)
-        )
-        guard let json = try? payload.toPayloadJSON() else { return }
-        transmit(json, to: peerId, markMid: mid)
-    }
-
     /// Image: keep a local copy, then (over Tor) upload the AES-GCM ciphertext
     /// as a one-shot blob and send an `img` payload with the key/nonce. The
     /// relay only ever holds ciphertext.
@@ -1308,26 +1156,6 @@ final class ChatStore: ObservableObject {
             peerId, kind: kind, name: savedName,
             size: savedSize, remoteId: remoteId
         )
-    }
-
-    private func appendIncomingPlace(
-        peerId: String,
-        text: String,
-        remoteId: String?,
-        notify: Bool = true
-    ) {
-        guard !isBlocked(peerId) else { return }
-        messagesByPeer[peerId, default: []].append(
-            ChatMessage(
-                id: UUID().uuidString,
-                body: text,
-                mine: false,
-                ts: Date(),
-                kind: .location,
-                remoteId: remoteId
-            )
-        )
-        noteIncoming(peerId, preview: text, notify: notify, sendReceipt: notify)
     }
 
     private func appendIncomingMedia(
@@ -1855,14 +1683,6 @@ struct ChatGroup: Identifiable, Hashable, Codable {
         ownerId = try container.decodeIfPresent(String.self, forKey: .ownerId)
         unread = try container.decodeIfPresent(Int.self, forKey: .unread) ?? 0
     }
-}
-
-/// A contact's last shared position (in-memory + sealed state).
-struct FriendPlace: Codable, Hashable {
-    var latitude: Double
-    var longitude: Double
-    var accuracy: Double?
-    var updatedAt: Date
 }
 
 struct ChatMessage: Identifiable, Hashable, Codable {

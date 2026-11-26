@@ -10,8 +10,6 @@ struct ChatView: View {
     let contact: Contact
     @EnvironmentObject private var store: ChatStore
     @EnvironmentObject private var calls: CallStore
-    @EnvironmentObject private var locationProvider: LocationProvider
-    @EnvironmentObject private var mapPresenter: MapPresenter
 
     @State private var draft = ""
     @State private var replyTo: ChatMessage?
@@ -22,7 +20,6 @@ struct ChatView: View {
     @State private var showFiles = false
     @State private var photoItem: PhotosPickerItem?
     @State private var ttlSeconds = 0
-    @State private var showLocationError = false
     @State private var imagePreview: ImagePreview?
     @State private var confirmClearChat = false
     @State private var bubbleGeometry = ChatBubbleGeometry()
@@ -71,11 +68,6 @@ struct ChatView: View {
                                 },
                                 onOpenImage: {
                                     imagePreview = ImagePreview(image: $0)
-                                },
-                                onOpenLocation: { target in
-                                    mapPresenter.show(
-                                        focusPeer: target.mine ? nil : contact.id
-                                    )
                                 }
                             )
                             .id(message.id)
@@ -213,7 +205,6 @@ struct ChatView: View {
         .confirmationDialog("送信する", isPresented: $showAttach, titleVisibility: .visible) {
             Button("写真") { showPhotos = true }
             Button("ファイル") { showFiles = true }
-            Button("現在地") { sendCurrentLocation() }
             Button("キャンセル", role: .cancel) {}
         }
         .sheet(item: $imagePreview) { preview in
@@ -232,16 +223,6 @@ struct ChatView: View {
                 }
                 .toolbarBackground(.black, for: .navigationBar)
             }
-        }
-        .alert("位置情報を送れません", isPresented: $showLocationError) {
-            Button("設定を開く") {
-                if let url = URL(string: UIApplication.openSettingsURLString) {
-                    UIApplication.shared.open(url)
-                }
-            }
-            Button("閉じる", role: .cancel) {}
-        } message: {
-            Text("位置情報の利用を許可し、現在地が取得できるまでお待ちください。共有はこの操作のときだけ行います。")
         }
         .task {
             store.markDelivered(contact.id)
@@ -399,25 +380,6 @@ struct ChatView: View {
         replyTo = nil
         store.send(to: contact.id, text: text, replyTo: reply)
     }
-
-    /// One-shot, user-initiated position share (never background tracking).
-    private func sendCurrentLocation() {
-        guard locationProvider.hasPermission else {
-            // Let the system permission dialog be the only consent prompt.
-            locationProvider.requestPermission()
-            return
-        }
-        guard let fix = locationProvider.location else {
-            showLocationError = true
-            return
-        }
-        store.sendLocation(
-            to: contact.id,
-            latitude: fix.coordinate.latitude,
-            longitude: fix.coordinate.longitude,
-            accuracy: fix.horizontalAccuracy
-        )
-    }
 }
 
 // MARK: - bubbles
@@ -434,7 +396,6 @@ private struct MessageBubble: View {
     let onDelete: (ChatMessage) -> Void
     let onDeleteEveryone: (ChatMessage) -> Void
     let onOpenImage: (UIImage) -> Void
-    let onOpenLocation: (ChatMessage) -> Void
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 4) {
@@ -567,20 +528,9 @@ private struct MessageBubble: View {
                     .foregroundStyle(textColor)
             }
         case .location:
-            HStack(spacing: 8) {
-                Image(systemName: "location.fill")
-                    .font(.system(size: 18))
-                    .foregroundStyle(message.mine ? RM.bubbleMeText : RM.primary)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("位置情報")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(textColor)
-                    Text("タップで地図を表示")
-                        .font(.system(size: 10))
-                        .foregroundStyle(subColor)
-                }
-            }
-            .onTapGesture { onOpenLocation(message) }
+            Label("位置情報", systemImage: "location.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(textColor)
         case .file:
             fileContent
         }

@@ -49,35 +49,18 @@ internal review. Keep it in sync with the build.
   no confirmation prompt because the threat model is coercion; this trade-off is
   documented here and in the in-app policy.
 
-## Location identity check (位置情報の確認)
+## Location (privacy zone only)
+
+- Location permission is requested only for the on-device privacy zone.
+- Location is evaluated on-device and is **not sent to contacts or the developer**.
+  There is no location-sharing message, no shared-location map, and no hidden
+  location command.
+- No background location. The zone action (lock / clear chats / clear account)
+  runs locally.
 
 Private submission package (not in this public repository):
 `reports/appstore/REVIEW_NOTES_PRIVATE.md`, `APP_PRIVACY_ANSWERS.md`,
 `SUBMISSION_CHECKLIST.md`, `METADATA_DRAFT.md`, `DEMO_SCRIPT.md`.
-
-- A reserved verification verb typed in a 1:1 chat is treated as control input:
-  it is never stored or displayed as a message, and sends a one-shot
-  `loc_req` to the other side. It is **intentionally not exposed in the UI**;
-  this document is the App Review disclosure.
-  The exact verb and aliases are **not committed to this public repository**;
-  paste them into App Store Connect → Notes for Review from the private
-  operations note before submission. The shipped binary is checked against
-  them in CI (needles come from a repository secret).
-- **The toggle in the privacy-zone section is the consent.** **設定 → プライバシーゾーン
-  → 位置情報の確認に自動で応じる** is **on by default** (users can turn it off).
-  When it is on, a location request is answered **once** with the current
-  encrypted position; when off, the request is ignored. There is no popup and no
-  separate global toggle. Requests are rate-limited per peer (60 s). There is no
-  background location and no continuous sharing.
-- This is a deliberate, disclosed trade-off: anyone who knows the reserved verb
-  and is a contact can obtain one current location while the toggle is on. Users
-  who do not want this leave it off.
-- Test: turn the toggle on for the recipient; send the reserved verb from the
-  other account; one `loc_once` reply arrives. Turn it off; no reply.
-- Policy: 2.5.19 (disclosed here for App Review), 2.3.1(a), 5.1.1(i) and 5.1.2
-  (explicit in-app toggle with on-screen description is the consent; one-shot,
-  no background tracking), 1.6 (encrypted in transit; no server-side location
-  storage).
 
 ## Positioning / metadata
 

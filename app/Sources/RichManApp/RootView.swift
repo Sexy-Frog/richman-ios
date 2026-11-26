@@ -20,7 +20,6 @@ struct RootView: View {
     @StateObject private var lock = LockStore()
     @StateObject private var location = LocationProvider()
     @StateObject private var tor = TorSession()
-    @StateObject private var mapPresenter = MapPresenter()
     @State private var backgroundedAt: Date?
     @State private var privacyCover = false
     @State private var screenCaptured = UIScreen.main.isCaptured
@@ -64,7 +63,6 @@ struct RootView: View {
         .environmentObject(lock)
         .environmentObject(location)
         .environmentObject(tor)
-        .environmentObject(mapPresenter)
         .tint(RM.primary)
         .onAppear {
             if !savedName.isEmpty { store.displayName = savedName }
@@ -85,16 +83,7 @@ struct RootView: View {
                 store.attachRelayFactory(tor.readyTransportFactory)
             }
             wireCalls()
-            store.onLocationReceived = { [weak mapPresenter] peer in
-                mapPresenter?.show(focusPeer: peer)
-            }
             #if DEBUG
-            if UserDefaults.standard.bool(forKey: "rm.openMap") {
-                Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 500_000_000)
-                    mapPresenter.show(focusPeer: MapConfig.initialFocus)
-                }
-            }
             if UserDefaults.standard.bool(forKey: "rm.locationPrimer") {
                 Task { @MainActor in
                     try? await Task.sleep(nanoseconds: 400_000_000)
@@ -161,15 +150,7 @@ struct RootView: View {
                     .environmentObject(calls)
                     .environmentObject(location)
                     .environmentObject(tor)
-                    .environmentObject(mapPresenter)
             }
-        }
-        .sheet(item: $mapPresenter.route) { route in
-            MapHomeView(initialFocus: route.focusPeer)
-                .environmentObject(store)
-                .environmentObject(location)
-                .environmentObject(tor)
-                .environmentObject(mapPresenter)
         }
         .sheet(isPresented: $showDebugLocationPrimer) {
             LocationPrimer().environmentObject(location)
@@ -259,14 +240,6 @@ struct RootView: View {
         }
         calls.nameResolver = { [weak store] peer in
             store?.contact(peer)?.name
-        }
-        store.currentLocationProvider = { [weak location] in
-            guard let fix = location?.location else { return nil }
-            return (
-                fix.coordinate.latitude,
-                fix.coordinate.longitude,
-                fix.horizontalAccuracy
-            )
         }
     }
 

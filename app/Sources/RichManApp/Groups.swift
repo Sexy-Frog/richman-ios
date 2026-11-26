@@ -109,7 +109,6 @@ struct CreateGroupView: View {
 struct GroupChatView: View {
     let group: ChatGroup
     @EnvironmentObject private var store: ChatStore
-    @EnvironmentObject private var mapPresenter: MapPresenter
     @State private var draft = ""
     @State private var replyTo: ChatMessage?
     @State private var showInfo = false
@@ -152,9 +151,6 @@ struct GroupChatView: View {
                                     store.deleteGroupMessage(
                                         $0, in: group.id, everyone: true
                                     )
-                                },
-                                onOpenLocation: { _ in
-                                    mapPresenter.show(focusPeer: nil)
                                 }
                             )
                             .id(message.id)
@@ -339,7 +335,6 @@ private struct GroupBubble: View {
     let onReply: (ChatMessage) -> Void
     let onDelete: (ChatMessage) -> Void
     let onDeleteEveryone: (ChatMessage) -> Void
-    let onOpenLocation: (ChatMessage) -> Void
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 4) {
@@ -470,20 +465,9 @@ private struct GroupBubble: View {
         case .file:
             fileContent
         case .location:
-            HStack(spacing: 8) {
-                Image(systemName: "location.fill")
-                    .font(.system(size: 18))
-                    .foregroundStyle(message.mine ? RM.bubbleMeText : RM.primary)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("位置情報")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(textColor)
-                    Text("タップで地図を表示")
-                        .font(.system(size: 10))
-                        .foregroundStyle(subColor)
-                }
-            }
-            .onTapGesture { onOpenLocation(message) }
+            Label("位置情報", systemImage: "location.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(textColor)
         }
     }
 

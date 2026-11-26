@@ -194,8 +194,8 @@ jobs:
           cat "$JOIN_JSON" 2>/dev/null || true
           echo
 
-          jq -e '.done==true and .image==true and .place==true and .group==true and .map==true' "$HOST_JSON"
-          jq -e '.done==true and .text==true and .image==true and .place==true and .group==true' "$JOIN_JSON"
+          jq -e '.done==true and .image==true and .group==true and .map==true' "$HOST_JSON"
+          jq -e '.done==true and .text==true and .image==true and .group==true' "$JOIN_JSON"
 
       - name: Collect artifacts
         if: always()

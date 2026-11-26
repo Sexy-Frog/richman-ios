@@ -18,7 +18,6 @@ enum LocalStore {
         var groups: [ChatGroup]
         var messages: [String: [ChatMessage]]
         var groupMessages: [String: [ChatMessage]]
-        var places: [String: FriendPlace]
         var pendingBoxes: [String]
         var blocked: [String]
     }

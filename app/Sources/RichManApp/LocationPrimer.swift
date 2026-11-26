@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// Permission primer shown before the system prompt. The map is no longer a
-/// permanent tab, so the app explains the concrete value first (meetups,
-/// shared positions, security zones) and is explicit about the limits.
+/// permanent tab, so the app explains the concrete value first (security zones)
+/// and is explicit about the limits.
 struct LocationPrimer: View {
     @EnvironmentObject private var location: LocationProvider
     @Environment(\.dismiss) private var dismiss
@@ -28,14 +28,14 @@ struct LocationPrimer: View {
                         "自宅に着いたら自動ロック、職場では履歴を消去。ゾーン判定は端末内だけで、位置情報をサーバーに送りません。"
                     )
                     benefit(
-                        "figure.wave",
-                        "待ち合わせがスムーズ",
-                        "現在地を友だちに送ったり、届いた位置を地図で確認できます。"
+                        "map.fill",
+                        "ゾーンを地図で設定",
+                        "プライバシーゾーンの中心と半径を地図で決められます。"
                     )
                     benefit(
                         "hand.raised.fill",
-                        "共有は操作したときだけ",
-                        "送信する位置情報は暗号化されます。バックグラウンドで取得したり、常時共有することはありません。"
+                        "端末内だけで判定",
+                        "位置情報はゾーンの判定にのみ使い、サーバーに送りません。バックグラウンドで取得したり、常時共有することはありません。"
                     )
 
                     Button {

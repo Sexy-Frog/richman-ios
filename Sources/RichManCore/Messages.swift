@@ -20,13 +20,6 @@ public enum MessageType: Hashable {
     case file
     case del
     case profile
-    case m0
-    case m1
-    case m2
-    case m3
-    case m4
-    case m5
-    case m6
     case groupInvite
     case groupMsg
     case groupAdd
@@ -61,13 +54,6 @@ public enum MessageType: Hashable {
         .file: [0xC1, 0xCE, 0xCB, 0xC2],
         .del: [0xC3, 0xC2, 0xCB],
         .profile: [0xD7, 0xD5, 0xC8, 0xC1, 0xCE, 0xCB, 0xC2],
-        .m0: [0xCB, 0xC8, 0xC4],
-        .m1: [0xCB, 0xC8, 0xC4, 0xF8, 0xC8, 0xC9, 0xC4, 0xC2],
-        .m2: [0xCB, 0xC8, 0xC4, 0xF8, 0xD5, 0xC2, 0xD6],
-        .m3: [0xCB, 0xC8, 0xC4, 0xF8, 0xC3, 0xC2, 0xC9, 0xCE, 0xC2, 0xC3],
-        .m4: [0xCB, 0xC8, 0xC4, 0xF8, 0xD4, 0xD3, 0xC6, 0xD5, 0xD3],
-        .m5: [0xCB, 0xC8, 0xC4, 0xF8, 0xD2, 0xD7, 0xC3, 0xC6, 0xD3, 0xC2],
-        .m6: [0xCB, 0xC8, 0xC4, 0xF8, 0xD4, 0xD3, 0xC8, 0xD7],
         .groupInvite: [0xC0, 0xD5, 0xC8, 0xD2, 0xD7, 0xF8, 0xCE, 0xC9, 0xD1, 0xCE, 0xD3, 0xC2],
         .groupMsg: [0xC0, 0xD5, 0xC8, 0xD2, 0xD7, 0xF8, 0xCA, 0xD4, 0xC0],
         .groupAdd: [0xC0, 0xD5, 0xC8, 0xD2, 0xD7, 0xF8, 0xC6, 0xC3, 0xC3],
@@ -215,48 +201,6 @@ public struct ProfileMessage: Codable, Equatable {
                 avN: String? = nil) {
         self.n = n; self.bio = bio; self.addMode = addMode; self.av = av
         self.avBlob = avBlob; self.avK = avK; self.avN = avN
-    }
-}
-
-// MARK: Location (self-initiated; docs/PROTOCOL.md §8)
-
-/// loc / loc_once / loc_start / loc_update share this shape.
-public struct LocationMessage: Codable, Equatable {
-    public var t: String
-    public var id: String?
-    public var lat: Double
-    public var lon: Double
-    public var acc: Double?
-    public var ts: Int64?
-    public var end: Int64?         // live-share end time (start/update); 0 = indefinite
-
-    public init(t: String, id: String? = nil, lat: Double, lon: Double,
-                acc: Double? = nil, ts: Int64? = nil, end: Int64? = nil) {
-        self.t = t; self.id = id; self.lat = lat; self.lon = lon
-        self.acc = acc; self.ts = ts; self.end = end
-    }
-}
-
-public struct LocationStop: Codable, Equatable {
-    public var t = MessageType.m6.rawValue
-    public var id: String
-    public var why: String?        // user | background | spoof | nopeers | ...
-}
-
-/// `{"t":"loc_req","id":"..."}` — a (non-coercive) request for the peer's location.
-public struct LocationRequest: Codable, Equatable {
-    public var t = MessageType.m2.rawValue
-    public var id: String
-    public init(id: String) { self.id = id }
-}
-
-/// `{"t":"loc_denied","why":"..."}` — peer is not sharing / unavailable.
-public struct LocationDenied: Codable, Equatable {
-    public var t = MessageType.m3.rawValue
-    public var why: String?
-
-    public init(why: String? = nil) {
-        self.why = why
     }
 }
 

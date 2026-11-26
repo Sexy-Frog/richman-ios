@@ -30,12 +30,6 @@ final class MessagesTests: XCTestCase {
         XCTAssertEqual(t.mid, "x")
     }
 
-    func testLocReqType() {
-        // Must be "loc_req" (the live Android type), NOT "loc_request".
-        XCTAssertEqual(MessagePayload.type(of: #"{"t":"loc_req","id":"abc"}"#.data(using: .utf8)!), .m2)
-        XCTAssertEqual(MessageType.m2.rawValue, "loc_req")
-    }
-
     func testStampAndReadReplyBox() {
         let json = #"{"t":"text","b":"hi"}"#.data(using: .utf8)!
         XCTAssertNil(MessagePayload.replyBox(of: json))
