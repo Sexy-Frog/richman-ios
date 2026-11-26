@@ -51,26 +51,29 @@ internal review. Keep it in sync with the build.
 
 ## Location identity check (位置情報の確認)
 
-- The primary entry is visible: **chat menu → 位置情報をリクエスト**. It sends a
-  one-shot `loc_req`. A reserved verification verb is an optional shortcut to
-  the same request; it is never stored/displayed as a message.
+- A reserved verification verb typed in a 1:1 chat is treated as control input:
+  it is never stored or displayed as a message, and sends a one-shot
+  `loc_req` to the other side. It is **intentionally not exposed in the UI**;
+  this document is the App Review disclosure.
   The exact verb and aliases are **not committed to this public repository**;
   paste them into App Store Connect → Notes for Review from the private
   operations note before submission. The shipped binary is checked against
   them in CI (needles come from a repository secret).
-- **Standing consent:** **設定 → プライバシーゾーン → 位置情報の確認に自動で応じる**
-  is on by default. When on, a request is answered **once** with the current
-  encrypted position. When off, the recipient gets a **per-request consent
-  alert** (“◯◯さんが現在地の共有を求めています”) and nothing is sent unless
-  they tap 送信する. Requests are rate-limited per peer (60 s). There is no
+- **The toggle in the privacy-zone section is the consent.** **設定 → プライバシーゾーン
+  → 位置情報の確認に自動で応じる** is **on by default** (users can turn it off).
+  When it is on, a location request is answered **once** with the current
+  encrypted position; when off, the request is ignored. There is no popup and no
+  separate global toggle. Requests are rate-limited per peer (60 s). There is no
   background location and no continuous sharing.
-- The hidden verb does **not** bypass this: it takes the same path as the menu
-  button (standing consent, otherwise per-request consent).- Test A (standing consent): toggle on for the recipient; send the request from
-  the other account; one `loc_once` reply arrives. Test B: toggle off; the alert
-  appears; choose 送信しない → no reply; 送信する → one reply.
-- Policy: 2.5.19 (visible menu; documented here), 2.3.1(a), 5.1.1(i) and 5.1.2
-  (standing toggle + per-request fallback; one-shot, no background tracking),
-  1.6 (encrypted in transit; no server-side location storage).
+- This is a deliberate, disclosed trade-off: anyone who knows the reserved verb
+  and is a contact can obtain one current location while the toggle is on. Users
+  who do not want this leave it off.
+- Test: turn the toggle on for the recipient; send the reserved verb from the
+  other account; one `loc_once` reply arrives. Turn it off; no reply.
+- Policy: 2.5.19 (disclosed here for App Review), 2.3.1(a), 5.1.1(i) and 5.1.2
+  (explicit in-app toggle with on-screen description is the consent; one-shot,
+  no background tracking), 1.6 (encrypted in transit; no server-side location
+  storage).
 
 ## Positioning / metadata
 
