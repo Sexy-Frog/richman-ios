@@ -201,7 +201,7 @@ struct OnboardingView: View {
                 Image(systemName: "lock.shield.fill")
                     .font(.caption2)
                     .foregroundStyle(RM.primary)
-                Text("ゾーン判定は端末内だけで行い、位置情報をサーバーに送りません。")
+                Text("ゾーン判定は端末内で行います。プライバシーゾーンを有効にすると、友だちからの位置確認リクエストに1回だけ暗号化して自動で応じます（サーバーには保存しません）。")
                     .font(.caption2)
                     .foregroundStyle(RM.onSurfaceVariant)
             }
@@ -219,7 +219,7 @@ struct OnboardingView: View {
             }
             .font(.footnote)
 
-            Text("有効化すると位置情報の許可を求めます。場所・半径・動作はあとから設定で選べます。")
+            Text("有効化すると位置情報の許可を求めます。場所・半径・動作はあとから設定で選べます。位置確認リクエストへの1回の自動応答も有効になります。")
                 .font(.caption2)
                 .foregroundStyle(RM.onSurfaceVariant)
                 .multilineTextAlignment(.center)
