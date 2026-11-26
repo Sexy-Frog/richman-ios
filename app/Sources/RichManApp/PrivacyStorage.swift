@@ -20,6 +20,16 @@ enum PrivacyStorage {
         ).first {
             excludeFromBackup(documents)
         }
+        // UserDefaults lives in Library/Preferences. The privacy-zone blob is
+        // sealed, but excluding preferences (and caches) from backup keeps
+        // names/settings and any legacy plaintext off iCloud/iTunes.
+        if let library = FileManager.default.urls(
+            for: .libraryDirectory,
+            in: .userDomainMask
+        ).first {
+            excludeFromBackup(library.appendingPathComponent("Preferences", isDirectory: true))
+            excludeFromBackup(library.appendingPathComponent("Caches", isDirectory: true))
+        }
     }
 
     static func excludeFromBackup(_ url: URL) {

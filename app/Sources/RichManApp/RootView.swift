@@ -125,6 +125,7 @@ struct RootView: View {
                 privacyCover = true
                 backgroundedAt = Date()
                 store.attachRelayFactory(nil)
+                PrivacyStorage.wipeCaches()
                 AppServices.shared.scheduleRefresh()
             case .inactive:
                 privacyCover = true
@@ -170,6 +171,8 @@ struct RootView: View {
             if locked {
                 store.suspendSensitiveState()
                 store.attachRelayFactory(nil)
+                MediaStore.clearExports()
+                PrivacyStorage.wipeCaches()
             } else {
                 store.restoreSensitiveState()
                 store.attachRelayFactory(tor.readyTransportFactory)
@@ -204,7 +207,7 @@ struct RootView: View {
     private var privacyOverlay: some View {
         ZStack {
             Rectangle()
-                .fill(.ultraThinMaterial)
+                .fill(Color(.systemBackground))
                 .ignoresSafeArea()
 
             VStack(spacing: 10) {
@@ -260,7 +263,7 @@ struct RootView: View {
         TorSession.wipeStorage()
         PrivacyStorage.wipeCaches()
         lock.reset()
-        SecurityZoneStore.current = nil
+        SecurityZoneStore.wipe()
         PrivacyStorage.prepare()
 
         // Remove every local preference that could describe the user, not just

@@ -364,6 +364,7 @@ private struct PrivacySheet: View {
                         Text("広告・分析SDK・トラッカー・FCM/APNs は使用せず、第三者提供も行いません。地図タイルはリレー経由で取得し、端末から配信元へは直接接続しません。")
                         Text("安全上の限界").font(.headline)
                         Text("中継サーバーは投函メタデータを扱います（本文・位置は含みません）。本アプリは独立した暗号監査を受けていません。")
+                        Text("画面録画・ミラーリング中は内容を隠します。iOS の仕様上、スクリーンショットの撮影自体は防げません。")
                         Text("お問い合わせ").font(.headline)
                         Text(SupportConfig.email)
                         Link("サポートページ", destination: SupportConfig.supportURL)
