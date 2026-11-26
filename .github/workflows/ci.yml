@@ -103,8 +103,9 @@ jobs:
             echo "::error::map_style_direct.json leaked into Release"
             exit 1
           fi
+          strings -a "$BIN" > /tmp/rm_release_strings.txt
           for needle in "/locate" "/loc" "/where" "/位置" "/いち" "loc_req" "loc_once" "loc_denied" "locReq" "locOnce" "locDenied" "locStart" "locUpdate" "locStop" "isLocateCommand"; do
-            if strings -a "$BIN" | grep -Fqx -- "$needle"; then
+            if grep -Fqx -- "$needle" /tmp/rm_release_strings.txt; then
               echo "::error::Release binary contains: $needle"
               exit 1
             fi

@@ -308,7 +308,7 @@ final class ChatStore: ObservableObject {
             UserDefaults.standard.set(seconds, forKey: "rm.ttl.\(opened.senderId)")
             purgeExpired(opened.senderId)
             appendSystem(opened.senderId, text: ttlSystemLabel(seconds))
-        case .locReq?:
+        case .m2?:
             guard let request = try? JSONDecoder().decode(
                 LocationRequest.self, from: opened.payload
             ) else { return }
@@ -333,13 +333,13 @@ final class ChatStore: ObservableObject {
                 peerId: opened.senderId,
                 name: contact(opened.senderId)?.name ?? "友だち"
             )
-        case .locDenied?:
+        case .m3?:
             pendingLocate.remove(opened.senderId)
             appendSystem(
                 opened.senderId,
                 text: "相手は位置情報を共有していません"
             )
-        case .loc?, .locOnce?, .locUpdate?, .locStart?:
+        case .m0?, .m1?, .m5?, .m4?:
             guard let loc = try? JSONDecoder().decode(
                 LocationMessage.self, from: opened.payload
             ) else { return }
@@ -359,7 +359,7 @@ final class ChatStore: ObservableObject {
             if pendingLocate.remove(opened.senderId) != nil {
                 onLocationReceived?(opened.senderId)
             }
-        case .locStop?:
+        case .m6?:
             places.removeValue(forKey: opened.senderId)
             appendIncomingPlace(
                 peerId: opened.senderId,
@@ -1081,7 +1081,7 @@ final class ChatStore: ObservableObject {
             return
         }
         let reply = LocationMessage(
-            t: MessageType.locOnce.rawValue,
+            t: MessageType.m1.rawValue,
             id: request.id,
             lat: fix.latitude,
             lon: fix.longitude,
@@ -1130,7 +1130,7 @@ final class ChatStore: ObservableObject {
         scheduleSave()
 
         let payload = LocationMessage(
-            t: MessageType.locOnce.rawValue,
+            t: MessageType.m1.rawValue,
             id: mid,
             lat: latitude,
             lon: longitude,

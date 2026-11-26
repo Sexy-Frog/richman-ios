@@ -32,8 +32,8 @@ final class MessagesTests: XCTestCase {
 
     func testLocReqType() {
         // Must be "loc_req" (the live Android type), NOT "loc_request".
-        XCTAssertEqual(MessagePayload.type(of: #"{"t":"loc_req","id":"abc"}"#.data(using: .utf8)!), .locReq)
-        XCTAssertEqual(MessageType.locReq.rawValue, "loc_req")
+        XCTAssertEqual(MessagePayload.type(of: #"{"t":"loc_req","id":"abc"}"#.data(using: .utf8)!), .m2)
+        XCTAssertEqual(MessageType.m2.rawValue, "loc_req")
     }
 
     func testStampAndReadReplyBox() {

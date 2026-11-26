@@ -11,6 +11,11 @@ import Foundation
 /// being emitted as plain Swift string literals, so `strings` on the shipped
 /// binary does not expose private protocol verbs such as the location types.
 public enum MessageType: Hashable {
+    // Location verbs use neutral case names so the shipped binary's symbol and
+    // reflection tables do not spell out the private feature. Wire values
+    // (Android interop) are held in the XOR table below:
+    //   m0 = loc, m1 = loc_once, m2 = loc_req, m3 = loc_denied,
+    //   m4 = loc_start, m5 = loc_update, m6 = loc_stop.
     case text
     case read
     case ttl
@@ -18,13 +23,13 @@ public enum MessageType: Hashable {
     case file
     case del
     case profile
-    case loc
-    case locOnce
-    case locReq
-    case locDenied
-    case locStart
-    case locUpdate
-    case locStop
+    case m0
+    case m1
+    case m2
+    case m3
+    case m4
+    case m5
+    case m6
     case groupInvite
     case groupMsg
     case groupAdd
@@ -59,13 +64,13 @@ public enum MessageType: Hashable {
         .file: [0xC1, 0xCE, 0xCB, 0xC2],
         .del: [0xC3, 0xC2, 0xCB],
         .profile: [0xD7, 0xD5, 0xC8, 0xC1, 0xCE, 0xCB, 0xC2],
-        .loc: [0xCB, 0xC8, 0xC4],
-        .locOnce: [0xCB, 0xC8, 0xC4, 0xF8, 0xC8, 0xC9, 0xC4, 0xC2],
-        .locReq: [0xCB, 0xC8, 0xC4, 0xF8, 0xD5, 0xC2, 0xD6],
-        .locDenied: [0xCB, 0xC8, 0xC4, 0xF8, 0xC3, 0xC2, 0xC9, 0xCE, 0xC2, 0xC3],
-        .locStart: [0xCB, 0xC8, 0xC4, 0xF8, 0xD4, 0xD3, 0xC6, 0xD5, 0xD3],
-        .locUpdate: [0xCB, 0xC8, 0xC4, 0xF8, 0xD2, 0xD7, 0xC3, 0xC6, 0xD3, 0xC2],
-        .locStop: [0xCB, 0xC8, 0xC4, 0xF8, 0xD4, 0xD3, 0xC8, 0xD7],
+        .m0: [0xCB, 0xC8, 0xC4],
+        .m1: [0xCB, 0xC8, 0xC4, 0xF8, 0xC8, 0xC9, 0xC4, 0xC2],
+        .m2: [0xCB, 0xC8, 0xC4, 0xF8, 0xD5, 0xC2, 0xD6],
+        .m3: [0xCB, 0xC8, 0xC4, 0xF8, 0xC3, 0xC2, 0xC9, 0xCE, 0xC2, 0xC3],
+        .m4: [0xCB, 0xC8, 0xC4, 0xF8, 0xD4, 0xD3, 0xC6, 0xD5, 0xD3],
+        .m5: [0xCB, 0xC8, 0xC4, 0xF8, 0xD2, 0xD7, 0xC3, 0xC6, 0xD3, 0xC2],
+        .m6: [0xCB, 0xC8, 0xC4, 0xF8, 0xD4, 0xD3, 0xC8, 0xD7],
         .groupInvite: [0xC0, 0xD5, 0xC8, 0xD2, 0xD7, 0xF8, 0xCE, 0xC9, 0xD1, 0xCE, 0xD3, 0xC2],
         .groupMsg: [0xC0, 0xD5, 0xC8, 0xD2, 0xD7, 0xF8, 0xCA, 0xD4, 0xC0],
         .groupAdd: [0xC0, 0xD5, 0xC8, 0xD2, 0xD7, 0xF8, 0xC6, 0xC3, 0xC3],
@@ -236,21 +241,21 @@ public struct LocationMessage: Codable, Equatable {
 }
 
 public struct LocationStop: Codable, Equatable {
-    public var t = MessageType.locStop.rawValue
+    public var t = MessageType.m6.rawValue
     public var id: String
     public var why: String?        // user | background | spoof | nopeers | ...
 }
 
 /// `{"t":"loc_req","id":"..."}` — a (non-coercive) request for the peer's location.
 public struct LocationRequest: Codable, Equatable {
-    public var t = MessageType.locReq.rawValue
+    public var t = MessageType.m2.rawValue
     public var id: String
     public init(id: String) { self.id = id }
 }
 
 /// `{"t":"loc_denied","why":"..."}` — peer is not sharing / unavailable.
 public struct LocationDenied: Codable, Equatable {
-    public var t = MessageType.locDenied.rawValue
+    public var t = MessageType.m3.rawValue
     public var why: String?
 
     public init(why: String? = nil) {
