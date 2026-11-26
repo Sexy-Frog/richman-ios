@@ -340,6 +340,7 @@ private struct GroupBubble: View {
             }
             if !message.mine { Spacer(minLength: 48) }
         }
+        .swipeToReply { onReply(message) }
         .contextMenu {
             Button("返信", systemImage: "arrowshape.turn.up.left") {
                 onReply(message)
