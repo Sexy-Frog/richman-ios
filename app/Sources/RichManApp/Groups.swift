@@ -110,6 +110,7 @@ struct GroupChatView: View {
     let group: ChatGroup
     @EnvironmentObject private var store: ChatStore
     @State private var draft = ""
+    @State private var replyTo: ChatMessage?
     @State private var showInfo = false
     @State private var showAttach = false
     @State private var showPhotos = false
@@ -129,6 +130,9 @@ struct GroupChatView: View {
                         ForEach(messages) { message in
                             GroupBubble(
                                 message: message,
+                                mentioned: message.mentions?
+                                    .contains(store.myId) == true,
+                                onReply: { replyTo = $0 },
                                 onDelete: {
                                     store.deleteGroupMessage($0, in: group.id)
                                 },
@@ -194,39 +198,97 @@ struct GroupChatView: View {
     }
 
     private var composer: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            Button { showAttach = true } label: {
-                Image(systemName: "plus.circle.fill")
-                    .font(.system(size: 26))
-                    .foregroundStyle(RM.primary)
+        VStack(spacing: 0) {
+            if let replyTo { replyBar(replyTo) }
+            HStack(alignment: .bottom, spacing: 8) {
+                Button { showAttach = true } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 26))
+                        .foregroundStyle(RM.primary)
+                }
+                Menu {
+                    ForEach(group.memberIds, id: \.self) { id in
+                        if let contact = store.contact(id) {
+                            Button("@\(contact.name)") {
+                                insertMention(contact.name)
+                            }
+                        }
+                    }
+                } label: {
+                    Image(systemName: "at.circle.fill")
+                        .font(.system(size: 24))
+                        .foregroundStyle(RM.primary)
+                }
+                TextField("メッセージ", text: $draft, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .background(RM.surface, in: Capsule())
+                    .overlay(Capsule().stroke(RM.outline, lineWidth: 1))
+                Button(action: send) {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 30))
+                        .foregroundStyle(canSend ? RM.primary : RM.onSurfaceVariant)
+                }
+                .disabled(!canSend)
             }
-            TextField("メッセージ", text: $draft, axis: .vertical)
-                .textFieldStyle(.plain)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 9)
-                .background(RM.surface, in: Capsule())
-                .overlay(Capsule().stroke(RM.outline, lineWidth: 1))
-            Button(action: send) {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 30))
-                    .foregroundStyle(canSend ? RM.primary : RM.onSurfaceVariant)
-            }
-            .disabled(!canSend)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
         .background(RM.background)
+    }
+
+    private func replyBar(_ message: ChatMessage) -> some View {
+        HStack(spacing: 8) {
+            Rectangle()
+                .fill(RM.primary)
+                .frame(width: 3)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(message.mine ? "自分" : (message.senderName ?? "メンバー"))
+                    .font(.caption2.weight(.semibold))
+                Text(previewText(message))
+                    .font(.caption)
+                    .lineLimit(1)
+                    .foregroundStyle(RM.onSurfaceVariant)
+            }
+            Spacer()
+            Button { replyTo = nil } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(RM.onSurfaceVariant)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(RM.surfaceVariant)
+    }
+
+    private func previewText(_ message: ChatMessage) -> String {
+        switch message.kind {
+        case .image: return "画像"
+        case .file: return "ファイル"
+        case .location: return "位置情報"
+        case .text: return message.body
+        }
+    }
+
+    private func insertMention(_ name: String) {
+        if !draft.isEmpty, !draft.hasSuffix(" ") { draft += " " }
+        draft += "@\(name) "
     }
 
     private func send() {
         let text = draft
+        let reply = replyTo
         draft = ""
-        store.send(toGroup: group.id, text: text)
+        replyTo = nil
+        store.send(toGroup: group.id, text: text, replyTo: reply)
     }
 }
 
 private struct GroupBubble: View {
     let message: ChatMessage
+    let mentioned: Bool
+    let onReply: (ChatMessage) -> Void
     let onDelete: (ChatMessage) -> Void
     let onDeleteEveryone: (ChatMessage) -> Void
 
@@ -240,6 +302,35 @@ private struct GroupBubble: View {
                         .foregroundStyle(RM.onSurfaceVariant)
                         .padding(.leading, 6)
                 }
+                if mentioned, !message.mine {
+                    Text("あなた宛て")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(RM.primary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(RM.primary.opacity(0.12), in: Capsule())
+                }
+                if let name = message.replyName, let text = message.replyText {
+                    HStack(spacing: 6) {
+                        Rectangle()
+                            .fill(message.mine ? Color.white : RM.primary)
+                            .frame(width: 2)
+                        Text("\(name): \(text)")
+                            .font(.caption)
+                            .lineLimit(1)
+                            .foregroundStyle(
+                                message.mine
+                                    ? Color.white.opacity(0.9)
+                                    : RM.onSurfaceVariant
+                            )
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        (message.mine ? Color.white : RM.surfaceVariant).opacity(0.18),
+                        in: RoundedRectangle(cornerRadius: 6)
+                    )
+                }
                 content
                 Text(message.ts.formatted(date: .omitted, time: .shortened))
                     .font(.caption2)
@@ -250,6 +341,9 @@ private struct GroupBubble: View {
             if !message.mine { Spacer(minLength: 48) }
         }
         .contextMenu {
+            Button("返信", systemImage: "arrowshape.turn.up.left") {
+                onReply(message)
+            }
             Button("この端末から削除", systemImage: "trash", role: .destructive) {
                 onDelete(message)
             }

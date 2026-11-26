@@ -388,8 +388,12 @@ final class ChatStore: ObservableObject {
                         body: groupMessage.b ?? "メッセージ",
                         mine: false,
                         ts: Date(),
+                        replyTo: groupMessage.re,
                         senderName: groupMessage.n,
-                        remoteId: groupMessage.mid
+                        remoteId: groupMessage.mid,
+                        replyName: groupMessage.ren,
+                        replyText: groupMessage.ret,
+                        mentions: groupMessage.mentions
                     )
                 )
             }
@@ -1277,12 +1281,42 @@ final class ChatStore: ObservableObject {
         }
     }
 
-    func send(toGroup id: String, text: String) {
+    func send(toGroup id: String, text: String, replyTo: ChatMessage? = nil) {
         let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty, let group = self.group(id) else { return }
         let mid = UUID().uuidString
+        let mentioned = mentionedIds(in: body, group: group)
+
+        var replyWireId: String?
+        var replyName: String?
+        var replyPreview: String?
+        if let replyTo {
+            replyWireId = replyTo.remoteId ?? replyTo.id
+            replyName = replyTo.mine
+                ? displayName
+                : (replyTo.senderName ?? "メンバー")
+            let snippet: String
+            switch replyTo.kind {
+            case .image: snippet = "画像"
+            case .file: snippet = "ファイル"
+            case .location: snippet = "位置情報"
+            case .text: snippet = replyTo.body
+            }
+            replyPreview = String(snippet.prefix(80))
+        }
+
         groupMessages[id, default: []].append(
-            ChatMessage(id: mid, body: body, mine: true, ts: Date(), remoteId: mid)
+            ChatMessage(
+                id: mid,
+                body: body,
+                mine: true,
+                ts: Date(),
+                replyTo: replyTo?.id,
+                remoteId: mid,
+                replyName: replyName,
+                replyText: replyPreview,
+                mentions: mentioned.isEmpty ? nil : mentioned
+            )
         )
         scheduleSave()
 
@@ -1293,11 +1327,26 @@ final class ChatStore: ObservableObject {
             n: displayName,
             sender: crypto.myId,
             ts: Int64(Date().timeIntervalSince1970 * 1000),
-            mid: mid
+            mid: mid,
+            re: replyWireId,
+            ren: replyName,
+            ret: replyPreview,
+            mentions: mentioned.isEmpty ? nil : mentioned
         )
         guard let json = try? message.toPayloadJSON() else { return }
         for member in group.memberIds where member != crypto.myId {
             transmit(json, to: member, markMid: "")
+        }
+    }
+
+    /// Resolve typed `@name` text to member ids. Selection in the composer
+    /// inserts the same text, so one path handles both.
+    func mentionedIds(in text: String, group: ChatGroup) -> [String] {
+        group.memberIds.filter { id in
+            guard id != crypto.myId,
+                  let name = contact(id)?.name,
+                  !name.isEmpty else { return false }
+            return text.contains("@\(name)")
         }
     }
 
@@ -1446,9 +1495,10 @@ final class ChatStore: ObservableObject {
             case .location: preview = "位置情報"
             case .text: preview = message.body
             }
+            let mentioned = message.mentions?.contains(crypto.myId) == true
             NotificationManager.shared.message(
                 from: message.senderName ?? group(groupId)?.name ?? "グループ",
-                preview: preview
+                preview: mentioned ? "あなた宛て: \(preview)" : preview
             )
         }
     }
@@ -1658,6 +1708,8 @@ struct ChatMessage: Identifiable, Hashable, Codable {
     /// was already deleted locally).
     var replyName: String? = nil
     var replyText: String? = nil
+    /// Group mention recipients (member ids).
+    var mentions: [String]? = nil
     /// Local media file name (image/file messages).
     var mediaName: String? = nil
     var fileSize: Int? = nil

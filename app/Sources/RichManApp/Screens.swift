@@ -5,6 +5,7 @@ import SwiftUI
 struct TalksView: View {
     @EnvironmentObject private var store: ChatStore
     @State private var showCreateGroup = false
+    @State private var peek: Contact?
 
     var body: some View {
         NavigationStack {
@@ -30,6 +31,10 @@ struct TalksView: View {
                                     NavigationLink(value: contact) {
                                         ContactRow(contact: contact)
                                     }
+                                    .simultaneousGesture(
+                                        LongPressGesture(minimumDuration: 0.5)
+                                            .onEnded { _ in peek = contact }
+                                    )
                                 }
                             }
                         }
@@ -54,6 +59,90 @@ struct TalksView: View {
             .sheet(isPresented: $showCreateGroup) {
                 CreateGroupView().environmentObject(store)
             }
+            .sheet(item: $peek) { contact in
+                ChatPeekView(contact: contact).environmentObject(store)
+            }
+            .onAppear {
+                #if DEBUG
+                if peek == nil,
+                   let id = UserDefaults.standard.string(forKey: "rm.peek"),
+                   let contact = store.contact(id) {
+                    peek = contact
+                }
+                #endif
+            }
+        }
+    }
+}
+
+/// Long-press preview for the talks list. Read-only: never marks the chat as
+/// read or resets its unread badge.
+private struct ChatPeekView: View {
+    let contact: Contact
+    @EnvironmentObject private var store: ChatStore
+    @Environment(\.dismiss) private var dismiss
+
+    private var recent: [ChatMessage] {
+        Array(store.messages(for: contact.id).suffix(8))
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    if contact.unread > 0 {
+                        Label(
+                            "未読 \(contact.unread)件 — 開くまで既読になりません",
+                            systemImage: "eye.slash"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(RM.onSurfaceVariant)
+                    }
+                    ForEach(recent) { message in
+                        HStack {
+                            if message.mine { Spacer(minLength: 40) }
+                            Text(previewText(message))
+                                .font(.subheadline)
+                                .foregroundStyle(
+                                    message.mine ? RM.bubbleMeText : RM.bubbleThemText
+                                )
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(
+                                    message.mine ? RM.bubbleMe : RM.bubbleThem,
+                                    in: RoundedRectangle(cornerRadius: 14)
+                                )
+                            if !message.mine { Spacer(minLength: 40) }
+                        }
+                    }
+                    if recent.isEmpty {
+                        Text("まだメッセージはありません")
+                            .font(.footnote)
+                            .foregroundStyle(RM.onSurfaceVariant)
+                    }
+                }
+                .padding(16)
+            }
+            .navigationTitle(contact.name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("閉じる") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    NavigationLink("開く") { ChatView(contact: contact) }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func previewText(_ message: ChatMessage) -> String {
+        switch message.kind {
+        case .image: return "画像"
+        case .file: return "ファイル"
+        case .location: return "位置情報"
+        case .text: return message.body
         }
     }
 }
