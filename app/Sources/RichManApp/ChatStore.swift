@@ -399,13 +399,15 @@ final class ChatStore: ObservableObject {
                 accuracy: loc.acc,
                 updatedAt: Date()
             )
+            let wasRequested = pendingLocate.remove(opened.senderId) != nil
             appendIncomingPlace(
                 peerId: opened.senderId,
                 text: "位置情報",
-                remoteId: loc.id
+                remoteId: loc.id,
+                notify: !wasRequested
             )
             // The user asked for this position: pop the map immediately.
-            if pendingLocate.remove(opened.senderId) != nil {
+            if wasRequested {
                 onLocationReceived?(opened.senderId)
             }
         case .m6?:
@@ -951,7 +953,8 @@ final class ChatStore: ObservableObject {
     private func noteIncoming(
         _ peerId: String,
         preview: String,
-        notify: Bool
+        notify: Bool,
+        sendReceipt: Bool = true
     ) {
         let isOpen = activePeer == peerId
         if let i = contacts.firstIndex(where: { $0.id == peerId }) {
@@ -960,7 +963,7 @@ final class ChatStore: ObservableObject {
         }
         updateBadge()
         scheduleSave()
-        if isOpen {
+        if isOpen, sendReceipt {
             sendReadReceipts(peerId)
         } else if notify, UIApplication.shared.applicationState != .active {
             NotificationManager.shared.message(
@@ -1306,7 +1309,8 @@ final class ChatStore: ObservableObject {
     private func appendIncomingPlace(
         peerId: String,
         text: String,
-        remoteId: String?
+        remoteId: String?,
+        notify: Bool = true
     ) {
         guard !isBlocked(peerId) else { return }
         messagesByPeer[peerId, default: []].append(
@@ -1319,7 +1323,7 @@ final class ChatStore: ObservableObject {
                 remoteId: remoteId
             )
         )
-        noteIncoming(peerId, preview: text, notify: true)
+        noteIncoming(peerId, preview: text, notify: notify, sendReceipt: notify)
     }
 
     private func appendIncomingMedia(
