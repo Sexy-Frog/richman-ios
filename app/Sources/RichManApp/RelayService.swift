@@ -48,6 +48,12 @@ actor RelayService {
         try await client(isolation(for: box)).send(to: box, envelope: envelope)
     }
 
+    /// Register the APNs token for all receive mailboxes in one Tor request.
+    func registerPush(token: String, boxes: [String]) async throws {
+        guard !token.isEmpty, !boxes.isEmpty else { return }
+        try await client("push").registerPush(token: token, boxes: boxes)
+    }
+
     /// Poll one mailbox once, open what's there, and ack it. `knownSender` is the
     /// contact that owns this mailbox (nil for an invite mailbox → PreKey peek).
     @discardableResult

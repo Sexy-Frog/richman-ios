@@ -46,6 +46,13 @@ public final class RelayClient {
         _ = try await postRaw("v1/send", body: body, contentType: Self.jsonType)
     }
 
+    /// Register this device's APNs token for one or more receive mailboxes.
+    /// The token is sent over Tor; the relay stores it in memory only.
+    public func registerPush(token: String, boxes: [String]) async throws {
+        let body = try jsonBody(["token": token, "boxes": boxes])
+        _ = try await postRaw("v1/push/register", body: body, contentType: Self.jsonType)
+    }
+
     /// Long-poll for queued messages (wait 0..25 seconds).
     public func fetch(box: Data, wait waitSeconds: Int = 20) async throws -> [FetchedMessage] {
         precondition(box.count == 32)

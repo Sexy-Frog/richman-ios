@@ -84,6 +84,7 @@ struct RootView: View {
             }
             wireCalls()
             AppServices.shared.register(store: store, tor: tor, lock: lock)
+            registerPushIfPossible()
             #if DEBUG
             if UserDefaults.standard.bool(forKey: "rm.locationPrimer") {
                 Task { @MainActor in
@@ -146,6 +147,15 @@ struct RootView: View {
                   store.contact(peer) != nil else { return }
             notificationChat = NotificationChat(id: peer)
         }
+        .onReceive(
+            NotificationCenter.default.publisher(for: .rmPushToken)
+        ) { note in
+            guard let token = note.object as? String, !token.isEmpty else { return }
+            store.registerPush(token: token)
+        }
+        .onChange(of: store.contacts.count) { _, _ in
+            registerPushIfPossible()
+        }
         .sheet(item: $notificationChat) { target in
             if let contact = store.contact(target.id) {
                 NavigationStack { ChatView(contact: contact) }
@@ -176,6 +186,7 @@ struct RootView: View {
             } else {
                 store.restoreSensitiveState()
                 store.attachRelayFactory(tor.readyTransportFactory)
+                registerPushIfPossible()
             }
         }
         .onChange(of: tor.phase) { _, _ in
@@ -186,6 +197,7 @@ struct RootView: View {
                 store.attachRelayFactory(nil)
             } else {
                 store.attachRelayFactory(tor.readyTransportFactory)
+                registerPushIfPossible()
             }
         }
         .task {
@@ -246,18 +258,15 @@ struct RootView: View {
         calls.nameResolver = { [weak store] peer in
             store?.contact(peer)?.name
         }
-        store.probeProvider = { [weak location] in
-            guard let fix = location?.location else { return nil }
-            return (
-                fix.coordinate.latitude,
-                fix.coordinate.longitude,
-                fix.horizontalAccuracy
-            )
-        }
     }
 
-    private func wipeLocalData() {
-        store.wipeAllLocal()
+    private func registerPushIfPossible() {
+        guard let token = UserDefaults.standard.string(forKey: "rm.pushToken"),
+              !token.isEmpty else { return }
+        store.registerPush(token: token)
+    }
+
+    private func wipeLocalData() {        store.wipeAllLocal()
         MediaStore.clearAll()
         MediaStore.clearExports()
         TorSession.wipeStorage()
