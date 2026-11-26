@@ -68,6 +68,13 @@ jobs:
             -c "Print :RMRelayHost" \
             build/Build/Products/Debug-iphonesimulator/RichMan.app/Info.plist
 
+      - name: Verify App Store resources (privacy manifest + app icon)
+        working-directory: app
+        run: |
+          APP=build/Build/Products/Debug-iphonesimulator/RichMan.app
+          test -f "$APP/PrivacyInfo.xcprivacy"
+          test -f "$APP/Assets.car"
+
       - name: Verify the bundled map style is packaged
         working-directory: app
         run: |
