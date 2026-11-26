@@ -105,7 +105,7 @@ struct SettingsView: View {
                             Text("オンボーディングで有効化しました。場所を設定してください。")
                                 .font(.footnote)
                                 .foregroundStyle(RM.primary)
-                            Button("位置情報の確認への自動応答を停止", role: .destructive) {
+                            Button("プライバシーゾーンを無効にする", role: .destructive) {
                                 zoneWanted = false
                             }
                         } else {
