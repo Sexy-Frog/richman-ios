@@ -25,7 +25,6 @@ struct ChatView: View {
     @State private var showLocationError = false
     @State private var imagePreview: ImagePreview?
     @State private var confirmClearChat = false
-    @State private var showLocationPrimer = false
     @State private var bubbleGeometry = ChatBubbleGeometry()
     @Environment(\.dismiss) private var dismiss
 
@@ -217,9 +216,6 @@ struct ChatView: View {
             Button("現在地") { sendCurrentLocation() }
             Button("キャンセル", role: .cancel) {}
         }
-        .sheet(isPresented: $showLocationPrimer) {
-            LocationPrimer().environmentObject(locationProvider)
-        }
         .sheet(item: $imagePreview) { preview in
             NavigationStack {
                 ZStack {
@@ -407,7 +403,8 @@ struct ChatView: View {
     /// One-shot, user-initiated position share (never background tracking).
     private func sendCurrentLocation() {
         guard locationProvider.hasPermission else {
-            showLocationPrimer = true
+            // Let the system permission dialog be the only consent prompt.
+            locationProvider.requestPermission()
             return
         }
         guard let fix = locationProvider.location else {

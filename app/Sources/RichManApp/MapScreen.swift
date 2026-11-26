@@ -75,7 +75,6 @@ struct MapHomeView: View {
     @State private var selectedId: String?
     @State private var chatTarget: Contact?
     @State private var styleURL: URL? = MapConfig.styleURL
-    @State private var showLocationPrimer = false
 
     init(initialFocus: String? = nil) {
         _selectedId = State(initialValue: initialFocus ?? MapConfig.initialFocus)
@@ -139,7 +138,7 @@ struct MapHomeView: View {
                             }
                         }
                     } else {
-                        Button { showLocationPrimer = true } label: {
+                        Button { location.requestPermission() } label: {
                             pill {
                                 HStack(spacing: 6) {
                                     Image(systemName: "location.fill")
@@ -198,9 +197,6 @@ struct MapHomeView: View {
                 .environmentObject(store)
                 .environmentObject(location)
                 .environmentObject(tor)
-        }
-        .sheet(isPresented: $showLocationPrimer) {
-            LocationPrimer().environmentObject(location)
         }
         .task {
             if let proxied = tor.mapStyleURL {
