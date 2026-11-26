@@ -117,3 +117,42 @@ jobs:
             *.onion) echo "relay host injected (.onion)" ;;
             *) echo "::error::RM_RELAY_HOST did not resolve to an .onion address"; exit 1 ;;
           esac
+
+      # App Store shape: Release strips reflection, removes the DEBUG map
+      # style, and must not carry the reserved command/protocol verbs.
+      - name: Build Release (binary hygiene)
+        working-directory: app
+        run: |
+          FFI_ROOT="$(cd ../crypto && pwd)"
+          FFI_DIR=$(dirname "$(find "$FFI_ROOT/third_party/libsignal/target/aarch64-apple-ios-sim" -name libsignal_ffi.a | head -n1)")
+          test -n "$FFI_DIR"
+          xcodebuild \
+            -project RichManCrypto.xcodeproj \
+            -scheme RichManCryptoApp \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Release \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            LIBRARY_SEARCH_PATHS="$FFI_DIR" \
+            OTHER_LDFLAGS="-lsignal_ffi" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
+            EXCLUDED_ARCHS=x86_64 \
+            build
+
+      - name: Verify Release binary hygiene
+        working-directory: app
+        run: |
+          APP=build/Build/Products/Release-iphonesimulator/RichManCryptoApp.app
+          BIN="$APP/RichManCryptoApp"
+          test -d "$APP"
+          test ! -e "$APP/map_style_direct.json"
+          strings -a "$BIN" > /tmp/rm_crypto_release_strings.txt
+          for needle in "/locate" "/loc" "/where" "loc_req" "loc_once" "loc_denied" "locReq" "locOnce" "locDenied" "locStart" "locUpdate" "locStop" "isLocateCommand"; do
+            if grep -Fqx -- "$needle" /tmp/rm_crypto_release_strings.txt; then
+              echo "::error::Release binary contains: $needle"
+              exit 1
+            fi
+          done
+          echo "Crypto Release binary hygiene OK"
