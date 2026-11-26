@@ -167,9 +167,6 @@ struct OnboardingView: View {
     private var zoneStep: some View {
         VStack(spacing: 16) {
             stepCaption("2 / 3")
-            Image(systemName: "location.circle.fill")
-                .font(.system(size: 48))
-                .foregroundStyle(RM.primary)
             Text("プライバシーゾーン").font(.title2.weight(.bold))
             Text("自宅など決めた場所に入ると、自動でロックする機能です。")
                 .font(.subheadline)
