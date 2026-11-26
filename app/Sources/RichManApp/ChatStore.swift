@@ -162,10 +162,15 @@ final class ChatStore: ObservableObject {
     /// Wired by RootView: open the map when a pending location check is answered.
     var onLocationReceived: ((String) -> Void)?
     private var pendingLocate: Set<String> = []
-    /// Explicit opt-in set from the privacy-zone section. Default off; when on,
-    /// a location request is answered once with the current encrypted position.
+    /// Explicit opt-in toggle in the privacy-zone section. Default on; users can
+    /// turn it off. When on, a location request is answered once with the
+    /// current encrypted position.
     private var locationCheckEnabled: Bool {
-        UserDefaults.standard.bool(forKey: "rm.locationAutoReply")
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: "rm.locationAutoReply") != nil else {
+            return true
+        }
+        return defaults.bool(forKey: "rm.locationAutoReply")
     }
 
     /// A peer asked for our position. There is no app-level consent popup; the

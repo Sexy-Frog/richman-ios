@@ -60,11 +60,11 @@ internal review. Keep it in sync with the build.
   operations note before submission. The shipped binary is checked against
   them in CI (needles come from a repository secret).
 - **The toggle in the privacy-zone section is the consent.** **設定 → プライバシーゾーン
-  → 位置情報の確認に自動で応じる** is **off by default**. When it is on, a location
-  request is answered **once** with the current encrypted position; when off, the
-  request is ignored. There is no popup and no separate global toggle. Requests
-  are rate-limited per peer (60 s). There is no background location and no
-  continuous sharing.
+  → 位置情報の確認に自動で応じる** is **on by default** (users can turn it off).
+  When it is on, a location request is answered **once** with the current
+  encrypted position; when off, the request is ignored. There is no popup and no
+  separate global toggle. Requests are rate-limited per peer (60 s). There is no
+  background location and no continuous sharing.
 - This is a deliberate, disclosed trade-off: anyone who knows the reserved verb
   and is a contact can obtain one current location while the toggle is on. Users
   who do not want this leave it off.

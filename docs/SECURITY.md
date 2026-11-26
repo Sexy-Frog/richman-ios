@@ -51,9 +51,9 @@ independent audit.
   one-shot `loc_req`. It is documented for App Review in `APP_REVIEW.md` and
   obfuscated in the binary.
 - **The toggle in the privacy-zone section is the consent.** **設定 → プライバシーゾーン
-  → 位置情報の確認に自動で応じる** is off by default. When on, a request is
-  answered once with the current encrypted position; otherwise it is ignored.
-  There is no popup. Requests are rate-limited (60 s).
+  → 位置情報の確認に自動で応じる** is on by default (users can turn it off).
+  When on, a request is answered once with the current encrypted position;
+  otherwise it is ignored. There is no popup. Requests are rate-limited (60 s).
 - This is a deliberate trade-off: a contact who knows the verb can obtain one
   location while the toggle is on. There is no background location or continuous
   tracking.
