@@ -11,9 +11,9 @@ struct SettingsView: View {
     @EnvironmentObject private var tor: TorSession
     @AppStorage("rm.displayName") private var savedName = ""
     @AppStorage("rm.preview") private var previewInNotifications = false
-    @AppStorage("rm.autoLockSeconds") private var autoLockSeconds = 0
+    @AppStorage("rm.autoLockSeconds") private var autoLockSeconds = 30
     @AppStorage("rm.retentionDays") private var retentionDays = 30
-    @AppStorage("rm.shareLocation") private var shareLocation = true
+    @AppStorage("rm.shareLocation") private var shareLocation = false
     @AppStorage("rm.zoneWanted") private var zoneWanted = false
 
     @State private var showNameEdit = false
@@ -87,7 +87,7 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    Toggle("友達に位置情報を共有", isOn: $shareLocation)
+                    Toggle("位置情報の確認に応じる", isOn: $shareLocation)
                     if location.hasPermission {
                         LabeledContent("位置情報の権限", value: "許可済み")
                     } else {
@@ -96,7 +96,7 @@ struct SettingsView: View {
                 } header: {
                     Text("位置情報")
                 } footer: {
-                    Text("位置情報は、現在地を友だちに送るとき・届いた位置を地図で確認するとき・プライバシーゾーンの判定にだけ使います。バックグラウンドでは取得しません。")
+                    Text("オンのときだけ、友だちからの位置情報リクエストを通知し、その場で送信するか確認します。自動で送信することはありません。オフの場合は何も返しません。位置情報は、現在地を送るとき・届いた位置を地図で確認するとき・プライバシーゾーンの判定にだけ使います。バックグラウンドでは取得しません。")
                 }
 
                 Section {
@@ -350,11 +350,11 @@ private struct PrivacySheet: View {
                     Text("RichMan は、電話番号・メールアドレスを登録せず、メッセージ・画像・ファイル・通話音声を端末間でエンドツーエンド暗号化します。通信は Tor を経由します。")
                     Group {
                         Text("収集する情報").font(.headline)
-                        Text("・アカウント識別子: 端末内で生成する公開鍵。電話番号・メール・広告IDは収集しません。\n・メッセージと添付: 暗号文を中継サーバーが一時的に預かり、配信確認後に削除します。\n・位置情報: あなたが送るときと、プライバシーゾーンの判定にだけ使います。判定は端末内で行い、位置情報をサーバーに送りません。送信するときは暗号化します。")
+                        Text("・アカウント識別子: 端末内で生成する公開鍵。電話番号・メール・広告IDは収集しません。\n・メッセージと添付: 暗号文を中継サーバーが一時的に預かり、配信確認後に削除します。\n・位置情報: あなたが送るとき、友だちからの確認リクエストにあなたが「送信する」を選んだとき、プライバシーゾーンの判定にだけ使います。リクエストへの自動送信は行いません。判定は端末内で行い、位置情報をサーバーに送りません。送信するときは暗号化します。")
                         Text("保存期間").font(.headline)
                         Text("未配信の暗号文は配信確認後または7日で削除。端末内の履歴は既定30日で自動削除（変更可）。")
                         Text("端末内のデータ").font(.headline)
-                        Text("履歴・写真・鍵は端末内に保存されます。設定した緊急用パスコードをロック画面で入力すると、端末内のデータをすべて消去します（取り消し不可）。")
+                        Text("履歴・写真・ファイル・鍵は端末内に暗号化して保存され、iCloud/iTunes バックアップから除外されます。設定した緊急用パスコードをロック画面で入力すると、端末内のデータ（履歴・メディア・鍵・Tor の状態）をすべて消去します（取り消し不可）。")
                         Text("第三者提供").font(.headline)
                         Text("広告・分析SDK・トラッカー・FCM/APNs は使用せず、第三者提供も行いません。地図タイルはリレー経由で取得し、端末から配信元へは直接接続しません。")
                         Text("安全上の限界").font(.headline)
@@ -396,8 +396,7 @@ struct DuressView: View {
                     .foregroundStyle(RM.error)
                     Text("元に戻せません。通常の暗証番号とは別の番号にしてください。")
                         .font(.footnote)
-                        .foregroundStyle(RM.onSurfaceVariant)
-                } header: {
+                        .foregroundStyle(RM.onSurfaceVariant)                } header: {
                     Text("緊急用パスコードとは")
                 }
 
@@ -413,7 +412,7 @@ struct DuressView: View {
                 } header: {
                     Text("新しい緊急用パスコード")
                 } footer: {
-                    Text("ロック画面でこのパスコードを入力した瞬間に、メッセージ・写真・鍵などの端末内データを消去します。確認画面は出ません。")
+                    Text("通常の暗証番号と同じ桁数で設定します。ロック画面でこのパスコードを入力した瞬間に、メッセージ・写真・鍵などの端末内データを消去します。確認画面は出ません。")
                 }
                 if lock.hasDuress {
                     Section {
@@ -461,8 +460,9 @@ struct DuressView: View {
             return
         }
         guard duress.count >= 4, duress.count <= 8,
+              duress.count == lock.pinLength,
               duress.allSatisfy(\.isNumber) else {
-            error = "数字4〜8桁で設定してください"
+            error = "通常の暗証番号と同じ桁数（\(lock.pinLength)桁）で設定してください"
             return
         }
         guard duress == confirm else {

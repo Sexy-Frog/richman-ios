@@ -9,6 +9,12 @@ import SwiftUI
 struct RichManApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
+    init() {
+        // Exclude Application Support from backups as early as possible; new
+        // files inherit the excluded directory.
+        PrivacyStorage.prepare()
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()

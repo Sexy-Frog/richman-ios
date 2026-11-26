@@ -13,6 +13,16 @@ enum MediaStore {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let url = base.appendingPathComponent("Media", isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        PrivacyStorage.excludeFromBackup(url)
+        return url
+    }
+
+    /// Decrypted copies handed to ShareLink/Quick Look. Kept out of backups and
+    /// cleared on wipe/launch.
+    static var exportsDirectory: URL {
+        let url = directory.appendingPathComponent("Exports", isDirectory: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        PrivacyStorage.excludeFromBackup(url)
         return url
     }
 
@@ -22,10 +32,7 @@ enum MediaStore {
         guard jpeg.count <= maxFileBytes else { return nil }
         let name = UUID().uuidString + ".jpg"
         do {
-            try jpeg.write(
-                to: directory.appendingPathComponent(name),
-                options: [.atomic, .completeFileProtection]
-            )
+            try write(MediaCipher.seal(jpeg) ?? jpeg, named: name)
             return name
         } catch {
             return nil
@@ -52,31 +59,58 @@ enum MediaStore {
         let safe = base.isEmpty ? "file" : base
         let stored = UUID().uuidString + "-" + safe
         do {
-            try data.write(
-                to: directory.appendingPathComponent(stored),
-                options: [.atomic, .completeFileProtection]
-            )
+            try write(MediaCipher.seal(data) ?? data, named: stored)
             return (stored, data.count)
         } catch {
             return nil
         }
     }
 
+    private static func write(_ data: Data, named name: String) throws {
+        let url = directory.appendingPathComponent(name)
+        try data.write(to: url, options: [.atomic, .completeFileProtection])
+        PrivacyStorage.excludeFromBackup(url)
+    }
+
     static func image(named name: String) -> UIImage? {
-        UIImage(contentsOfFile: directory.appendingPathComponent(name).path)
+        let url = directory.appendingPathComponent(name)
+        guard let raw = try? Data(contentsOf: url) else { return nil }
+        if MediaCipher.isSealed(raw) {
+            guard let plain = MediaCipher.open(raw) else { return nil }
+            return UIImage(data: plain)
+        }
+        return UIImage(contentsOfFile: url.path)
     }
 
     static func clearAll() {
         guard let items = try? FileManager.default.contentsOfDirectory(
             at: directory, includingPropertiesForKeys: nil
-        ) else { return }
+        ) else {
+            MediaCipher.deleteKey()
+            return
+        }
         for item in items {
             try? FileManager.default.removeItem(at: item)
         }
+        MediaCipher.deleteKey()
     }
 
+    /// For sealed files, decrypt into `Exports/` (excluded from backup) so
+    /// ShareLink/Quick Look receives a normal file. Plaintext/demo files are
+    /// returned directly.
     static func fileURL(named name: String) -> URL {
-        directory.appendingPathComponent(name)
+        let url = directory.appendingPathComponent(name)
+        guard let raw = try? Data(contentsOf: url),
+              MediaCipher.isSealed(raw) else { return url }
+        guard let plain = MediaCipher.open(raw) else { return url }
+        let out = exportsDirectory.appendingPathComponent(name)
+        try? plain.write(to: out, options: [.atomic, .completeFileProtection])
+        PrivacyStorage.excludeFromBackup(out)
+        return out
+    }
+
+    static func clearExports() {
+        PrivacyStorage.removeTree(exportsDirectory)
     }
 
     static func demoImage() -> String? {
@@ -116,7 +150,7 @@ enum MediaStore {
         }
         guard let data = image.jpegData(compressionQuality: 0.9) else { return nil }
         do {
-            try data.write(to: url, options: [.atomic, .completeFileProtection])
+            try write(MediaCipher.seal(data) ?? data, named: name)
             return name
         } catch {
             return nil

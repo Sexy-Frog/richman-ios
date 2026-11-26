@@ -20,13 +20,16 @@ SwiftUI
 | `Sources/RichManCore/SOCKS5.swift` | SOCKS5（ドメイン名 CONNECT、RFC1929 認証）＋ HTTP/1.1 クライアント。Linux/macOS/iOS 共通。 |
 | `tor/` | `tor.xcframework` を SwiftPM から使う薄いラッパー（`TorLauncher` / `TorConfig`）。 |
 | `app/Sources/RichManApp/TorSession.swift` | Tor 起動、ブートストラップ判定（`/healthz`）、フェーズ公開。 |
-| `app/Sources/RichManApp/TorSession.swift` + `ChatStore.attachRelay` | Tor 準備完了〜フォアグラウンドの間だけ送受信ループを回す。 |
+| `app/Sources/RichManApp/TorSession.swift` + `ChatStore.attachRelayFactory` | Tor 準備完了〜フォアグラウンドの間だけ送受信ループを回す。 |
 | `app/Sources/RichManApp/MapProxy.swift` | 127.0.0.1 のループバック HTTP。MapLibre のタイル/グリフ/スプライトを `/v1/map/*` 経由で Tor に流す。 |
 | `app/Sources/RichManApp/Resources/map_style_ja.json` | `__MAP_BASE__` 入りスタイル（日本語ラベル）。プロキシ起動時にループバック URL へ置換。 |
 | `app/Sources/RichManApp/LocalStore.swift` | 連絡先・履歴・グループ・場所・メールボックスの封緘保存（Keychain 鍵）。 |
 
-- SOCKS のユーザー名は「default」。Tor の `IsolateSOCKSAuth` により
-  メールボックス単位でサーキットを分離できる（将来 `box` をユーザー名にする）。
+- SOCKS のユーザー名はメールボックスごとに変える
+  （メッセージ=`m:<box base64url>`、blob=`b:<peer|group>`、地図=`map`）。
+  Tor の `IsolateSOCKSAuth` がユーザー名単位でサーキットを分離するため、
+  リレーが複数メールボックスを同一回線としてリンクしにくくなる。
+  旧実装の固定 `default` は廃止。
 - 応答は `Content-Length` で打ち切り、上限 16 MiB。無限/巨大応答は破棄。
 - 1 リクエスト = 1 TCP 接続（プールなし）。リレー側の接続再利用で
   別メールボックスがリンクされないようにするため。
@@ -73,11 +76,16 @@ CI（`iOS Crypto`）では `secrets.RM_RELAY_HOST` を xcodegen に渡してい�
 
 - **画像/ファイル**: 送信時に AES-256-GCM（blob ごとに新しい鍵）で暗号化し、
   `/v1/blob` に置いて `img`/`file` ペイロードで鍵と nonce を送る。受信側は
-  blob を取得して復号し、`MediaStore`（10MB 上限・完全保護）に保存する。
+  blob を取得して復号し、`MediaStore`（10MB 上限）に保存する。端末内でも
+  AES-256-GCM（Keychain の端末専用鍵）で暗号化し、iCloud/iTunes バックアップ
+  から除外する。共有時だけ `Exports/` に平文を復号する（これもバックアップ対象外）。
   blob id は base64url 64 文字に制限（経路注入防止）。
-- **位置**: チャットで `/locate`（`/loc`・`/where`・`/位置`）と入力すると
-  `loc_req` を送り、相手は共有トグルON＋現在地があれば `loc_once` を返す。
-  返答が届くと **地図が自動で開く**。バックグラウンド共有は無い。
+- **位置**: チャットで予約済みの確認コマンドを入力すると `loc_req` を送る。
+  この入力は制御入力として扱い、メッセージとしては保存・表示しない。
+  相手は設定「位置情報の確認に応じる」（**既定オフ**）をONにしたうえで、
+  受信時の確認アラートで「送信する」を選んだときだけ `loc_once` を返す。
+  **自動送信はない。** トグルOFFなら無応答にし、オンライン/設定のオラクルを
+  返さない。返答が届くと **地図が自動で開く**。バックグラウンド共有は無い。
   受信した位置は `ChatStore.places` に入り、地図のピンとして表示される
   （`loc_stop` で消える）。地図はタブではなく、この返答・受信位置のタップ・
   プライバシーゾーン編集からオンデマンドで開く。

@@ -77,3 +77,36 @@ jobs:
           test -f build/Build/Products/Debug-iphonesimulator/RichMan.app/map_style_direct.json
           grep -qi "#EEF1F4" \
             build/Build/Products/Debug-iphonesimulator/RichMan.app/map_style_direct.json
+
+      # Release hardening: the shipped binary must not carry DEBUG-only assets
+      # or the reserved command / location protocol verbs as plain strings.
+      - name: Build Release (binary hygiene)
+        working-directory: app
+        run: |
+          xcodebuild \
+            -project RichMan.xcodeproj \
+            -scheme RichMan \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Release \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Verify Release has no DEBUG assets or reserved strings
+        working-directory: app
+        run: |
+          APP=build/Build/Products/Release-iphonesimulator/RichMan.app
+          BIN="$APP/RichMan"
+          test -d "$APP"
+          if [ -e "$APP/map_style_direct.json" ]; then
+            echo "::error::map_style_direct.json leaked into Release"
+            exit 1
+          fi
+          for needle in "/locate" "/loc" "/where" "/位置" "/いち" "loc_req" "loc_once" "loc_denied" "locReq" "locOnce" "locDenied" "locStart" "locUpdate" "locStop" "isLocateCommand"; do
+            if strings -a "$BIN" | grep -Fqx -- "$needle"; then
+              echo "::error::Release binary contains: $needle"
+              exit 1
+            fi
+          done
+          echo "Release binary hygiene OK"

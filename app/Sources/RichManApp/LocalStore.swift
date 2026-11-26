@@ -29,6 +29,7 @@ enum LocalStore {
             in: .userDomainMask
         )[0]
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        PrivacyStorage.excludeFromBackup(base)
         return base.appendingPathComponent("state.bin")
     }
 
@@ -56,6 +57,7 @@ enum LocalStore {
             to: fileURL,
             options: [.atomic, .completeFileProtection]
         )
+        PrivacyStorage.excludeFromBackup(fileURL)
     }
 
     /// Emergency wipe: delete the ciphertext and destroy its key.

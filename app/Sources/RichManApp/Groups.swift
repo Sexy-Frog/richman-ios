@@ -548,19 +548,23 @@ struct GroupInfoView: View {
                                 Text(name(for: id))
                             }
                             .swipeActions(edge: .trailing) {
-                                Button(role: .destructive) {
-                                    store.removeMember(id, from: group.id)
-                                } label: {
-                                    Label("削除", systemImage: "person.badge.minus")
+                                if group.ownerId == store.myId {
+                                    Button(role: .destructive) {
+                                        store.removeMember(id, from: group.id)
+                                    } label: {
+                                        Label("削除", systemImage: "person.badge.minus")
+                                    }
                                 }
                             }
                         }
-                        Button { showAdd = true } label: {
-                            Label("メンバーを追加", systemImage: "person.badge.plus")
+                        if group.ownerId == store.myId {
+                            Button { showAdd = true } label: {
+                                Label("メンバーを追加", systemImage: "person.badge.plus")
+                            }
                         }
                     }
                     Section {
-                        if group.ownerId == store.myId || group.ownerId == nil {
+                        if group.ownerId == store.myId {
                             Button("グループを削除（全員）", role: .destructive) {
                                 confirmDelete = true
                             }

@@ -33,7 +33,9 @@ enum CryptoProviderFactory {
             return try LibSignalCryptoProvider()
         } catch {
             lastError = String(describing: error)
-            NSLog("RichManCrypto init failed: \(error)")
+            #if DEBUG
+            NSLog("RichManCrypto init failed")
+            #endif
         }
         #endif
         return MockCryptoProvider()

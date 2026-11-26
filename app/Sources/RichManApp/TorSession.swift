@@ -19,6 +19,16 @@ final class TorSession: ObservableObject {
     }
     static let relayPort: UInt16 = 80
 
+    /// Emergency wipe: remove Tor's data directory, cached descriptors and the
+    /// debug log. This also makes the next launch bootstrap from scratch.
+    static func wipeStorage() {
+        let base = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        )[0].appendingPathComponent("tor", isDirectory: true)
+        PrivacyStorage.removeTree(base)
+    }
+
     enum Phase: Equatable {
         case unsupported
         case stopped
@@ -69,7 +79,27 @@ final class TorSession: ObservableObject {
 
     /// Transport for relay calls, and only when Tor has reached the relay.
     var readyTransport: RelayTransport? {
-        phase == .ready ? relayTransport : nil
+        guard phase == .ready else { return nil }
+        return transport(isolation: "default")
+    }
+
+    /// Factory used by `ChatStore`: a stable SOCKS username per mailbox makes
+    /// Tor's `IsolateSOCKSAuth` put different contacts on different circuits.
+    /// Captures only value types, so it is safe to hand to the relay actor.
+    var readyTransportFactory: (@Sendable (String) -> RelayTransport)? {
+        guard phase == .ready, configured else { return nil }
+        let host = Self.relayHost
+        let port = Self.relayPort
+        let socks = socksPort
+        return { isolation in
+            SOCKS5Transport(
+                proxy: SOCKS5Address(host: "127.0.0.1", port: socks),
+                targetHost: host,
+                targetPort: port,
+                username: isolation,
+                password: "x"
+            )
+        }
     }
 
     /// False when the build was produced without a relay address.
@@ -77,12 +107,17 @@ final class TorSession: ObservableObject {
 
     /// Transport for relay calls, only once the SOCKS listener is up.
     var relayTransport: SOCKS5Transport? {
+        transport(isolation: "default")
+    }
+
+    func transport(isolation: String) -> SOCKS5Transport? {
         guard phase != .unsupported, configured else { return nil }
         return SOCKS5Transport(
             proxy: SOCKS5Address(host: "127.0.0.1", port: socksPort),
             targetHost: Self.relayHost,
             targetPort: Self.relayPort,
-            username: "default"
+            username: isolation,
+            password: "x"
         )
     }
 
@@ -94,7 +129,7 @@ final class TorSession: ObservableObject {
         if let port = Self.externalSocksPort {
             socksPort = port
             phase = .ready
-            if mapStyleURL == nil, let transport = relayTransport {
+            if mapStyleURL == nil, let transport = transport(isolation: "map") {
                 mapStyleURL = MapProxy.shared.start(transport: transport)
             }
             return
@@ -107,12 +142,18 @@ final class TorSession: ObservableObject {
             in: .userDomainMask
         )[0].appendingPathComponent("tor", isDirectory: true)
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        PrivacyStorage.excludeFromBackup(base)
         socksPort = Self.freeLoopbackPort() ?? 39050
+        #if DEBUG
+        let logFile: URL? = base.appendingPathComponent("tor.log")
+        #else
+        let logFile: URL? = nil
+        #endif
         let config = TorConfig(
             socksPort: socksPort,
             dataDirectory: base,
             cacheDirectory: base.appendingPathComponent("cache", isDirectory: true),
-            logFile: base.appendingPathComponent("tor.log")
+            logFile: logFile
         )
         let launcher = TorLauncher(config: config)
         self.launcher = launcher
@@ -193,8 +234,8 @@ final class TorSession: ObservableObject {
 
     @discardableResult
     private func check() async -> Bool {
-        guard let transport = relayTransport else { return false }
-        let client = RelayClient(transport: transport)
+        guard let active = relayTransport else { return false }
+        let client = RelayClient(transport: active)
         do {
             let ok = try await client.ping()
             reachable = ok
@@ -205,7 +246,9 @@ final class TorSession: ObservableObject {
                 if mapStyleURL == nil {
                     // Tiles/glyphs/sprites now go through the loopback proxy,
                     // which fetches them over the same Tor transport.
-                    mapStyleURL = MapProxy.shared.start(transport: transport)
+                    mapStyleURL = MapProxy.shared.start(
+                        transport: self.transport(isolation: "map") ?? active
+                    )
                 }
                 return true
             }

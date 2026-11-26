@@ -6,7 +6,11 @@ import Foundation
 /// interop; `docs/PROTOCOL.md` is the written spec). The reply mailbox `rb`
 /// is stamped onto every outgoing payload by the transport layer (see
 /// `MessagePayload`), never carried in the envelope.
-public enum MessageType: String, Codable {
+///
+/// Raw values are reconstructed at runtime (XOR-folded byte tables) instead of
+/// being emitted as plain Swift string literals, so `strings` on the shipped
+/// binary does not expose private protocol verbs such as the location types.
+public enum MessageType: Hashable {
     case text
     case read
     case ttl
@@ -15,22 +19,73 @@ public enum MessageType: String, Codable {
     case del
     case profile
     case loc
-    case locOnce = "loc_once"
-    case locReq = "loc_req"
-    case locDenied = "loc_denied"
-    case locStart = "loc_start"
-    case locUpdate = "loc_update"
-    case locStop = "loc_stop"
-    case groupInvite = "group_invite"
-    case groupMsg = "group_msg"
-    case groupAdd = "group_add"
-    case groupLeave = "group_leave"
-    case groupRemove = "group_remove"
-    case groupDel = "group_del"
-    case callOffer = "call_offer"
-    case callAnswer = "call_answer"
-    case callEnd = "call_end"
-    case callAudio = "call_audio"
+    case locOnce
+    case locReq
+    case locDenied
+    case locStart
+    case locUpdate
+    case locStop
+    case groupInvite
+    case groupMsg
+    case groupAdd
+    case groupLeave
+    case groupRemove
+    case groupDel
+    case callOffer
+    case callAnswer
+    case callEnd
+    case callAudio
+
+    /// Wire discriminator used by the Android client.
+    public var rawValue: String {
+        guard let bytes = Self.encoded[self] else { return "" }
+        return Self.reveal(bytes)
+    }
+
+    public init?(rawValue: String) {
+        for (type, bytes) in Self.encoded where Self.reveal(bytes) == rawValue {
+            self = type
+            return
+        }
+        return nil
+    }
+
+    /// XOR 0xA7 byte tables. Deliberately data, not string literals.
+    private static let encoded: [MessageType: [UInt8]] = [
+        .text: [0xD3, 0xC2, 0xDF, 0xD3],
+        .read: [0xD5, 0xC2, 0xC6, 0xC3],
+        .ttl: [0xD3, 0xD3, 0xCB],
+        .img: [0xCE, 0xCA, 0xC0],
+        .file: [0xC1, 0xCE, 0xCB, 0xC2],
+        .del: [0xC3, 0xC2, 0xCB],
+        .profile: [0xD7, 0xD5, 0xC8, 0xC1, 0xCE, 0xCB, 0xC2],
+        .loc: [0xCB, 0xC8, 0xC4],
+        .locOnce: [0xCB, 0xC8, 0xC4, 0xF8, 0xC8, 0xC9, 0xC4, 0xC2],
+        .locReq: [0xCB, 0xC8, 0xC4, 0xF8, 0xD5, 0xC2, 0xD6],
+        .locDenied: [0xCB, 0xC8, 0xC4, 0xF8, 0xC3, 0xC2, 0xC9, 0xCE, 0xC2, 0xC3],
+        .locStart: [0xCB, 0xC8, 0xC4, 0xF8, 0xD4, 0xD3, 0xC6, 0xD5, 0xD3],
+        .locUpdate: [0xCB, 0xC8, 0xC4, 0xF8, 0xD2, 0xD7, 0xC3, 0xC6, 0xD3, 0xC2],
+        .locStop: [0xCB, 0xC8, 0xC4, 0xF8, 0xD4, 0xD3, 0xC8, 0xD7],
+        .groupInvite: [0xC0, 0xD5, 0xC8, 0xD2, 0xD7, 0xF8, 0xCE, 0xC9, 0xD1, 0xCE, 0xD3, 0xC2],
+        .groupMsg: [0xC0, 0xD5, 0xC8, 0xD2, 0xD7, 0xF8, 0xCA, 0xD4, 0xC0],
+        .groupAdd: [0xC0, 0xD5, 0xC8, 0xD2, 0xD7, 0xF8, 0xC6, 0xC3, 0xC3],
+        .groupLeave: [0xC0, 0xD5, 0xC8, 0xD2, 0xD7, 0xF8, 0xCB, 0xC2, 0xC6, 0xD1, 0xC2],
+        .groupRemove: [0xC0, 0xD5, 0xC8, 0xD2, 0xD7, 0xF8, 0xD5, 0xC2, 0xCA, 0xC8, 0xD1, 0xC2],
+        .groupDel: [0xC0, 0xD5, 0xC8, 0xD2, 0xD7, 0xF8, 0xC3, 0xC2, 0xCB],
+        .callOffer: [0xC4, 0xC6, 0xCB, 0xCB, 0xF8, 0xC8, 0xC1, 0xC1, 0xC2, 0xD5],
+        .callAnswer: [0xC4, 0xC6, 0xCB, 0xCB, 0xF8, 0xC6, 0xC9, 0xD4, 0xD0, 0xC2, 0xD5],
+        .callEnd: [0xC4, 0xC6, 0xCB, 0xCB, 0xF8, 0xC2, 0xC9, 0xC3],
+        .callAudio: [0xC4, 0xC6, 0xCB, 0xCB, 0xF8, 0xC6, 0xD2, 0xC3, 0xCE, 0xC8],
+    ]
+
+    /// Deliberately a `var` so the optimizer cannot constant-fold the decoded
+    /// strings back into the binary.
+    private static var mask: UInt8 = 0xA7
+
+    @inline(never)
+    private static func reveal(_ bytes: [UInt8]) -> String {
+        String(decoding: bytes.map { $0 ^ mask }, as: UTF8.self)
+    }
 }
 
 /// Dispatch / reply-mailbox helpers that read raw payload JSON without a full decode.

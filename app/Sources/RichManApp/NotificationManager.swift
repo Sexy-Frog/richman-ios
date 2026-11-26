@@ -24,8 +24,9 @@ final class NotificationManager {
 
     func incomingCall(from name: String) {
         let content = UNMutableNotificationContent()
+        let showPreview = UserDefaults.standard.bool(forKey: "rm.preview")
         content.title = "着信"
-        content.body = "\(name) さんから着信"
+        content.body = showPreview ? "\(name) さんから着信" : "着信があります"
         content.sound = .default
         content.interruptionLevel = .timeSensitive
         add(content)

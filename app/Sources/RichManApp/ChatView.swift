@@ -461,7 +461,12 @@ private struct MessageBubble: View {
             Button("返信", systemImage: "arrowshape.turn.up.left") { onReply(message) }
             if message.kind == .text {
                 Button("コピー", systemImage: "doc.on.doc") {
-                    UIPasteboard.general.string = message.body
+                    // Expire the pasteboard automatically so a copied secret
+                    // does not linger for other apps.
+                    UIPasteboard.general.setItems(
+                        [[UTType.utf8PlainText.identifier: message.body as Any]],
+                        options: [.expirationDate: Date().addingTimeInterval(60)]
+                    )
                 }
             }
             if message.kind == .file, let name = message.mediaName {

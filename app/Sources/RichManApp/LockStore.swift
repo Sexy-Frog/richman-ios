@@ -1,33 +1,46 @@
 import Foundation
 import Security
 import CryptoKit
+import CommonCrypto
 
 /// PIN gate with a Keychain-backed salted hash. The PIN itself is never stored,
 /// and the item is device-only + unlocked-only. Wrong attempts are counted; the
 /// caller wipes local data at the configured threshold.
+///
+/// New PINs use PBKDF2-HMAC-SHA256 (150k iterations). Older installs with the
+/// original single-SHA256 item are verified once and upgraded transparently.
 @MainActor
 final class LockStore: ObservableObject {
     @Published private(set) var locked = false
     @Published private(set) var failedAttempts = 0
     /// Kept published so Settings updates immediately after set/remove.
     @Published private(set) var hasDuress = false
+    /// Length of the emergency code (nil for a legacy code set before the
+    /// length was recorded).
+    @Published private(set) var duressLength: Int?
 
     private let service = "works.kelvins.richman.lock"
     private let account = "pin"
     private let duressAccount = "duress"
     private let attemptsKey = "rm.lock.attempts"
     private let pinLengthKey = "rm.lock.pinLength"
+    private let duressLengthKey = "rm.lock.duressLength"
+    private let pbkdf2Iterations: UInt32 = 150_000
 
     init() {
         failedAttempts = UserDefaults.standard.integer(forKey: attemptsKey)
-        hasDuress = loadKeychain(account: duressAccount) != nil
+        hasDuress = storedHash(account: duressAccount) != nil
+        let storedDuressLength = UserDefaults.standard.integer(
+            forKey: duressLengthKey
+        )
+        duressLength = storedDuressLength >= 4 ? storedDuressLength : nil
         locked = hasPIN
         #if DEBUG
         if UserDefaults.standard.bool(forKey: "rm.locked") { locked = true }
         #endif
     }
 
-    var hasPIN: Bool { loadKeychain(account: account) != nil }
+    var hasPIN: Bool { storedHash(account: account) != nil }
 
     /// Main PIN length (non-secret UX hint for auto-submit). Defaults to 4.
     var pinLength: Int {
@@ -47,9 +60,7 @@ final class LockStore: ObservableObject {
         guard pin.count >= 4, pin.count <= 8, pin.allSatisfy(\.isNumber) else {
             return false
         }
-        let salt = randomSalt()
-        let hash = hashPIN(pin, salt: salt)
-        let saved = saveKeychain(salt + hash, account: account)
+        let saved = savePIN(pin, account: account)
         if saved {
             UserDefaults.standard.set(pin.count, forKey: pinLengthKey)
         }
@@ -61,17 +72,23 @@ final class LockStore: ObservableObject {
     @discardableResult
     func setDuress(_ pin: String) -> Bool {
         guard pin.count >= 4, pin.count <= 8,
+              pin.count == pinLength,
               pin.allSatisfy(\.isNumber), !check(pin) else { return false }
-        let salt = randomSalt()
-        let hash = hashPIN(pin, salt: salt)
-        let saved = saveKeychain(salt + hash, account: duressAccount)
-        if saved { hasDuress = true }
+        let saved = savePIN(pin, account: duressAccount)
+        if saved {
+            hasDuress = true
+            duressLength = pin.count
+            UserDefaults.standard.set(pin.count, forKey: duressLengthKey)
+        }
         return saved
     }
 
     func removeDuress() {
         deleteKeychain(account: duressAccount)
+        deleteKeychain(account: duressAccount + "2")
         hasDuress = false
+        duressLength = nil
+        UserDefaults.standard.removeObject(forKey: duressLengthKey)
     }
 
     func check(_ pin: String) -> Bool {
@@ -82,26 +99,49 @@ final class LockStore: ObservableObject {
         check(pin, account: duressAccount)
     }
 
+    /// Check the v2 (PBKDF2) item, then fall back to the legacy SHA256 item and
+    /// upgrade it on success.
     private func check(_ pin: String, account: String) -> Bool {
+        if let stored = loadKeychain(account: account + "2"),
+           stored.count == 48,
+           let derived = derivePIN(pin, salt: Data(stored.prefix(16))) {
+            return constantTimeEqual(Data(stored.suffix(32)), derived)
+        }
         guard let stored = loadKeychain(account: account), stored.count == 48 else {
             return false
         }
-        let salt = stored.prefix(16)
-        let expected = stored.suffix(32)
-        let actual = hashPIN(pin, salt: Data(salt))
-        return Data(expected) == actual
+        let salt = Data(stored.prefix(16))
+        let legacy = legacyHashPIN(pin, salt: salt)
+        guard constantTimeEqual(Data(stored.suffix(32)), legacy) else {
+            return false
+        }
+        // Transparent upgrade so the next launch uses PBKDF2.
+        _ = savePIN(pin, account: account)
+        return true
     }
 
     func unlock(_ pin: String) -> Bool {
         if check(pin) {
-            failedAttempts = 0
-            UserDefaults.standard.set(0, forKey: attemptsKey)
-            locked = false
+            recordSuccess()
             return true
         }
+        recordFailure()
+        return false
+    }
+
+    @discardableResult
+    func recordFailure() -> Bool {
         failedAttempts += 1
         UserDefaults.standard.set(failedAttempts, forKey: attemptsKey)
-        return false
+        return failedAttempts >= wipeAfter
+    }
+
+    /// Called after the lock screen has already verified the PIN (so the slow
+    /// KDF is not run twice).
+    func recordSuccess() {
+        failedAttempts = 0
+        UserDefaults.standard.set(0, forKey: attemptsKey)
+        locked = false
     }
 
     func lock() {
@@ -109,19 +149,66 @@ final class LockStore: ObservableObject {
     }
 
     func reset() {
-        deleteKeychain(account: account)
-        deleteKeychain(account: duressAccount)
+        for suffix in ["", "2"] {
+            deleteKeychain(account: account + suffix)
+            deleteKeychain(account: duressAccount + suffix)
+        }
         locked = false
         hasDuress = false
+        duressLength = nil
         failedAttempts = 0
         UserDefaults.standard.set(0, forKey: attemptsKey)
         UserDefaults.standard.removeObject(forKey: pinLengthKey)
+        UserDefaults.standard.removeObject(forKey: duressLengthKey)
     }
 
-    private func hashPIN(_ pin: String, salt: Data) -> Data {
+    private func storedHash(account: String) -> Data? {
+        loadKeychain(account: account + "2") ?? loadKeychain(account: account)
+    }
+
+    private func savePIN(_ pin: String, account: String) -> Bool {
+        let salt = randomSalt()
+        guard let hash = derivePIN(pin, salt: salt) else { return false }
+        guard saveKeychain(salt + hash, account: account + "2") else { return false }
+        deleteKeychain(account: account)
+        return true
+    }
+
+    /// Legacy verifier kept only to migrate existing installs.
+    private func legacyHashPIN(_ pin: String, salt: Data) -> Data {
         var data = salt
         data.append(Data(pin.utf8))
         return Data(SHA256.hash(data: data))
+    }
+
+    private func derivePIN(_ pin: String, salt: Data) -> Data? {
+        var out = Data(count: 32)
+        let pinBytes = Data(pin.utf8)
+        let status = out.withUnsafeMutableBytes { outBuffer in
+            salt.withUnsafeBytes { saltBuffer in
+                pinBytes.withUnsafeBytes { pinBuffer in
+                    CCKeyDerivationPBKDF(
+                        CCPBKDFAlgorithm(kCCPBKDF2),
+                        pinBuffer.bindMemory(to: Int8.self).baseAddress,
+                        pinBytes.count,
+                        saltBuffer.bindMemory(to: UInt8.self).baseAddress,
+                        salt.count,
+                        CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA256),
+                        pbkdf2Iterations,
+                        outBuffer.bindMemory(to: UInt8.self).baseAddress,
+                        32
+                    )
+                }
+            }
+        }
+        return status == kCCSuccess ? out : nil
+    }
+
+    private func constantTimeEqual(_ lhs: Data, _ rhs: Data) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        var difference: UInt8 = 0
+        for (a, b) in zip(lhs, rhs) { difference |= a ^ b }
+        return difference == 0
     }
 
     private func randomSalt() -> Data {

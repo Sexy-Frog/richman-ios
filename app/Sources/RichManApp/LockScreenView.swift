@@ -118,28 +118,37 @@ struct LockScreenView: View {
         // Unlock as soon as the entered digits match, without pressing 解除.
         // The duress code may be longer than the main PIN, so check both at
         // every length before deciding a normal PIN was wrong.
-        if lock.checkDuress(digits) {
-            digits = ""
-            UINotificationFeedbackGenerator().notificationOccurred(.warning)
-            onWipe()
-            return
-        }
-        if lock.check(digits) {
-            let entered = digits
-            digits = ""
-            if lock.unlock(entered) {
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
-                error = nil
-            }
+        if lock.hasDuress, lock.checkDuress(digits) {
+            emergencyWipe()
             return
         }
 
-        // No duress configured: fail as soon as the known PIN length is
-        // reached. With a duress code, allow up to 8 digits.
-        if !lock.hasDuress, digits.count >= lock.pinLength {
-            unlock()
-        } else if digits.count >= maxDigits {
-            unlock()
+        let mainLength = lock.pinLength
+        let emergencyLength = lock.duressLength
+
+        if digits.count == mainLength,
+           emergencyLength == nil || emergencyLength == mainLength,
+           lock.check(digits) {
+            digits = ""
+            lock.recordSuccess()
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            error = nil
+            return
+        }
+
+        // A legacy emergency code may not have its length recorded. Keep the
+        // old 8-digit fallback for those installs.
+        if lock.hasDuress, emergencyLength == nil {
+            if digits.count >= maxDigits { unlock() }
+            return
+        }
+
+        // Count a failure only after the longest valid length. This avoids
+        // cutting off a longer emergency code while still counting every full
+        // PIN/emergency-code guess exactly once.
+        let longest = max(mainLength, emergencyLength ?? mainLength)
+        if digits.count >= longest {
+            failAttempt()
         }
     }
 
@@ -148,24 +157,34 @@ struct LockScreenView: View {
         digits.removeLast()
     }
 
-    private func unlock() {
-        if lock.checkDuress(digits) {
-            digits = ""
-            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+    private func emergencyWipe() {
+        digits = ""
+        UINotificationFeedbackGenerator().notificationOccurred(.warning)
+        onWipe()
+    }
+
+    private func failAttempt() {
+        let shouldWipe = lock.recordFailure()
+        digits = ""
+        UINotificationFeedbackGenerator().notificationOccurred(.error)
+        if shouldWipe {
             onWipe()
+        } else {
+            error = "暗証番号が違います"
+        }
+    }
+
+    private func unlock() {
+        if lock.hasDuress, lock.checkDuress(digits) {
+            emergencyWipe()
             return
         }
-        if lock.unlock(digits) {
+        if lock.check(digits) {
             digits = ""
+            lock.recordSuccess()
             error = nil
         } else {
-            digits = ""
-            UINotificationFeedbackGenerator().notificationOccurred(.error)
-            if lock.failedAttempts >= lock.wipeAfter {
-                onWipe()
-            } else {
-                error = "暗証番号が違います"
-            }
+            failAttempt()
         }
     }
 }

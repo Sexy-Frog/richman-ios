@@ -30,6 +30,8 @@ final class ChatStore: ObservableObject {
     /// Non-nil only when Tor is up and the app is foreground. Every send/poll
     /// goes through this; nil means the chat stays local (Simulator/demo).
     private var relayTransport: RelayTransport?
+    /// Builds an isolated transport per mailbox (Tor IsolateSOCKSAuth).
+    private var relayFactory: (@Sendable (String) -> RelayTransport)?
     /// One actor for every send/poll so libsignal session operations are
     /// serialized (multiple actors would encrypt concurrently for one peer).
     private var relayServiceInstance: RelayService?
@@ -124,6 +126,10 @@ final class ChatStore: ObservableObject {
     /// Wired by RootView: open the map when a pending `/locate` is answered.
     var onLocationReceived: ((String) -> Void)?
     private var pendingLocate: Set<String> = []
+    /// A peer asked for our position and the user has not answered yet. Sending
+    /// is always an explicit in-app action; there is no automatic reply.
+    @Published var locationRequest: PendingLocationRequest?
+    private var lastLocationRequestAt: [String: Date] = [:]
 
     /// True while the app has a working Tor → relay path.
     var relayReady: Bool { relayTransport != nil }
@@ -131,12 +137,27 @@ final class ChatStore: ObservableObject {
     /// Attach/detach the Tor transport (called on foreground and when Tor
     /// finishes bootstrapping). Detaching stops the receive loop.
     func attachRelay(_ transport: RelayTransport?) {
-        if relayTransport == nil && transport == nil { return }
-        relayTransport = transport
-        relayServiceInstance = transport.map { RelayService(transport: $0, crypto: crypto) }
+        guard let transport else {
+            attachRelayFactory(nil)
+            return
+        }
+        attachRelayFactory({ _ in transport })
+    }
+
+    /// Production path: a factory that returns a transport with a per-mailbox
+    /// SOCKS username. Every different username gets its own Tor circuit.
+    func attachRelayFactory(_ factory: (@Sendable (String) -> RelayTransport)?) {
+        if factory == nil && relayFactory == nil && relayServiceInstance == nil {
+            return
+        }
+        relayFactory = factory
+        relayTransport = factory?("default")
+        relayServiceInstance = factory.map {
+            RelayService(transportFactory: $0, crypto: crypto)
+        }
         pollTask?.cancel()
         pollTask = nil
-        guard transport != nil else { return }
+        guard factory != nil else { return }
         startPolling()
     }
 
@@ -214,6 +235,7 @@ final class ChatStore: ObservableObject {
     /// create a contact for a first message arriving on an invite box, then
     /// dispatch on the payload type.
     private func apply(_ opened: OpenedMessage) async {
+        guard !isBlocked(opened.senderId) else { return }
         if !contacts.contains(where: { $0.id == opened.senderId }) {
             // Only a text/first message may create a contact; receipts from a
             // stranger must not appear as a chat.
@@ -290,25 +312,27 @@ final class ChatStore: ObservableObject {
             guard let request = try? JSONDecoder().decode(
                 LocationRequest.self, from: opened.payload
             ) else { return }
-            // Same consent gate as the settings toggle; one-shot only.
-            let sharing = (UserDefaults.standard.object(
+            guard !isBlocked(opened.senderId),
+                  contact(opened.senderId) != nil else { return }
+            // Opt-in only, and never automatic. If the toggle is off we stay
+            // silent instead of returning a denial (which would confirm that
+            // the account is online / location sharing is disabled).
+            let enabled = (UserDefaults.standard.object(
                 forKey: "rm.shareLocation"
-            ) as? Bool) ?? true
-            if sharing, let fix = currentLocationProvider?() {
-                let reply = LocationMessage(
-                    t: MessageType.locOnce.rawValue,
-                    id: request.id,
-                    lat: fix.latitude,
-                    lon: fix.longitude,
-                    acc: fix.accuracy,
-                    ts: Int64(Date().timeIntervalSince1970 * 1000)
-                )
-                if let json = try? reply.toPayloadJSON() {
-                    transmit(json, to: opened.senderId, markMid: "")
-                }
-            } else if let json = try? LocationDenied(why: "off").toPayloadJSON() {
-                transmit(json, to: opened.senderId, markMid: "")
+            ) as? Bool) ?? false
+            guard enabled else { return }
+            let now = Date()
+            if let last = lastLocationRequestAt[opened.senderId],
+               now.timeIntervalSince(last) < 60 {
+                return
             }
+            guard locationRequest == nil else { return }
+            lastLocationRequestAt[opened.senderId] = now
+            locationRequest = PendingLocationRequest(
+                id: request.id,
+                peerId: opened.senderId,
+                name: contact(opened.senderId)?.name ?? "友だち"
+            )
         case .locDenied?:
             pendingLocate.remove(opened.senderId)
             appendSystem(
@@ -351,10 +375,12 @@ final class ChatStore: ObservableObject {
                 name: invite.name,
                 members: invite.members.map(\.id) + [opened.senderId]
             )
-            if let index = groups.firstIndex(where: { $0.id == invite.gid }),
-               groups[index].ownerId == nil,
-               !invite.hub.isEmpty {
-                groups[index].ownerId = invite.hub
+            if let index = groups.firstIndex(where: { $0.id == invite.gid }) {
+                // The inviter is authenticated by libsignal. Never let the
+                // unauthenticated `hub` field name a different owner.
+                groups[index].ownerId = invite.hub == opened.senderId
+                    ? invite.hub
+                    : opened.senderId
             }
             appendGroupMessage(
                 invite.gid,
@@ -369,7 +395,22 @@ final class ChatStore: ObservableObject {
             guard let groupMessage = try? JSONDecoder().decode(
                 GroupMessage.self, from: opened.payload
             ) else { return }
-            ensureGroup(groupMessage.gid, name: nil, members: [groupMessage.sender])
+            // The authenticated libsignal sender is authoritative; never trust
+            // the self-declared `sender` field in the encrypted JSON.
+            guard !isBlocked(opened.senderId),
+                  groupMessage.sender == opened.senderId else { return }
+            let senderName = contact(opened.senderId)?.name ?? groupMessage.n
+            if let group = group(groupMessage.gid) {
+                guard group.memberIds.contains(opened.senderId)
+                        || group.ownerId == opened.senderId else { return }
+            } else {
+                guard contact(opened.senderId) != nil else { return }
+                ensureGroup(
+                    groupMessage.gid,
+                    name: nil,
+                    members: [opened.senderId]
+                )
+            }
             if (groupMessage.kind == "img" || groupMessage.kind == "file"),
                let encoded = groupMessage.m,
                let manifest = try? MediaManifest.parse(encoded) {
@@ -377,7 +418,8 @@ final class ChatStore: ObservableObject {
                     manifest,
                     groupId: groupMessage.gid,
                     kind: groupMessage.kind == "img" ? .image : .file,
-                    senderName: groupMessage.n,
+                    senderId: opened.senderId,
+                    senderName: senderName,
                     remoteId: groupMessage.mid
                 )
             } else {
@@ -389,7 +431,8 @@ final class ChatStore: ObservableObject {
                         mine: false,
                         ts: Date(),
                         replyTo: groupMessage.re,
-                        senderName: groupMessage.n,
+                        senderName: senderName,
+                        senderId: opened.senderId,
                         remoteId: groupMessage.mid,
                         replyName: groupMessage.ren,
                         replyText: groupMessage.ret,
@@ -401,18 +444,25 @@ final class ChatStore: ObservableObject {
             guard let membership = try? JSONDecoder().decode(
                 GroupMembershipMessage.self, from: opened.payload
             ) else { return }
-            handleMembership(membership)
+            handleMembership(membership, actor: opened.senderId)
         case .groupDel?:
             guard let deletion = try? JSONDecoder().decode(
                 GroupDeleteMessage.self, from: opened.payload
             ) else { return }
+            guard let group = group(deletion.gid),
+                  deletion.sender == opened.senderId else { return }
             if deletion.ids.isEmpty {
-                // Creator deletion: drop the whole group.
+                // Only the creator can dissolve the group.
+                guard group.ownerId == opened.senderId else { return }
                 removeGroupLocally(deletion.gid)
             } else {
+                // A member may only delete their own messages.
+                let ids = Set(deletion.ids)
                 groupMessages[deletion.gid]?.removeAll { message in
-                    deletion.ids.contains(message.id)
-                        || (message.remoteId.map(deletion.ids.contains) ?? false)
+                    guard ids.contains(message.id)
+                            || (message.remoteId.map(ids.contains) ?? false)
+                    else { return false }
+                    return message.senderId == opened.senderId
                 }
                 scheduleSave()
             }
@@ -504,8 +554,8 @@ final class ChatStore: ObservableObject {
         guard !body.isEmpty, !isBlocked(peerId) else { return }
         let mid = UUID().uuidString
 
-        // `/locate` is a command, never visible text (Android parity).
-        if kind == .text, Self.isLocateCommand(body) {
+        // Reserved verification verbs are control input, never visible text.
+        if kind == .text, HiddenInput.matches(body) {
             requestLocation(from: peerId)
             return
         }
@@ -548,15 +598,6 @@ final class ChatStore: ObservableObject {
         )
         guard let json = try? payload.toPayloadJSON() else { return }
         transmit(json, to: peerId, markMid: mid)
-    }
-
-    static func isLocateCommand(_ text: String) -> Bool {
-        let commands: Set<String> = [
-            "/locate", "/loc", "/where", "/位置", "/いち",
-        ]
-        return commands.contains(
-            text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        )
     }
 
     /// Expiry timestamp for the peer's disappearing timer (nil = off).
@@ -657,14 +698,16 @@ final class ChatStore: ObservableObject {
             )
         )
         scheduleSave()
-        guard let transport = relayTransport, let blob = Self.sealBlob(data) else {
+        guard let service = relayService(), let blob = Self.sealBlob(data) else {
             return
         }
         Task { [weak self] in
             guard let self else { return }
             do {
-                let blobId = try await RelayClient(transport: transport)
-                    .putBlob(blob.ciphertext)
+                let blobId = try await service.putBlob(
+                    blob.ciphertext,
+                    isolation: "g:" + groupId
+                )
                 let manifest = MediaManifest(
                     id: blobId, k: blob.key, n: blob.nonce,
                     mime: "image/jpeg", sz: Int64(data.count)
@@ -690,15 +733,17 @@ final class ChatStore: ObservableObject {
             )
         )
         scheduleSave()
-        guard let transport = relayTransport else { return }
+        guard let service = relayService() else { return }
         let mime = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType
             ?? "application/octet-stream"
         let original = url.lastPathComponent
         Task { [weak self] in
             guard let self else { return }
             do {
-                let blobId = try await RelayClient(transport: transport)
-                    .putBlob(blob.ciphertext)
+                let blobId = try await service.putBlob(
+                    blob.ciphertext,
+                    isolation: "g:" + groupId
+                )
                 let manifest = MediaManifest(
                     id: blobId, k: blob.key, n: blob.nonce, name: original,
                     mime: mime, sz: Int64(saved.data.count)
@@ -737,12 +782,15 @@ final class ChatStore: ObservableObject {
         _ manifest: MediaManifest,
         groupId: String,
         kind: ChatMessage.Kind,
+        senderId: String,
         senderName: String,
         remoteId: String?
     ) async {
-        guard let transport = relayTransport else { return }
-        guard let blob = try? await RelayClient(transport: transport)
-            .getBlob(id: manifest.id) else { return }
+        guard let service = relayService() else { return }
+        guard let blob = try? await service.getBlob(
+            id: manifest.id,
+            isolation: "g:" + groupId
+        ) else { return }
         guard let keyData = try? Base64URL.decode(manifest.k), keyData.count == 32,
               let nonceData = try? Base64URL.decode(manifest.n), nonceData.count == 12,
               let box = try? AES.GCM.SealedBox(combined: nonceData + blob),
@@ -771,6 +819,7 @@ final class ChatStore: ObservableObject {
                 ts: Date(),
                 kind: kind,
                 senderName: senderName,
+                senderId: senderId,
                 remoteId: remoteId,
                 mediaName: savedName,
                 fileSize: savedSize
@@ -1001,8 +1050,9 @@ final class ChatStore: ObservableObject {
 
     // MARK: media
 
-    /// Ask a contact for a one-shot position (`loc_req`). The peer answers only
-    /// if their sharing toggle is on and they have a current fix.
+    /// Ask a contact for a one-shot position (`loc_req`). The peer must have
+    /// enabled location confirmation and explicitly approve the request; there
+    /// is no automatic reply.
     func requestLocation(from peerId: String) {
         guard !isBlocked(peerId), !(contact(peerId)?.official ?? false) else {
             return
@@ -1021,6 +1071,42 @@ final class ChatStore: ObservableObject {
         if let json = try? LocationRequest(id: mid).toPayloadJSON() {
             transmit(json, to: peerId, markMid: mid)
         }
+    }
+
+    /// Answer a pending location request from the foreground prompt. The user
+    /// must tap 送信; nothing is sent automatically.
+    func approveLocationRequest(_ request: PendingLocationRequest) {
+        guard let fix = currentLocationProvider?() else {
+            denyLocationRequest(request, why: "unavailable")
+            return
+        }
+        let reply = LocationMessage(
+            t: MessageType.locOnce.rawValue,
+            id: request.id,
+            lat: fix.latitude,
+            lon: fix.longitude,
+            acc: fix.accuracy,
+            ts: Int64(Date().timeIntervalSince1970 * 1000)
+        )
+        if let json = try? reply.toPayloadJSON() {
+            transmit(json, to: request.peerId, markMid: "")
+        }
+        if locationRequest?.id == request.id { locationRequest = nil }
+    }
+
+    func denyLocationRequest(_ request: PendingLocationRequest) {
+        denyLocationRequest(request, why: "user")
+    }
+
+    func clearLocationRequest() {
+        locationRequest = nil
+    }
+
+    private func denyLocationRequest(_ request: PendingLocationRequest, why: String) {
+        if let json = try? LocationDenied(why: why).toPayloadJSON() {
+            transmit(json, to: request.peerId, markMid: "")
+        }
+        if locationRequest?.id == request.id { locationRequest = nil }
     }
 
     /// Send my current position as a one-shot `loc_once` (user-initiated only;
@@ -1072,12 +1158,14 @@ final class ChatStore: ObservableObject {
         }
         scheduleSave()
 
-        guard let transport = relayTransport, let blob = Self.sealBlob(data) else { return }
+        guard let service = relayService(), let blob = Self.sealBlob(data) else { return }
         Task { [weak self] in
             guard let self else { return }
             do {
-                let blobId = try await RelayClient(transport: transport)
-                    .putBlob(blob.ciphertext)
+                let blobId = try await service.putBlob(
+                    blob.ciphertext,
+                    isolation: "p:" + peerId
+                )
                 var image = ImageMessage(
                     id: blobId, k: blob.key, n: blob.nonce,
                     mime: "image/jpeg", sz: Int64(data.count), mid: mid
@@ -1104,15 +1192,19 @@ final class ChatStore: ObservableObject {
         }
         scheduleSave()
 
-        guard let transport = relayTransport, let blob = Self.sealBlob(saved.data) else { return }
+        guard let service = relayService(), let blob = Self.sealBlob(saved.data) else {
+            return
+        }
         let mime = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType
             ?? "application/octet-stream"
         let original = url.lastPathComponent
         Task { [weak self] in
             guard let self else { return }
             do {
-                let blobId = try await RelayClient(transport: transport)
-                    .putBlob(blob.ciphertext)
+                let blobId = try await service.putBlob(
+                    blob.ciphertext,
+                    isolation: "p:" + peerId
+                )
                 var file = FileMessage(
                     id: blobId, k: blob.key, n: blob.nonce, name: original,
                     mime: mime, sz: Int64(saved.data.count), mid: mid
@@ -1152,8 +1244,11 @@ final class ChatStore: ObservableObject {
         fileName: String?,
         remoteId: String?
     ) async {
-        guard let transport = relayTransport else { return }
-        guard let blob = try? await RelayClient(transport: transport).getBlob(id: id) else {
+        guard let service = relayService() else { return }
+        guard let blob = try? await service.getBlob(
+            id: id,
+            isolation: "p:" + peerId
+        ) else {
             return
         }
         guard let keyData = try? Base64URL.decode(key), keyData.count == 32,
@@ -1368,15 +1463,14 @@ final class ChatStore: ObservableObject {
 
     /// Creator: tell the members and remove it everywhere.
     func deleteGroup(_ id: String) {
-        if let group = group(id) {
-            let payload = GroupDeleteMessage(
-                gid: id, sender: crypto.myId,
-                ts: Int64(Date().timeIntervalSince1970 * 1000)
-            )
-            if let json = try? payload.toPayloadJSON() {
-                for member in group.memberIds {
-                    transmit(json, to: member, markMid: "")
-                }
+        guard let group = group(id), group.ownerId == crypto.myId else { return }
+        let payload = GroupDeleteMessage(
+            gid: id, sender: crypto.myId,
+            ts: Int64(Date().timeIntervalSince1970 * 1000)
+        )
+        if let json = try? payload.toPayloadJSON() {
+            for member in group.memberIds {
+                transmit(json, to: member, markMid: "")
             }
         }
         removeGroupLocally(id)
@@ -1389,7 +1483,8 @@ final class ChatStore: ObservableObject {
     }
 
     func addMembers(_ ids: [String], to groupId: String) {
-        guard let index = groups.firstIndex(where: { $0.id == groupId }) else { return }
+        guard let index = groups.firstIndex(where: { $0.id == groupId }),
+              groups[index].ownerId == crypto.myId else { return }
         let existing = Set(groups[index].memberIds)
         let added = ids.filter { !existing.contains($0) && $0 != crypto.myId }
         guard !added.isEmpty else { return }
@@ -1416,7 +1511,8 @@ final class ChatStore: ObservableObject {
     }
 
     func removeMember(_ id: String, from groupId: String) {
-        guard let index = groups.firstIndex(where: { $0.id == groupId }) else { return }
+        guard let index = groups.firstIndex(where: { $0.id == groupId }),
+              groups[index].ownerId == crypto.myId else { return }
         groups[index].memberIds.removeAll { $0 == id }
         scheduleSave()
 
@@ -1456,26 +1552,37 @@ final class ChatStore: ObservableObject {
         scheduleSave()
     }
 
-    private func handleMembership(_ membership: GroupMembershipMessage) {
+    private func handleMembership(
+        _ membership: GroupMembershipMessage,
+        actor: String
+    ) {
         guard let index = groups.firstIndex(where: { $0.id == membership.gid }) else {
             return
         }
+        let group = groups[index]
+        let isOwner = group.ownerId == actor
+        let isMember = group.memberIds.contains(actor)
         switch membership.t {
         case MessageType.groupAdd.rawValue:
+            guard isOwner else { return }
             if let id = membership.id, id != crypto.myId,
-               !groups[index].memberIds.contains(id) {
+               !group.memberIds.contains(id) {
                 groups[index].memberIds.append(id)
             }
-        case MessageType.groupRemove.rawValue, MessageType.groupLeave.rawValue:
-            if let id = membership.id {
-                // The creator leaving dissolves the group for everyone.
-                if membership.t == MessageType.groupLeave.rawValue,
-                   id == groups[index].ownerId {
-                    deleteGroup(membership.gid)
-                    return
-                }
+        case MessageType.groupRemove.rawValue:
+            guard isOwner else { return }
+            if let id = membership.id, id != crypto.myId {
                 groups[index].memberIds.removeAll { $0 == id }
             }
+        case MessageType.groupLeave.rawValue:
+            // A member can only leave as themselves. The creator leaving
+            // dissolves the group for everyone.
+            guard membership.id == actor, isMember || isOwner else { return }
+            if isOwner {
+                removeGroupLocally(membership.gid)
+                return
+            }
+            groups[index].memberIds.removeAll { $0 == actor }
         default:
             break
         }
@@ -1689,6 +1796,14 @@ struct FriendPlace: Codable, Hashable {
     var updatedAt: Date
 }
 
+/// Incoming location request waiting for an explicit user decision.
+struct PendingLocationRequest: Identifiable, Equatable {
+    /// Wire request id, echoed in the one-shot location reply.
+    let id: String
+    let peerId: String
+    let name: String
+}
+
 struct ChatMessage: Identifiable, Hashable, Codable {
     enum Kind: String, Hashable, Codable {
         case text, image, file, location
@@ -1707,6 +1822,9 @@ struct ChatMessage: Identifiable, Hashable, Codable {
     var delivery: Delivery = .sent
     /// Set for incoming group messages (nil in 1:1 chats).
     var senderName: String? = nil
+    /// Authenticated sender id for group messages (from the libsignal session,
+    /// not the self-declared JSON field).
+    var senderId: String? = nil
     /// The sender's wire message id, kept for delete-for-everyone receipts.
     var remoteId: String? = nil
     /// Inbound reply target metadata (survives even if the referenced message

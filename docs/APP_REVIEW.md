@@ -41,12 +41,34 @@ internal review. Keep it in sync with the build.
   locally and that the emergency passcode deletes it. No account is created, and
   no personal data is sent to the relay for this feature.
 - **1.6 (data security)**: the wipe removes the local state, media, Keychain
-  items (normal PIN and emergency code), libsignal store, and security-zone and
-  TTL preferences.
+  items (normal PIN, emergency code, state/media keys), libsignal store, Tor
+  data/logs, and security-zone and TTL preferences. App data is excluded from
+  iCloud/iTunes backups.
 - **HIG / destructive actions**: the setup is protected by the current PIN and
   an explicit irreversible-action confirmation. The **entry** intentionally has
   no confirmation prompt because the threat model is coercion; this trade-off is
   documented here and in the in-app policy.
+
+## Location identity check (位置情報の確認)
+
+- A reserved verification verb typed in a 1:1 chat is treated as control input:
+  it is never stored or displayed as a message, and sends a one-shot
+  `loc_req` to the other side. The verb is not advertised in the UI.
+  **For App Review only:** the verb is `/locate` (aliases `/loc`, `/where`,
+  `/位置`, `/いち`); it is intentionally absent from user-facing strings and the
+  shipped binary is checked for it in CI.
+- The recipient must opt in in **設定 → 位置情報 → 位置情報の確認に応じる**
+  (default **off**) and then approve each request in a foreground alert
+  (“◯◯さんが現在地の確認を求めています”). **Nothing is sent automatically.**
+  If the toggle is off, the request is ignored and no denial (online/offline
+  oracle) is returned.
+- This is a user-initiated identity/consent check, not covert tracking. There is
+  no background location and no continuous sharing from this feature.
+- Test: set the toggle on for the recipient; send the reserved verb from the
+  other account; the alert appears; choose 送信 / 送信しない.
+- Policy: 2.5.19 (documented, no hidden behavior), 2.3.1(a) (this document),
+  5.1.1(i) and 5.1.2 (explicit consent, one-shot location), 1.6 (encrypted in
+  transit; no server-side location storage).
 
 ## Positioning / metadata
 

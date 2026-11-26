@@ -110,6 +110,12 @@ public final class SealedFileKeyStore: KeyStoreBackend {
         options.insert(.completeFileProtection)
         #endif
         try sealed.write(to: url, options: options)
+        #if os(iOS)
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        var target = url
+        try? target.setResourceValues(values)
+        #endif
     }
 
     private func read(_ key: String) -> Data? {

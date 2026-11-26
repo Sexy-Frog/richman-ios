@@ -8,6 +8,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        PrivacyStorage.prepare()
+        MediaStore.clearExports()
         UNUserNotificationCenter.current().delegate = self
         return true
     }

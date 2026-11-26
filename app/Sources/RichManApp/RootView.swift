@@ -12,7 +12,7 @@ private struct NotificationChat: Identifiable {
 struct RootView: View {
     @AppStorage("rm.onboarded") private var onboarded = false
     @AppStorage("rm.displayName") private var savedName = ""
-    @AppStorage("rm.autoLockSeconds") private var autoLockSeconds = 0
+    @AppStorage("rm.autoLockSeconds") private var autoLockSeconds = 30
     @Environment(\.scenePhase) private var scenePhase
 
     @StateObject private var store = ChatStore(displayName: "自分")
@@ -78,7 +78,7 @@ struct RootView: View {
             // SOCKS (CI) the phase is ready synchronously, so attach here too;
             // otherwise the onChange below attaches when Tor bootstraps.
             tor.start()
-            store.attachRelay(tor.readyTransport)
+            store.attachRelayFactory(tor.readyTransportFactory)
             wireCalls()
             store.onLocationReceived = { [weak mapPresenter] peer in
                 mapPresenter?.show(focusPeer: peer)
@@ -120,12 +120,12 @@ struct RootView: View {
                 }
                 backgroundedAt = nil
                 location.startIfAuthorized()
-                store.attachRelay(tor.readyTransport)
+                store.attachRelayFactory(tor.readyTransportFactory)
                 applySecurityZoneIfNeeded()
             case .background:
                 privacyCover = true
                 backgroundedAt = Date()
-                store.attachRelay(nil)
+                store.attachRelayFactory(nil)
             case .inactive:
                 privacyCover = true
             @unknown default:
@@ -171,6 +171,23 @@ struct RootView: View {
         .sheet(isPresented: $showDebugDuress) {
             DuressView().environmentObject(lock)
         }
+        .alert(
+            "位置情報の確認",
+            isPresented: Binding(
+                get: { !lock.locked && store.locationRequest != nil },
+                set: { _ in }
+            ),
+            presenting: store.locationRequest
+        ) { request in
+            Button("送信する") {
+                store.approveLocationRequest(request)
+            }
+            Button("送信しない", role: .cancel) {
+                store.denyLocationRequest(request)
+            }
+        } message: { request in
+            Text("\(request.name) さんが現在地の確認を求めています。送信するのはこの1回だけです。")
+        }
         .onChange(of: location.location?.timestamp) { _, _ in
             if scenePhase == .active { applySecurityZoneIfNeeded() }
         }
@@ -178,7 +195,7 @@ struct RootView: View {
             // Tor becomes usable some seconds after launch; attach then so the
             // send/receive loop only runs over a live circuit. (The background
             // transition detaches again, so this cannot poll while hidden.)
-            store.attachRelay(tor.readyTransport)
+            store.attachRelayFactory(tor.readyTransportFactory)
         }
         .task {
             #if DEBUG
@@ -251,8 +268,12 @@ struct RootView: View {
     private func wipeLocalData() {
         store.wipeAllLocal()
         MediaStore.clearAll()
+        MediaStore.clearExports()
+        TorSession.wipeStorage()
+        PrivacyStorage.wipeCaches()
         lock.reset()
         SecurityZoneStore.current = nil
+        PrivacyStorage.prepare()
 
         // Remove every local preference that could describe the user, not just
         // the chat state. This is also what the emergency passcode promises.
@@ -261,7 +282,8 @@ struct RootView: View {
             "rm.onboarded", "rm.displayName", "rm.zoneWanted",
             "rm.preview", "rm.autoLockSeconds", "rm.retentionDays",
             "rm.shareLocation", "rm.wipeAfter",
-            "rm.lock.attempts", "rm.lock.pinLength", "rm.blocked",
+            "rm.lock.attempts", "rm.lock.pinLength", "rm.lock.duressLength",
+            "rm.blocked",
         ]
         for key in keys { defaults.removeObject(forKey: key) }
         for key in defaults.dictionaryRepresentation().keys
