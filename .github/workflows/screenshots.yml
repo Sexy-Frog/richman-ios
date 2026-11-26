@@ -67,6 +67,16 @@ jobs:
               xcrun simctl io "$UDID" screenshot "$1"
             fi
           }
+          # Tile-rich map captures are 1.4-2 MB. A map with unloaded tiles is
+          # ~300 KB, so retry until the network has painted it.
+          snap_large() {
+            xcrun simctl io "$UDID" screenshot "$1"
+            size=$(stat -f%z "$1")
+            if [ "$size" -lt 800000 ]; then
+              sleep 6
+              xcrun simctl io "$UDID" screenshot "$1"
+            fi
+          }
           shoot() {
             name="$1"
             shift
@@ -81,12 +91,12 @@ jobs:
           xcrun simctl launch "$UDID" works.kelvins.richman \
             -rm.skipOnboarding 1 -rm.demo 1 -rm.openMap 1 >/dev/null
           sleep 12
-          snap shots/map.png
+          snap_large shots/map.png
           xcrun simctl terminate "$UDID" works.kelvins.richman >/dev/null 2>&1 || true
           xcrun simctl launch "$UDID" works.kelvins.richman \
             -rm.skipOnboarding 1 -rm.demo 1 -rm.openMap 1 -rm.mapfocus demo-alice >/dev/null
           sleep 12
-          snap shots/map-friend.png
+          snap_large shots/map-friend.png
           # Actual first-run intro (no skipOnboarding) and the zone tutorial step.
           xcrun simctl terminate "$UDID" works.kelvins.richman >/dev/null 2>&1 || true
           xcrun simctl launch "$UDID" works.kelvins.richman -rm.demo 1 >/dev/null
@@ -117,7 +127,7 @@ jobs:
           xcrun simctl launch "$UDID" works.kelvins.richman \
             -rm.skipOnboarding 1 -rm.demo 1 -rm.openMap 1 -rm.zone lock >/dev/null
           sleep 10
-          snap shots/zone-lock.png
+          snap_large shots/zone-lock.png
 
       - name: Upload screenshots
         uses: actions/upload-artifact@v4
