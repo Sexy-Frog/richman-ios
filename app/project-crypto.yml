@@ -61,7 +61,7 @@ targets:
         CFBundleDisplayName: RichMan
         ITSAppUsesNonExemptEncryption: true
         NSCameraUsageDescription: "QRコードを読み取って友だちを追加します。"
-        NSLocationWhenInUseUsageDescription: "友だちに現在地を送ったり、届いた位置を地図で確認するために使用します。プライバシーゾーンを有効にしている場合は、位置情報の確認リクエストに1回だけ自動で応じることがあります。バックグラウンドでは取得しません。"
+        NSLocationWhenInUseUsageDescription: "友だちに現在地を送ったり、届いた位置を地図で確認するために使用します。設定で「位置情報の確認に自動で応じる」をオンにしている場合は、位置情報の確認リクエストに1回だけ自動で応じることがあります。バックグラウンドでは取得しません。"
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         UILaunchScreen: {}

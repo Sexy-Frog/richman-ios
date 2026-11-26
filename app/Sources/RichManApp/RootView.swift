@@ -286,7 +286,7 @@ struct RootView: View {
         let keys = [
             "rm.onboarded", "rm.displayName", "rm.zoneWanted",
             "rm.preview", "rm.autoLockSeconds", "rm.retentionDays",
-            "rm.shareLocation", "rm.wipeAfter",
+            "rm.shareLocation", "rm.wipeAfter", "rm.locationAutoReply",
             "rm.lock.attempts", "rm.lock.pinLength", "rm.lock.duressLength",
             "rm.blocked",
         ]
