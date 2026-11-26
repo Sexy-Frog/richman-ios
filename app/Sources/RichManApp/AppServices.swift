@@ -35,7 +35,21 @@ final class AppServices {
     @MainActor
     func pollInBackground() async {
         guard let store, let tor, lock?.locked == false else { return }
-        store.attachRelayFactory(tor.readyTransportFactory, startPolling: false)
+
+        // A suspended app keeps its Tor daemon; a cold background launch may
+        // not have started it. Give bootstrap a short, bounded window.
+        if tor.phase == .stopped { tor.start() }
+        if tor.phase == .starting {
+            for _ in 0..<20 where tor.phase == .starting {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
+        }
+        guard let factory = tor.readyTransportFactory else {
+            scheduleRefresh()
+            return
+        }
+
+        store.attachRelayFactory(factory, startPolling: false)
         await store.pollOnce()
         store.attachRelayFactory(nil, startPolling: false)
         scheduleRefresh()
