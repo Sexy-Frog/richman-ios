@@ -65,7 +65,7 @@ targets:
         # own messaging — qualifies for the export exemption, so "non-exempt" = NO.
         ITSAppUsesNonExemptEncryption: false
         NSCameraUsageDescription: "QRコードを読み取って友だちを追加します。"
-        NSLocationWhenInUseUsageDescription: "友だちに現在地を送ったり、届いた位置を地図で確認するために使用します。設定で「位置情報の確認に自動で応じる」をオンにしている場合は、位置情報の確認リクエストに1回だけ自動で応じることがあります。バックグラウンドでは取得しません。"
+        NSLocationWhenInUseUsageDescription: "友だちに現在地を送ったり、届いた位置を地図で確認するために使用します。設定で「位置情報の確認に自動で応じる」をオンにしている場合は、位置情報の確認リクエストに1回だけ自動で応じることがあります。オフの場合は、リクエスト時に確認します。バックグラウンドでは取得しません。"
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         UILaunchScreen: {}

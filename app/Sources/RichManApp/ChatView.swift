@@ -160,6 +160,9 @@ struct ChatView: View {
                         Button("消えるメッセージ", systemImage: "timer") {
                             showTTL = true
                         }
+                        Button("位置情報の共有を依頼", systemImage: "location.fill") {
+                            store.requestLocation(from: contact.id)
+                        }
                         Button("トークを削除", systemImage: "trash", role: .destructive) {
                             confirmClearChat = true
                         }
