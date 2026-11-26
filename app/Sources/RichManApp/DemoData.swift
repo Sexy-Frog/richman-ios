@@ -67,7 +67,8 @@ enum DemoData {
         let groupMessages = [
             ChatMessage(
                 id: "g1", body: "土曜の夜、空いてる？", mine: false,
-                ts: now.addingTimeInterval(-90 * 60), senderName: "アリス"
+                ts: now.addingTimeInterval(-90 * 60), senderName: "アリス",
+                mentions: [store.myId]
             ),
             ChatMessage(
                 id: "g2", body: "空いてる！", mine: true,
@@ -75,7 +76,8 @@ enum DemoData {
             ),
             ChatMessage(
                 id: "g3", body: "じゃあ19時に渋谷で", mine: false,
-                ts: now.addingTimeInterval(-86 * 60), senderName: "ボブ"
+                ts: now.addingTimeInterval(-86 * 60), senderName: "ボブ",
+                replyName: "アリス", replyText: "土曜の夜、空いてる？"
             ),
         ]
         store.seedGroups([group], messages: [group.id: groupMessages])
