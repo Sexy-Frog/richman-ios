@@ -190,7 +190,7 @@ struct GroupChatView: View {
                     Text(group.name)
                         .font(.headline)
                         .lineLimit(1)
-                    Text("\(group.memberIds.count)人のグループ")
+                    Text("\(group.memberIds.count + 1)人のグループ")
                         .font(.system(size: 10))
                         .foregroundStyle(RM.onSurfaceVariant)
                 }
