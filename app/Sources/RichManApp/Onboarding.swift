@@ -52,7 +52,7 @@ struct OnboardingView: View {
         (
             "location.circle.fill",
             "プライバシーゾーン",
-            "自宅など決めた場所に入ると自動でロック。位置情報は端末内の判定に使い、送信するときは暗号化されます。"
+            "自宅に着いたら自動ロック、職場では履歴を消去。場所に応じて保護を切り替えられます。位置情報は端末内の判定に使い、送信するときだけ暗号化されます。"
         ),
     ]
 
@@ -168,19 +168,44 @@ struct OnboardingView: View {
         VStack(spacing: 16) {
             stepCaption("2 / 3")
             Text("プライバシーゾーン").font(.title2.weight(.bold))
-            Text("自宅など決めた場所に入ると、自動でロックする機能です。")
+            Text("決めた場所に入ったときに、アプリを自動で守る機能です。")
                 .font(.subheadline)
                 .foregroundStyle(RM.onSurfaceVariant)
                 .multilineTextAlignment(.center)
 
-            VStack(alignment: .leading, spacing: 10) {
-                bullet("家に着いたら自動でロック")
-                bullet("位置情報は端末内の判定にだけ使用")
-                bullet("送信するときは暗号化・バックグラウンド取得なし")
+            VStack(alignment: .leading, spacing: 12) {
+                Text("たとえば")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(RM.onSurfaceVariant)
+                example(
+                    "house.fill",
+                    "自宅に着いたら自動ロック",
+                    "ソファに置き忘れても、家族や来客に中身を見られません。"
+                )
+                example(
+                    "building.2.fill",
+                    "職場ではトークを消去",
+                    "同僚の目に触れる履歴を残さずに済みます。"
+                )
+                example(
+                    "person.2.fill",
+                    "実家・取引先ではロック",
+                    "人に端末を渡す場面でも、画面を開かれません。"
+                )
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(14)
             .background(RM.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+
+            HStack(alignment: .top, spacing: 7) {
+                Image(systemName: "lock.shield.fill")
+                    .font(.caption2)
+                    .foregroundStyle(RM.primary)
+                Text("ゾーン判定は端末内だけで行い、位置情報をサーバーに送りません。")
+                    .font(.caption2)
+                    .foregroundStyle(RM.onSurfaceVariant)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Button("プライバシーゾーンを有効にする") {
                 enableZone()
@@ -265,12 +290,19 @@ struct OnboardingView: View {
             .foregroundStyle(RM.onSurfaceVariant)
     }
 
-    private func bullet(_ text: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "checkmark.circle.fill")
+    private func example(_ icon: String, _ title: String, _ text: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: icon)
                 .font(.caption)
                 .foregroundStyle(RM.primary)
-            Text(text).font(.footnote)
+                .frame(width: 24, height: 24)
+                .background(RM.primary.opacity(0.12), in: Circle())
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.footnote.weight(.semibold))
+                Text(text)
+                    .font(.caption2)
+                    .foregroundStyle(RM.onSurfaceVariant)
+            }
         }
     }
 

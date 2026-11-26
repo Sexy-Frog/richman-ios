@@ -123,7 +123,7 @@ struct SettingsView: View {
                 } header: {
                     Text("プライバシーゾーン")
                 } footer: {
-                    Text("自宅など決めた場所に入ると、自動でロック・消去できます。位置情報はこの判定と、あなたが送るときだけ使います。")
+                    Text("たとえば「自宅で自動ロック」「職場でトーク消去」。判定は端末内で行い、位置情報をサーバーに送りません。")
                 }
 
                 if !store.blockedContacts.isEmpty {
