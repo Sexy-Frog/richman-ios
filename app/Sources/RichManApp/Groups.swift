@@ -109,6 +109,7 @@ struct CreateGroupView: View {
 struct GroupChatView: View {
     let group: ChatGroup
     @EnvironmentObject private var store: ChatStore
+    @EnvironmentObject private var mapPresenter: MapPresenter
     @State private var draft = ""
     @State private var replyTo: ChatMessage?
     @State private var showInfo = false
@@ -116,6 +117,8 @@ struct GroupChatView: View {
     @State private var showPhotos = false
     @State private var showFiles = false
     @State private var photoItem: PhotosPickerItem?
+    @State private var bubbleGeometry = ChatBubbleGeometry()
+    @Environment(\.dismiss) private var dismiss
 
     private var messages: [ChatMessage] { store.messages(forGroup: group.id) }
     private var canSend: Bool {
@@ -126,8 +129,17 @@ struct GroupChatView: View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing: 8) {
-                        ForEach(messages) { message in
+                    LazyVStack(spacing: 6) {
+                        ForEach(Array(messages.enumerated()), id: \.element.id) { pair in
+                            let index = pair.offset
+                            let message = pair.element
+                            if index == 0 ||
+                                !Calendar.current.isDate(
+                                    messages[index - 1].ts,
+                                    inSameDayAs: message.ts
+                                ) {
+                                DateDivider(date: message.ts)
+                            }
                             GroupBubble(
                                 message: message,
                                 mentioned: message.mentions?
@@ -140,6 +152,9 @@ struct GroupChatView: View {
                                     store.deleteGroupMessage(
                                         $0, in: group.id, everyone: true
                                     )
+                                },
+                                onOpenLocation: { _ in
+                                    mapPresenter.show(focusPeer: nil)
                                 }
                             )
                             .id(message.id)
@@ -154,6 +169,15 @@ struct GroupChatView: View {
                         withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
                     }
                 }
+                .onAppear {
+                    if let last = messages.last {
+                        proxy.scrollTo(last.id, anchor: .bottom)
+                    }
+                }
+                .onPreferenceChange(BubbleFrameKey.self) {
+                    bubbleGeometry.frames = $0
+                }
+                .swipeBackToTalks(geometry: bubbleGeometry) { dismiss() }
             }
             composer
         }
@@ -161,6 +185,16 @@ struct GroupChatView: View {
         .navigationTitle(group.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                VStack(spacing: 1) {
+                    Text(group.name)
+                        .font(.headline)
+                        .lineLimit(1)
+                    Text("\(group.memberIds.count)人のグループ")
+                        .font(.system(size: 10))
+                        .foregroundStyle(RM.onSurfaceVariant)
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showInfo = true } label: { Image(systemName: "info.circle") }
             }
@@ -209,6 +243,8 @@ struct GroupChatView: View {
                         .contentShape(Rectangle())
                 }
                 Menu {
+                    Button("@全員") { insertMention("全員") }
+                    Divider()
                     ForEach(group.memberIds, id: \.self) { id in
                         if let contact = store.contact(id) {
                             Button("@\(contact.name)") {
@@ -302,56 +338,27 @@ private struct GroupBubble: View {
     let onReply: (ChatMessage) -> Void
     let onDelete: (ChatMessage) -> Void
     let onDeleteEveryone: (ChatMessage) -> Void
+    let onOpenLocation: (ChatMessage) -> Void
 
     var body: some View {
-        HStack(alignment: .bottom) {
-            if message.mine { Spacer(minLength: 48) }
-            VStack(alignment: message.mine ? .trailing : .leading, spacing: 3) {
-                if !message.mine, let sender = message.senderName {
-                    Text(sender)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(RM.onSurfaceVariant)
-                        .padding(.leading, 6)
-                }
-                if mentioned, !message.mine {
-                    Text("あなた宛て")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(RM.primary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(RM.primary.opacity(0.12), in: Capsule())
-                }
-                if let name = message.replyName, let text = message.replyText {
-                    HStack(spacing: 6) {
-                        Rectangle()
-                            .fill(message.mine ? Color.white : RM.primary)
-                            .frame(width: 2)
-                        Text("\(name): \(text)")
-                            .font(.caption)
-                            .lineLimit(1)
-                            .foregroundStyle(
-                                message.mine
-                                    ? Color.white.opacity(0.9)
-                                    : RM.onSurfaceVariant
-                            )
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        (message.mine ? Color.white : RM.surfaceVariant).opacity(0.18),
-                        in: RoundedRectangle(cornerRadius: 6)
-                    )
-                }
-                content
-                Text(message.ts.formatted(date: .omitted, time: .shortened))
-                    .font(.caption2)
-                    .foregroundStyle(
-                        message.mine ? Color.white.opacity(0.8) : RM.onSurfaceVariant
-                    )
+        HStack(alignment: .bottom, spacing: 4) {
+            if message.mine {
+                Spacer(minLength: 44)
+            } else {
+                meta
             }
-            if !message.mine { Spacer(minLength: 48) }
+
+            bubble
+                .swipeToReply(outgoing: message.mine) { onReply(message) }
+                .recordBubbleFrame()
+                .frame(maxWidth: 300, alignment: message.mine ? .trailing : .leading)
+
+            if message.mine {
+                meta
+            } else {
+                Spacer(minLength: 44)
+            }
         }
-        .swipeToReply { onReply(message) }
         .contextMenu {
             Button("返信", systemImage: "arrowshape.turn.up.left") {
                 onReply(message)
@@ -367,48 +374,150 @@ private struct GroupBubble: View {
         }
     }
 
+    private var meta: some View {
+        Text(ChatTime.label(message.ts))
+            .font(.system(size: 10))
+            .foregroundStyle(RM.onSurfaceVariant)
+            .padding(.horizontal, 2)
+            .padding(.bottom, 2)
+    }
+
+    private var bubble: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if !message.mine, let sender = message.senderName, !sender.isEmpty {
+                Text(sender)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(RM.primary)
+            }
+            if mentioned, !message.mine {
+                Text("あなた宛て")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(RM.primary)
+            }
+            if let name = message.replyName, let text = message.replyText {
+                replyQuote(name: name, text: text)
+            }
+            content
+        }
+        .padding(bubblePadding)
+        .background(
+            BubbleStyle.color(mine: message.mine, mentioned: mentioned),
+            in: BubbleStyle.shape(mine: message.mine)
+        )
+    }
+
+    private var bubblePadding: EdgeInsets {
+        message.kind == .image
+            ? EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
+            : EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12)
+    }
+
+    private var textColor: Color {
+        message.mine ? RM.bubbleMeText : RM.bubbleThemText
+    }
+
+    private var subColor: Color {
+        message.mine ? RM.bubbleMeText.opacity(0.8) : RM.onSurfaceVariant
+    }
+
+    private func replyQuote(name: String, text: String) -> some View {
+        HStack(spacing: 6) {
+            Rectangle()
+                .fill(message.mine ? Color.white : RM.primary)
+                .frame(width: 2)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(name)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(message.mine ? Color.white : RM.primary)
+                Text(text)
+                    .font(.system(size: 11))
+                    .lineLimit(1)
+                    .foregroundStyle(
+                        message.mine ? Color.white.opacity(0.85) : RM.onSurfaceVariant
+                    )
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            (message.mine ? Color.white : RM.primary).opacity(0.14),
+            in: RoundedRectangle(cornerRadius: 8)
+        )
+    }
+
     @ViewBuilder
     private var content: some View {
         switch message.kind {
+        case .text:
+            Text(message.body)
+                .font(.system(size: 15))
+                .lineSpacing(2)
+                .foregroundStyle(textColor)
+                .fixedSize(horizontal: false, vertical: true)
         case .image:
             if let name = message.mediaName, let image = MediaStore.image(named: name) {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFit()
-                    .frame(maxWidth: 210)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .frame(maxWidth: 260, maxHeight: 190)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             } else {
-                bubble(Label("画像", systemImage: "photo"))
+                Label("画像", systemImage: "photo")
+                    .foregroundStyle(textColor)
             }
         case .file:
-            bubble(
-                VStack(alignment: .leading, spacing: 2) {
-                    Label(message.body, systemImage: "doc").lineLimit(1)
-                    if let size = message.fileSize {
-                        Text(ByteCountFormatter.string(
-                            fromByteCount: Int64(size), countStyle: .file
-                        ))
-                        .font(.caption2)
-                        .opacity(0.7)
-                    }
-                }
-            )
+            fileContent
         case .location:
-            bubble(Label("位置情報", systemImage: "location.fill"))
-        case .text:
-            bubble(Text(message.body))
+            HStack(spacing: 8) {
+                Image(systemName: "location.fill")
+                    .font(.system(size: 18))
+                    .foregroundStyle(message.mine ? RM.bubbleMeText : RM.primary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("位置情報")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(textColor)
+                    Text("タップで地図を表示")
+                        .font(.system(size: 10))
+                        .foregroundStyle(subColor)
+                }
+            }
+            .onTapGesture { onOpenLocation(message) }
         }
     }
 
-    private func bubble<Content: View>(_ content: Content) -> some View {
-        content
-            .foregroundStyle(message.mine ? RM.bubbleMeText : RM.bubbleThemText)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(
-                message.mine ? RM.bubbleMe : RM.bubbleThem,
-                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-            )
+    @ViewBuilder
+    private var fileContent: some View {
+        let body = HStack(spacing: 10) {
+            Image(systemName: "paperclip")
+                .font(.system(size: 18))
+                .foregroundStyle(message.mine ? RM.bubbleMeText : RM.primary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(message.body)
+                    .font(.system(size: 14, weight: .semibold))
+                    .lineLimit(1)
+                    .foregroundStyle(textColor)
+                Text(fileSubtitle)
+                    .font(.system(size: 10))
+                    .foregroundStyle(subColor)
+            }
+        }
+        if let name = message.mediaName {
+            ShareLink(item: MediaStore.fileURL(named: name)) {
+                body
+            }
+        } else {
+            body
+        }
+    }
+
+    private var fileSubtitle: String {
+        let size = message.fileSize.map {
+            ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file)
+        } ?? "ファイル"
+        return message.mediaName == nil
+            ? "\(size)・受信待ち"
+            : "\(size)・タップで共有"
     }
 }
 

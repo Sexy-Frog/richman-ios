@@ -1342,7 +1342,12 @@ final class ChatStore: ObservableObject {
     /// Resolve typed `@name` text to member ids. Selection in the composer
     /// inserts the same text, so one path handles both.
     func mentionedIds(in text: String, group: ChatGroup) -> [String] {
-        group.memberIds.filter { id in
+        // "@全員" / "@all" pings every other member, matching the Android client.
+        if text.contains("@全員") ||
+            text.range(of: "@all", options: .caseInsensitive) != nil {
+            return group.memberIds.filter { $0 != crypto.myId }
+        }
+        return group.memberIds.filter { id in
             guard id != crypto.myId,
                   let name = contact(id)?.name,
                   !name.isEmpty else { return false }

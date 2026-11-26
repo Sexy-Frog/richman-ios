@@ -26,6 +26,8 @@ struct ChatView: View {
     @State private var imagePreview: ImagePreview?
     @State private var confirmClearChat = false
     @State private var showLocationPrimer = false
+    @State private var bubbleGeometry = ChatBubbleGeometry()
+    @Environment(\.dismiss) private var dismiss
 
     private var messages: [ChatMessage] { store.messages(for: contact.id) }
     private var isBlocked: Bool { store.isBlocked(contact.id) }
@@ -94,6 +96,10 @@ struct ChatView: View {
                     }
                 }
                 .defaultScrollAnchor(.bottom)
+                .onPreferenceChange(BubbleFrameKey.self) {
+                    bubbleGeometry.frames = $0
+                }
+                .swipeBackToTalks(geometry: bubbleGeometry) { dismiss() }
             }
 
             if isOfficial {
@@ -115,6 +121,23 @@ struct ChatView: View {
             store.setActivePeer(nil)
         }
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                VStack(spacing: 1) {
+                    HStack(spacing: 4) {
+                        Text(contact.name)
+                            .font(.headline)
+                            .lineLimit(1)
+                        if isOfficial {
+                            Image(systemName: "checkmark.seal.fill")
+                                .font(.caption)
+                                .foregroundStyle(RM.primary)
+                        }
+                    }
+                    Text("端末間暗号化")
+                        .font(.system(size: 10))
+                        .foregroundStyle(RM.onSurfaceVariant)
+                }
+            }
             if !isOfficial {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -416,39 +439,24 @@ private struct MessageBubble: View {
     let onOpenLocation: (ChatMessage) -> Void
 
     var body: some View {
-        HStack(alignment: .bottom) {
-            if message.mine { Spacer(minLength: 48) }
-            VStack(alignment: message.mine ? .trailing : .leading, spacing: 3) {
-                if let replyPreview {
-                    HStack(spacing: 6) {
-                        Rectangle()
-                            .fill(message.mine ? Color.white : RM.primary)
-                            .frame(width: 2)
-                        Text(replyPreview)
-                            .font(.caption)
-                            .lineLimit(1)
-                            .foregroundStyle(message.mine ? Color.white.opacity(0.9) : RM.onSurfaceVariant)
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        (message.mine ? Color.white : RM.surfaceVariant).opacity(0.18),
-                        in: RoundedRectangle(cornerRadius: 6)
-                    )
-                }
-
-                content
-
-                HStack(spacing: 3) {
-                    Text(timeLabel)
-                        .font(.caption2)
-                        .foregroundStyle(RM.onSurfaceVariant)
-                    if message.mine { deliveryIcon }
-                }
+        HStack(alignment: .bottom, spacing: 4) {
+            if message.mine {
+                Spacer(minLength: 44)
+            } else {
+                meta
             }
-            if !message.mine { Spacer(minLength: 48) }
+
+            bubble
+                .swipeToReply(outgoing: message.mine) { onReply(message) }
+                .recordBubbleFrame()
+                .frame(maxWidth: 300, alignment: message.mine ? .trailing : .leading)
+
+            if message.mine {
+                meta
+            } else {
+                Spacer(minLength: 44)
+            }
         }
-        .swipeToReply { onReply(message) }
         .contextMenu {
             Button("返信", systemImage: "arrowshape.turn.up.left") { onReply(message) }
             if message.kind == .text {
@@ -472,69 +480,141 @@ private struct MessageBubble: View {
         }
     }
 
+    /// Timestamp sits outside the bubble like the Android client: left of
+    /// incoming messages, right of outgoing ones, bottom-aligned.
+    private var meta: some View {
+        HStack(spacing: 3) {
+            Text(ChatTime.label(message.ts))
+                .font(.system(size: 10))
+                .foregroundStyle(RM.onSurfaceVariant)
+            if message.mine { deliveryIcon }
+        }
+        .padding(.horizontal, 2)
+        .padding(.bottom, 2)
+    }
+
+    private var bubble: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let replyPreview {
+                replyQuote(replyPreview)
+            }
+            content
+        }
+        .padding(bubblePadding)
+        .background(
+            BubbleStyle.color(mine: message.mine),
+            in: BubbleStyle.shape(mine: message.mine)
+        )
+    }
+
+    private var bubblePadding: EdgeInsets {
+        message.kind == .image
+            ? EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
+            : EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12)
+    }
+
+    private var textColor: Color {
+        message.mine ? RM.bubbleMeText : RM.bubbleThemText
+    }
+
+    private var subColor: Color {
+        message.mine ? RM.bubbleMeText.opacity(0.8) : RM.onSurfaceVariant
+    }
+
+    private func replyQuote(_ text: String) -> some View {
+        HStack(spacing: 6) {
+            Rectangle()
+                .fill(message.mine ? Color.white : RM.primary)
+                .frame(width: 2)
+            Text(text)
+                .font(.system(size: 11))
+                .lineLimit(1)
+                .foregroundStyle(
+                    message.mine ? Color.white.opacity(0.85) : RM.onSurfaceVariant
+                )
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            (message.mine ? Color.white : RM.primary).opacity(0.14),
+            in: RoundedRectangle(cornerRadius: 8)
+        )
+    }
+
     @ViewBuilder
     private var content: some View {
         switch message.kind {
         case .text:
-            bubbleText(message.body)
+            Text(message.body)
+                .font(.system(size: 15))
+                .lineSpacing(2)
+                .foregroundStyle(textColor)
+                .fixedSize(horizontal: false, vertical: true)
         case .image:
             if let name = message.mediaName, let image = MediaStore.image(named: name) {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFit()
-                    .frame(maxWidth: 210)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .frame(maxWidth: 260, maxHeight: 190)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .onTapGesture { onOpenImage(image) }
             } else {
-                bubbleLabel("画像", icon: "photo")
+                Label("画像", systemImage: "photo")
+                    .foregroundStyle(textColor)
             }
         case .location:
-            bubbleLabel("位置情報", icon: "location.fill")
-                .onTapGesture { onOpenLocation(message) }
-        case .file:
-            VStack(alignment: .leading, spacing: 2) {
-                Label(message.body, systemImage: "doc")
-                    .lineLimit(1)
-                if let size = message.fileSize {
-                    Text(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))
-                        .font(.caption2)
-                        .opacity(0.7)
+            HStack(spacing: 8) {
+                Image(systemName: "location.fill")
+                    .font(.system(size: 18))
+                    .foregroundStyle(message.mine ? RM.bubbleMeText : RM.primary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("位置情報")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(textColor)
+                    Text("タップで地図を表示")
+                        .font(.system(size: 10))
+                        .foregroundStyle(subColor)
                 }
             }
-            .foregroundStyle(message.mine ? RM.bubbleMeText : RM.bubbleThemText)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(
-                message.mine ? RM.bubbleMe : RM.bubbleThem,
-                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-            )
+            .onTapGesture { onOpenLocation(message) }
+        case .file:
+            fileContent
         }
     }
 
-    private func bubbleText(_ text: String) -> some View {
-        Text(text)
-            .foregroundStyle(message.mine ? RM.bubbleMeText : RM.bubbleThemText)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(
-                message.mine ? RM.bubbleMe : RM.bubbleThem,
-                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-            )
+    @ViewBuilder
+    private var fileContent: some View {
+        let body = HStack(spacing: 10) {
+            Image(systemName: "paperclip")
+                .font(.system(size: 18))
+                .foregroundStyle(message.mine ? RM.bubbleMeText : RM.primary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(message.body)
+                    .font(.system(size: 14, weight: .semibold))
+                    .lineLimit(1)
+                    .foregroundStyle(textColor)
+                Text(fileSubtitle)
+                    .font(.system(size: 10))
+                    .foregroundStyle(subColor)
+            }
+        }
+        if let name = message.mediaName {
+            ShareLink(item: MediaStore.fileURL(named: name)) {
+                body
+            }
+        } else {
+            body
+        }
     }
 
-    private func bubbleLabel(_ text: String, icon: String) -> some View {
-        Label(text, systemImage: icon)
-            .foregroundStyle(message.mine ? RM.bubbleMeText : RM.bubbleThemText)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(
-                message.mine ? RM.bubbleMe : RM.bubbleThem,
-                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-            )
-    }
-
-    private var timeLabel: String {
-        message.ts.formatted(date: .omitted, time: .shortened)
+    private var fileSubtitle: String {
+        let size = message.fileSize.map {
+            ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file)
+        } ?? "ファイル"
+        return message.mediaName == nil
+            ? "\(size)・受信待ち"
+            : "\(size)・タップで共有"
     }
 
     @ViewBuilder
@@ -549,30 +629,8 @@ private struct MessageBubble: View {
                 Image(systemName: "checkmark.circle.fill")
             }
         }
-        .font(.caption2)
+        .font(.system(size: 10))
         .foregroundStyle(message.delivery == .read ? RM.primary : RM.onSurfaceVariant)
-    }
-}
-
-private struct DateDivider: View {
-    let date: Date
-
-    var body: some View {
-        Text(label)
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(RM.onSurfaceVariant)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
-            .background(RM.surfaceVariant, in: Capsule())
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 4)
-    }
-
-    private var label: String {
-        let calendar = Calendar.current
-        if calendar.isDateInToday(date) { return "今日" }
-        if calendar.isDateInYesterday(date) { return "昨日" }
-        return date.formatted(.dateTime.month().day())
     }
 }
 
