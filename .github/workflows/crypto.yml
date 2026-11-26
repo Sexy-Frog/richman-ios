@@ -143,16 +143,20 @@ jobs:
 
       - name: Verify Release binary hygiene
         working-directory: app
+        env:
+          RESERVED: ${{ secrets.RM_RESERVED_STRINGS }}
         run: |
           APP=build/Build/Products/Release-iphonesimulator/RichManCryptoApp.app
           BIN="$APP/RichManCryptoApp"
           test -d "$APP"
           test ! -e "$APP/map_style_direct.json"
+          test -n "$RESERVED"
           strings -a "$BIN" > /tmp/rm_crypto_release_strings.txt
-          for needle in "/locate" "/loc" "/where" "loc_req" "loc_once" "loc_denied" "locReq" "locOnce" "locDenied" "locStart" "locUpdate" "locStop" "isLocateCommand"; do
+          while IFS= read -r needle; do
+            [ -z "$needle" ] && continue
             if grep -Fqx -- "$needle" /tmp/rm_crypto_release_strings.txt; then
-              echo "::error::Release binary contains: $needle"
+              echo "::error::Release binary contains a reserved string"
               exit 1
             fi
-          done
+          done <<< "$RESERVED"
           echo "Crypto Release binary hygiene OK"

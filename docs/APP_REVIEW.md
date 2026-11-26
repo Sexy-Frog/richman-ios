@@ -53,23 +53,24 @@ internal review. Keep it in sync with the build.
 
 - A reserved verification verb typed in a 1:1 chat is treated as control input:
   it is never stored or displayed as a message, and sends a one-shot
-  `loc_req` to the other side. The same action is **also available from the chat
-  menu → 位置情報の確認を依頼**, so the capability is visible to users and App
-  Review (the typed verb is only an optional shortcut).
-  **For App Review only:** the verb is `/locate` (aliases `/loc`, `/where`,
-  `/位置`, `/いち`); it is intentionally absent from user-facing strings and the
-  shipped binary is checked for it in CI.
-- The recipient must opt in in **設定 → 位置情報 → 位置情報の確認に応じる**
-  (default **off**) and then approve each request in a foreground alert
-  (“◯◯さんが現在地の確認を求めています”). **Nothing is sent automatically.**
-  If the toggle is off, the request is ignored and no denial (online/offline
-  oracle) is returned.
-- This is a user-initiated identity/consent check, not covert tracking. There is
-  no background location and no continuous sharing from this feature.
-- Test: set the toggle on for the recipient; send the reserved verb from the
-  other account; the alert appears; choose 送信 / 送信しない.
-- Policy: 2.5.19 (documented, no hidden behavior), 2.3.1(a) (this document),
-  5.1.1(i) and 5.1.2 (explicit consent, one-shot location), 1.6 (encrypted in
+  `loc_req` to the other side. It is **intentionally not exposed in the UI**;
+  this document is the App Review disclosure.
+  The exact verb and aliases are **not committed to this public repository**;
+  paste them into App Store Connect → Notes for Review from the private
+  operations note before submission. The shipped binary is checked against
+  them in CI (needles come from a repository secret).
+- The recipient sees a **chat notice** (“位置情報の確認リクエストが届きました…”).
+  Nothing is sent automatically. If they choose to share, they use the normal
+  **＋ → 現在地** action. There is **no separate location-consent toggle and no
+  popup**; location permission is requested only in the privacy-zone/onboarding
+  context or by the system when the user actively sends a location.
+- Requests are rate-limited per peer (60 s). This is a user-initiated
+  identity/consent check, not covert tracking. There is no background location
+  and no continuous sharing from this feature.
+- Test: send the reserved verb from the other account; the chat notice appears;
+  use ＋ → 現在地 to send one location.
+- Policy: 2.5.19 (disclosed here for App Review; no automatic location), 2.3.1(a),
+  5.1.1(i) and 5.1.2 (user-initiated one-shot location), 1.6 (encrypted in
   transit; no server-side location storage).
 
 ## Positioning / metadata

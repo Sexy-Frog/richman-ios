@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The map is no longer a tab. It is presented on demand — from `/locate`
+/// The map is no longer a tab. It is presented on demand — from location-check
 /// answers, a shared-location bubble, or the chat/settings menu — like the
 /// Android client.
 struct MapRoute: Identifiable, Equatable {

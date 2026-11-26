@@ -180,23 +180,6 @@ struct RootView: View {
         .sheet(isPresented: $showDebugDuress) {
             DuressView().environmentObject(lock)
         }
-        .alert(
-            "位置情報の確認",
-            isPresented: Binding(
-                get: { !lock.locked && store.locationRequest != nil },
-                set: { _ in }
-            ),
-            presenting: store.locationRequest
-        ) { request in
-            Button("送信する") {
-                store.approveLocationRequest(request)
-            }
-            Button("送信しない", role: .cancel) {
-                store.denyLocationRequest(request)
-            }
-        } message: { request in
-            Text("\(request.name) さんが現在地の確認を求めています。送信するのはこの1回だけです。")
-        }
         .onChange(of: location.location?.timestamp) { _, _ in
             if scenePhase == .active { applySecurityZoneIfNeeded() }
         }
@@ -369,7 +352,7 @@ struct HubView: View {
 
     var body: some View {
         // No map tab (Android parity): the map is presented on demand from
-        // `/locate` answers, location bubbles, or the menu.
+        // location-check answers, location bubbles, or the menu.
         TabView(selection: $tab) {
             TalksView()
                 .tabItem { Label("トーク", systemImage: "bubble.left.and.bubble.right.fill") }

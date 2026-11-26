@@ -98,7 +98,6 @@ final class ChatStore: ObservableObject {
         places.removeAll()
         pendingBoxes.removeAll()
         blockedIds.removeAll()
-        locationRequest = nil
     }
 
     func restoreSensitiveState() {
@@ -158,14 +157,14 @@ final class ChatStore: ObservableObject {
     private var activePeer: String?
     private var activeGroup: String?
     private var sentReceipts: Set<String> = []
-    /// Wired by RootView: current one-shot position for `/locate` replies.
+    /// Wired by RootView: current one-shot position for location-check replies.
     var currentLocationProvider: (() -> (latitude: Double, longitude: Double, accuracy: Double?)?)?
-    /// Wired by RootView: open the map when a pending `/locate` is answered.
+    /// Wired by RootView: open the map when a pending location check is answered.
     var onLocationReceived: ((String) -> Void)?
     private var pendingLocate: Set<String> = []
-    /// A peer asked for our position and the user has not answered yet. Sending
-    /// is always an explicit in-app action; there is no automatic reply.
-    @Published var locationRequest: PendingLocationRequest?
+    /// A peer asked for our position. There is no app-level consent popup; the
+    /// request is shown in the chat and the user sends via ＋ → 現在地 if they
+    /// choose. Rate-limited per peer.
     private var lastLocationRequestAt: [String: Date] = [:]
 
     /// True while the app has a working Tor → relay path.
@@ -346,29 +345,22 @@ final class ChatStore: ObservableObject {
             purgeExpired(opened.senderId)
             appendSystem(opened.senderId, text: ttlSystemLabel(seconds))
         case .m2?:
-            guard let request = try? JSONDecoder().decode(
+            guard (try? JSONDecoder().decode(
                 LocationRequest.self, from: opened.payload
-            ) else { return }
+            )) != nil else { return }
             guard !isBlocked(opened.senderId),
                   contact(opened.senderId) != nil else { return }
-            // Opt-in only, and never automatic. If the toggle is off we stay
-            // silent instead of returning a denial (which would confirm that
-            // the account is online / location sharing is disabled).
-            let enabled = (UserDefaults.standard.object(
-                forKey: "rm.shareLocation"
-            ) as? Bool) ?? false
-            guard enabled else { return }
+            // No app-level consent toggle or popup. A request is simply shown as
+            // a chat notice; the user decides whether to use ＋ → 現在地.
             let now = Date()
             if let last = lastLocationRequestAt[opened.senderId],
                now.timeIntervalSince(last) < 60 {
                 return
             }
-            guard locationRequest == nil else { return }
             lastLocationRequestAt[opened.senderId] = now
-            locationRequest = PendingLocationRequest(
-                id: request.id,
-                peerId: opened.senderId,
-                name: contact(opened.senderId)?.name ?? "友だち"
+            appendSystem(
+                opened.senderId,
+                text: "位置情報の確認リクエストが届きました。送る場合は「＋」→「現在地」を使ってください。"
             )
         case .m3?:
             pendingLocate.remove(opened.senderId)
@@ -1123,42 +1115,6 @@ final class ChatStore: ObservableObject {
         }
     }
 
-    /// Answer a pending location request from the foreground prompt. The user
-    /// must tap 送信; nothing is sent automatically.
-    func approveLocationRequest(_ request: PendingLocationRequest) {
-        guard let fix = currentLocationProvider?() else {
-            denyLocationRequest(request, why: "unavailable")
-            return
-        }
-        let reply = LocationMessage(
-            t: MessageType.m1.rawValue,
-            id: request.id,
-            lat: fix.latitude,
-            lon: fix.longitude,
-            acc: fix.accuracy,
-            ts: Int64(Date().timeIntervalSince1970 * 1000)
-        )
-        if let json = try? reply.toPayloadJSON() {
-            transmit(json, to: request.peerId, markMid: "")
-        }
-        if locationRequest?.id == request.id { locationRequest = nil }
-    }
-
-    func denyLocationRequest(_ request: PendingLocationRequest) {
-        denyLocationRequest(request, why: "user")
-    }
-
-    func clearLocationRequest() {
-        locationRequest = nil
-    }
-
-    private func denyLocationRequest(_ request: PendingLocationRequest, why: String) {
-        if let json = try? LocationDenied(why: why).toPayloadJSON() {
-            transmit(json, to: request.peerId, markMid: "")
-        }
-        if locationRequest?.id == request.id { locationRequest = nil }
-    }
-
     /// Send my current position as a one-shot `loc_once` (user-initiated only;
     /// there is no background or covert tracking).
     func sendLocation(
@@ -1879,14 +1835,6 @@ struct FriendPlace: Codable, Hashable {
     var longitude: Double
     var accuracy: Double?
     var updatedAt: Date
-}
-
-/// Incoming location request waiting for an explicit user decision.
-struct PendingLocationRequest: Identifiable, Equatable {
-    /// Wire request id, echoed in the one-shot location reply.
-    let id: String
-    let peerId: String
-    let name: String
 }
 
 struct ChatMessage: Identifiable, Hashable, Codable {

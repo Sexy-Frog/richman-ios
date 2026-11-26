@@ -11,11 +11,8 @@ import Foundation
 /// being emitted as plain Swift string literals, so `strings` on the shipped
 /// binary does not expose private protocol verbs such as the location types.
 public enum MessageType: Hashable {
-    // Location verbs use neutral case names so the shipped binary's symbol and
-    // reflection tables do not spell out the private feature. Wire values
-    // (Android interop) are held in the XOR table below:
-    //   m0 = loc, m1 = loc_once, m2 = loc_req, m3 = loc_denied,
-    //   m4 = loc_start, m5 = loc_update, m6 = loc_stop.
+    // Neutral case names keep the shipped binary's symbol/reflection tables
+    // free of the private feature names. Wire values live in the XOR table.
     case text
     case read
     case ttl

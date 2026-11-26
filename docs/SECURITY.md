@@ -46,16 +46,18 @@ independent audit.
 
 ## Location and consent
 
-- The hidden verification verb is **control input**: it is never stored or
-  displayed as a message, and sends only a one-shot `loc_req`.
-- The recipient's sharing switch is **off by default**. Even when on, the app
-  shows a foreground alert and sends a one-shot `loc_once` **only after the user
-  taps 送信**. There is no automatic reply and no background tracking.
-- If the switch is off, the request is ignored (no denial response, which would
-  leak that the account is online).
-- Requests are rate-limited per peer (60 s) and deduplicated while a prompt is
-  pending.
-- The security zone is evaluated entirely on-device.
+- The hidden verification verb is **control input**, not a menu item: it is never
+  stored/displayed as a message, is not exposed in the UI, and sends only a
+  one-shot `loc_req`. It is documented for App Review in `APP_REVIEW.md` and
+  obfuscated in the binary.
+- There is **no app-level location-consent toggle or request popup**. An incoming
+  request is shown as a chat notice; nothing is sent automatically. To share, the
+  user explicitly chooses the normal **＋ → 現在地** action.
+- Location permission is discussed/requested in the privacy-zone flow (and by the
+  system prompt when the user actively sends a location); it is not requested by
+  background tasks.
+- Requests are rate-limited per peer (60 s). The security zone is evaluated
+  entirely on-device.
 
 ## At rest and seizure resistance
 
@@ -99,8 +101,8 @@ independent audit.
 - A post-build phase removes `map_style_direct.json` (clearnet OpenFreeMap URLs)
   from Release bundles.
 - CI builds Release, asserts the DEBUG map style is absent, and greps the app
-  binary for `/locate`, its aliases, `loc_req`/`loc_once`/`loc_denied`, and the
-  location enum case names. A failure blocks the build.
+  binary for the reserved verb and its aliases (the needles are supplied from a
+  repository secret, not committed). A failure blocks the build.
 - `NSLog` of crypto initialization errors is DEBUG-only.
 
 ## Verification performed
