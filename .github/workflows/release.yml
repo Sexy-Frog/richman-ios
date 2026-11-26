@@ -1,0 +1,218 @@
+name: iOS Release (TestFlight / App Store)
+
+# Manual only: builds the real-crypto app for a device, signs it with the
+# Apple Developer team, exports an App Store IPA, and uploads it to App Store
+# Connect. Requires the repository secrets listed below.
+#
+#   APPLE_TEAM_ID      Apple Developer Team ID (10 chars)
+#   ASC_KEY_ID         App Store Connect API key ID
+#   ASC_ISSUER_ID      App Store Connect API issuer ID
+#   ASC_PRIVATE_KEY    Contents of AuthKey_<KEY_ID>.p8
+#   RM_RELAY_HOST      .onion relay host (already used by the other workflows)
+on:
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: "Upload the IPA to App Store Connect after export"
+        type: boolean
+        default: true
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Signed archive + export
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install tools
+        run: brew install protobuf xcodegen
+
+      - name: Cache libsignal FFI and Tor xcframework
+        uses: actions/cache@v4
+        with:
+          path: |
+            crypto/third_party/libsignal/target
+            tor/Vendor
+          key: release-ffi-${{ hashFiles('crypto/third_party/libsignal/rust-toolchain', 'crypto/third_party/libsignal/Cargo.lock') }}-v1
+
+      - name: Build libsignal FFI (iOS device)
+        working-directory: crypto
+        run: |
+          set -euo pipefail
+          TOOLCHAIN="$(cat third_party/libsignal/rust-toolchain)"
+          rustup target add aarch64-apple-ios --toolchain "$TOOLCHAIN"
+          CARGO_BUILD_TARGET=aarch64-apple-ios \
+            ./third_party/libsignal/swift/build_ffi.sh --release
+
+      - name: Fetch Tor xcframework
+        working-directory: tor
+        run: bash scripts/fetch-tor.sh
+
+      - name: Generate app project (real crypto)
+        working-directory: app
+        env:
+          RM_RELAY_HOST: ${{ secrets.RM_RELAY_HOST }}
+        run: xcodegen generate --spec project-crypto.yml
+
+      - name: Write App Store Connect API key
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$ASC_KEY_ID"
+          test -n "$ASC_ISSUER_ID"
+          test -n "$ASC_PRIVATE_KEY"
+          KEY_PATH="$RUNNER_TEMP/AuthKey_${ASC_KEY_ID}.p8"
+          printf '%s' "$ASC_PRIVATE_KEY" > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+          echo "ASC_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+
+      - name: Verify signing inputs
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$APPLE_TEAM_ID"
+          echo "team configured"
+
+      - name: Archive
+        working-directory: app
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          FFI_ROOT="$(cd ../crypto && pwd)"
+          FFI_DIR=$(dirname "$(find "$FFI_ROOT/third_party/libsignal/target/aarch64-apple-ios" -name libsignal_ffi.a | head -n1)")
+          test -n "$FFI_DIR"
+          xcodebuild \
+            -project RichManCrypto.xcodeproj \
+            -scheme RichManCryptoApp \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/RichMan.xcarchive \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            PRODUCT_BUNDLE_IDENTIFIER=works.kelvins.richman \
+            CODE_SIGN_STYLE=Automatic \
+            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
+            LIBRARY_SEARCH_PATHS="$FFI_DIR" \
+            OTHER_LDFLAGS="-lsignal_ffi" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
+            archive
+
+      - name: Verify archive contents
+        working-directory: app
+        run: |
+          set -euo pipefail
+          APP="build/RichMan.xcarchive/Products/Applications/RichManCryptoApp.app"
+          test -d "$APP"
+          test -f "$APP/Info.plist"
+          test -f "$APP/PrivacyInfo.xcprivacy"
+          test -f "$APP/Assets.car"
+          test ! -e "$APP/map_style_direct.json"
+          HOST=$(/usr/libexec/PlistBuddy -c "Print :RMRelayHost" "$APP/Info.plist")
+          case "$HOST" in
+            *.onion) echo "relay host present" ;;
+            *) echo "::error::relay host missing in the signed archive"; exit 1 ;;
+          esac
+
+      - name: Verify signed binary hygiene
+        working-directory: app
+        env:
+          RESERVED: ${{ secrets.RM_RESERVED_STRINGS }}
+        run: |
+          set -euo pipefail
+          test -n "$RESERVED"
+          BIN="build/RichMan.xcarchive/Products/Applications/RichManCryptoApp.app/RichManCryptoApp"
+          test -f "$BIN"
+          strings -a "$BIN" > /tmp/release_strings.txt
+          while IFS= read -r needle; do
+            [ -z "$needle" ] && continue
+            if grep -Fqx -- "$needle" /tmp/release_strings.txt; then
+              echo "::error::signed binary contains a reserved string"
+              exit 1
+            fi
+          done <<< "$RESERVED"
+          echo "signed binary hygiene OK"
+
+      - name: Export App Store IPA
+        working-directory: app
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          cat > ExportOptions.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store</string>
+            <key>teamID</key>
+            <string>${APPLE_TEAM_ID}</string>
+            <key>signingStyle</key>
+            <string>automatic</string>
+            <key>uploadSymbols</key>
+            <true/>
+            <key>destination</key>
+            <string>export</string>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild \
+            -exportArchive \
+            -archivePath build/RichMan.xcarchive \
+            -exportPath build/export \
+            -exportOptionsPlist ExportOptions.plist \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+          ls -lh build/export
+
+      - name: Upload to App Store Connect
+        if: ${{ inputs.upload }}
+        working-directory: app
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          IPA=$(find build/export -maxdepth 1 -name '*.ipa' | head -n1)
+          test -n "$IPA"
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          cp "$ASC_KEY_PATH" "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
+          xcrun altool \
+            --upload-app \
+            --type ios \
+            --file "$IPA" \
+            --apiKey "$ASC_KEY_ID" \
+            --apiIssuer "$ASC_ISSUER_ID"
+
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-release
+          path: |
+            app/build/export/*.ipa
+            app/build/RichMan.xcarchive/dSYMs/*.dSYM
+          if-no-files-found: warn
+          retention-days: 7
