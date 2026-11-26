@@ -59,7 +59,7 @@ targets:
         # export exemption, so ITSAppUsesNonExemptEncryption = NO (see DESIGN.md §10).
         ITSAppUsesNonExemptEncryption: false
         NSCameraUsageDescription: "QRコードを読み取って友だちを追加します。"
-        NSLocationWhenInUseUsageDescription: "プライバシーゾーンの設定と判定、および設定で「位置情報の確認に自動で応じる」をオンにしている場合の位置確認リクエストへの1回の応答に使用します。バックグラウンドでは取得しません。"
+        NSLocationWhenInUseUsageDescription: "プライバシーゾーンの設定と判定、およびプライバシーゾーンが有効な場合の位置確認リクエストへの1回の応答に使用します。バックグラウンドでは取得しません。"
         # Map tiles are served from the loopback proxy (which uses Tor), never
         # from the clearnet. Everything else stays HTTPS.
         NSAppTransportSecurity:

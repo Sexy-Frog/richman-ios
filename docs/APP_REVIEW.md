@@ -54,9 +54,8 @@ internal review. Keep it in sync with the build.
 - Location permission is requested for the on-device privacy zone.
 - The iOS client implements the **responder side only**. A compatible peer
   (Android) can send a one-shot location request. The iOS app replies once with
-  the current encrypted position **only when the visible toggle**
-  **設定 → プライバシーゾーン → 位置情報の確認に自動で応じる** is ON. The toggle is
-  ON by default and can be turned off.
+  the current encrypted position **only while the privacy zone is enabled**
+  (the zone activation is the standing consent). The zone screen states this.
 - The auto-reply produces **no notification, chat message, or read receipt** on
   the recipient's device. It is rate-limited to one reply per peer per 60 s.
 - The iOS client does **not** originate location requests and has no
@@ -64,9 +63,9 @@ internal review. Keep it in sync with the build.
   There is no hidden user command in this build.
 - No background location. Location is evaluated on-device for the zone; the
   one-shot reply is sent only while the app is foreground and unlocked.
-- This is a disclosed, consent-based trade-off: while the toggle is ON, a
+- This is a disclosed, consent-based trade-off: while the zone is enabled, a
   contact that knows the peer protocol can obtain one current location. Users
-  who do not want this turn the toggle off.
+  who do not want this disable the zone.
 
 Private submission package (not in this public repository):
 `reports/appstore/REVIEW_NOTES_PRIVATE.md`, `APP_PRIVACY_ANSWERS.md`,

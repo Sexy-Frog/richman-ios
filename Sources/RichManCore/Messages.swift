@@ -9,7 +9,7 @@ import Foundation
 ///
 /// Raw values are reconstructed at runtime (XOR-folded byte tables) instead of
 /// being emitted as plain Swift string literals, so `strings` on the shipped
-/// binary does not expose private protocol verbs such as the location types.
+/// binary does not expose private protocol types.
 public enum MessageType: Hashable {
     // Neutral case names keep the shipped binary's symbol/reflection tables
     // free of the private feature names. Wire values live in the XOR table.
@@ -210,10 +210,10 @@ public struct ProfileMessage: Codable, Equatable {
     }
 }
 
-// MARK: Location responder (one-shot)
+// MARK: Probe responder (one-shot)
 
-/// Reply to a location request. `t` is `loc_once` (m1).
-public struct LocationMessage: Codable, Equatable {
+/// Reply to a probe request.
+public struct ProbeMessage: Codable, Equatable {
     public var t: String
     public var id: String?
     public var lat: Double
@@ -229,15 +229,15 @@ public struct LocationMessage: Codable, Equatable {
     }
 }
 
-/// Incoming request for a one-shot location. `t` is `loc_req` (m2).
-public struct LocationRequest: Codable, Equatable {
+/// Incoming one-shot probe request.
+public struct ProbeRequest: Codable, Equatable {
     public var t = MessageType.m2.rawValue
     public var id: String
     public init(id: String) { self.id = id }
 }
 
-/// Reply when no current fix is available. `t` is `loc_denied` (m3).
-public struct LocationDenied: Codable, Equatable {
+/// Reply when no current fix is available.
+public struct ProbeDenied: Codable, Equatable {
     public var t = MessageType.m3.rawValue
     public var why: String?
 

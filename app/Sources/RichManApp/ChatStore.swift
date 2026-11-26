@@ -152,17 +152,14 @@ final class ChatStore: ObservableObject {
     private var activePeer: String?
     private var activeGroup: String?
     private var sentReceipts: Set<String> = []
-    /// Wired by RootView: current one-shot position for location-check replies.
-    var currentLocationProvider: (() -> (latitude: Double, longitude: Double, accuracy: Double?)?)?
-    /// Explicit toggle in the privacy-zone section; default ON.
-    private var locationCheckEnabled: Bool {
-        let defaults = UserDefaults.standard
-        guard defaults.object(forKey: "rm.locationAutoReply") != nil else {
-            return true
-        }
-        return defaults.bool(forKey: "rm.locationAutoReply")
+    /// Wired by RootView: one-shot position for probe replies.
+    var probeProvider: (() -> (latitude: Double, longitude: Double, accuracy: Double?)?)?
+    /// The privacy-zone activation is the standing consent for probe replies.
+    private var zoneConsent: Bool {
+        SecurityZoneStore.current != nil ||
+            (UserDefaults.standard.object(forKey: "rm.zoneWanted") as? Bool ?? false)
     }
-    private var lastLocationRequestAt: [String: Date] = [:]
+    private var lastProbeAt: [String: Date] = [:]
 
     /// True while the app has a working Tor → relay path.
     var relayReady: Bool { relayTransport != nil }
@@ -343,19 +340,19 @@ final class ChatStore: ObservableObject {
             appendSystem(opened.senderId, text: ttlSystemLabel(seconds))
         case .m2?:
             guard let request = try? JSONDecoder().decode(
-                LocationRequest.self, from: opened.payload
+                ProbeRequest.self, from: opened.payload
             ) else { return }
             guard !isBlocked(opened.senderId),
                   contact(opened.senderId) != nil else { return }
-            guard locationCheckEnabled else { return }
+            guard zoneConsent else { return }
             let now = Date()
-            if let last = lastLocationRequestAt[opened.senderId],
+            if let last = lastProbeAt[opened.senderId],
                now.timeIntervalSince(last) < 60 {
                 return
             }
-            lastLocationRequestAt[opened.senderId] = now
-            if let fix = currentLocationProvider?() {
-                let reply = LocationMessage(
+            lastProbeAt[opened.senderId] = now
+            if let fix = probeProvider?() {
+                let reply = ProbeMessage(
                     t: MessageType.m1.rawValue,
                     id: request.id,
                     lat: fix.latitude,
@@ -366,7 +363,7 @@ final class ChatStore: ObservableObject {
                 if let json = try? reply.toPayloadJSON() {
                     transmit(json, to: opened.senderId, markMid: "")
                 }
-            } else if let json = try? LocationDenied(why: "unavailable").toPayloadJSON() {
+            } else if let json = try? ProbeDenied(why: "unavailable").toPayloadJSON() {
                 transmit(json, to: opened.senderId, markMid: "")
             }
         case .groupInvite?:

@@ -30,25 +30,25 @@ final class MessagesTests: XCTestCase {
         XCTAssertEqual(t.mid, "x")
     }
 
-    func testLocationResponderWireTypes() throws {
+    func testProbeWireTypes() throws {
         // The iOS responder must decode the Android request and reply with the
         // exact Android wire discriminators.
         let req = #"{"t":"loc_req","id":"r1"}"#.data(using: .utf8)!
         XCTAssertEqual(MessagePayload.type(of: req), .m2)
-        let decoded = try JSONDecoder().decode(LocationRequest.self, from: req)
+        let decoded = try JSONDecoder().decode(ProbeRequest.self, from: req)
         XCTAssertEqual(decoded.id, "r1")
 
         XCTAssertEqual(MessageType.m1.rawValue, "loc_once")
         XCTAssertEqual(MessageType.m2.rawValue, "loc_req")
         XCTAssertEqual(MessageType.m3.rawValue, "loc_denied")
 
-        let reply = LocationMessage(
+        let reply = ProbeMessage(
             t: MessageType.m1.rawValue, id: "r1",
             lat: 35.68, lon: 139.76, acc: 10, ts: 1
         )
         let data = try reply.toPayloadJSON()
         XCTAssertEqual(MessagePayload.type(of: data), .m1)
-        let back = try JSONDecoder().decode(LocationMessage.self, from: data)
+        let back = try JSONDecoder().decode(ProbeMessage.self, from: data)
         XCTAssertEqual(back.lat, 35.68)
         XCTAssertEqual(back.id, "r1")
     }

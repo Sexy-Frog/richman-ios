@@ -241,7 +241,7 @@ struct RootView: View {
         calls.nameResolver = { [weak store] peer in
             store?.contact(peer)?.name
         }
-        store.currentLocationProvider = { [weak location] in
+        store.probeProvider = { [weak location] in
             guard let fix = location?.location else { return nil }
             return (
                 fix.coordinate.latitude,
@@ -267,7 +267,7 @@ struct RootView: View {
         let keys = [
             "rm.onboarded", "rm.displayName", "rm.zoneWanted",
             "rm.preview", "rm.autoLockSeconds", "rm.retentionDays",
-            "rm.shareLocation", "rm.wipeAfter", "rm.locationAutoReply",
+            "rm.shareLocation", "rm.wipeAfter",
             "rm.lock.attempts", "rm.lock.pinLength", "rm.lock.duressLength",
             "rm.blocked",
         ]
