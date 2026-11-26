@@ -182,7 +182,12 @@ struct SettingsView: View {
                     .foregroundStyle(RM.onSurface)
                     Button { showDuress = true } label: {
                         HStack {
-                            Text("緊急消去コード")
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("緊急用パスコード")
+                                Text("入力すると端末内のデータを消去")
+                                    .font(.caption2)
+                                    .foregroundStyle(RM.onSurfaceVariant)
+                            }
                             Spacer()
                             Text(lock.hasDuress ? "設定済み" : "未設定")
                                 .foregroundStyle(RM.onSurfaceVariant)
@@ -345,9 +350,11 @@ private struct PrivacySheet: View {
                     Text("RichMan は、電話番号・メールアドレスを登録せず、メッセージ・画像・ファイル・通話音声を端末間でエンドツーエンド暗号化します。通信は Tor を経由します。")
                     Group {
                         Text("収集する情報").font(.headline)
-                        Text("・アカウント識別子: 端末内で生成する公開鍵。電話番号・メール・広告IDは収集しません。\n・メッセージと添付: 暗号文を中継サーバーが一時的に預かり、配信確認後に削除します。\n・位置情報: 友達と共有している間だけ取得し、相手の端末に暗号化して送ります。サーバーには保存しません。")
+                        Text("・アカウント識別子: 端末内で生成する公開鍵。電話番号・メール・広告IDは収集しません。\n・メッセージと添付: 暗号文を中継サーバーが一時的に預かり、配信確認後に削除します。\n・位置情報: あなたが送るときと、プライバシーゾーンの判定にだけ使います。判定は端末内で行い、位置情報をサーバーに送りません。送信するときは暗号化します。")
                         Text("保存期間").font(.headline)
                         Text("未配信の暗号文は配信確認後または7日で削除。端末内の履歴は既定30日で自動削除（変更可）。")
+                        Text("端末内のデータ").font(.headline)
+                        Text("履歴・写真・鍵は端末内に保存されます。設定した緊急用パスコードをロック画面で入力すると、端末内のデータをすべて消去します（取り消し不可）。")
                         Text("第三者提供").font(.headline)
                         Text("広告・分析SDK・トラッカー・FCM/APNs は使用せず、第三者提供も行いません。地図タイルはリレー経由で取得し、端末から配信元へは直接接続しません。")
                         Text("安全上の限界").font(.headline)
@@ -368,7 +375,7 @@ private struct PrivacySheet: View {
     }
 }
 
-private struct DuressView: View {
+struct DuressView: View {
     @EnvironmentObject private var lock: LockStore
     @Environment(\.dismiss) private var dismiss
 
@@ -376,27 +383,41 @@ private struct DuressView: View {
     @State private var duress = ""
     @State private var confirm = ""
     @State private var error: String?
+    @State private var confirmSave = false
 
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    Label(
+                        "入力すると端末内のデータをすべて消去します",
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .foregroundStyle(RM.error)
+                    Text("元に戻せません。通常の暗証番号とは別の番号にしてください。")
+                        .font(.footnote)
+                        .foregroundStyle(RM.onSurfaceVariant)
+                } header: {
+                    Text("緊急用パスコードとは")
+                }
+
                 Section("現在の暗証番号") {
                     SecureField("現在の暗証番号", text: $current)
                         .keyboardType(.numberPad)
                 }
                 Section {
-                    SecureField("緊急消去コード", text: $duress)
+                    SecureField("緊急用パスコード", text: $duress)
                         .keyboardType(.numberPad)
                     SecureField("もう一度入力", text: $confirm)
                         .keyboardType(.numberPad)
                 } header: {
-                    Text("新しい緊急消去コード")
+                    Text("新しい緊急用パスコード")
                 } footer: {
-                    Text("ロック画面でこのコードを入力すると、端末内のデータを消去します。通常の暗証番号とは別の番号にしてください。")
+                    Text("ロック画面でこのパスコードを入力した瞬間に、メッセージ・写真・鍵などの端末内データを消去します。確認画面は出ません。")
                 }
                 if lock.hasDuress {
                     Section {
-                        Button("緊急消去コードを削除", role: .destructive) {
+                        Button("緊急用パスコードを削除", role: .destructive) {
                             guard lock.check(current) else {
                                 error = "現在の暗証番号が違います"
                                 return
@@ -410,37 +431,53 @@ private struct DuressView: View {
                     Text(error).foregroundStyle(RM.error)
                 }
             }
-            .navigationTitle("緊急消去コード")
+            .navigationTitle("緊急用パスコード")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("キャンセル") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") { save() }
+                    Button("保存") { requestSave() }
                         .disabled(duress.count < 4)
                 }
+            }
+            .confirmationDialog(
+                "緊急用パスコードを設定しますか？",
+                isPresented: $confirmSave,
+                titleVisibility: .visible
+            ) {
+                Button("設定する", role: .destructive) { save() }
+                Button("キャンセル", role: .cancel) {}
+            } message: {
+                Text("ロック画面でこのパスコードを入力すると、端末内のデータがすべて消去されます。この操作は取り消せません。")
             }
         }
     }
 
-    private func save() {
+    private func requestSave() {
         guard lock.check(current) else {
             error = "現在の暗証番号が違います"
             return
         }
-        guard duress.count >= 4, duress.allSatisfy(\.isNumber) else {
-            error = "数字4桁以上で設定してください"
+        guard duress.count >= 4, duress.count <= 8,
+              duress.allSatisfy(\.isNumber) else {
+            error = "数字4〜8桁で設定してください"
             return
         }
         guard duress == confirm else {
-            error = "コードが一致しません"
+            error = "パスコードが一致しません"
             return
         }
         guard !lock.check(duress) else {
             error = "通常の暗証番号とは別の番号にしてください"
             return
         }
+        error = nil
+        confirmSave = true
+    }
+
+    private func save() {
         if lock.setDuress(duress) {
             dismiss()
         } else {
@@ -494,8 +531,9 @@ private struct ChangePINView: View {
             error = "現在の暗証番号が違います"
             return
         }
-        guard next.count >= 4, next.allSatisfy(\.isNumber) else {
-            error = "数字4桁以上で設定してください"
+        guard next.count >= 4, next.count <= 8,
+              next.allSatisfy(\.isNumber) else {
+            error = "数字4〜8桁で設定してください"
             return
         }
         guard next == confirm else {

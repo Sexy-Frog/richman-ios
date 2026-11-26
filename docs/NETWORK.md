@@ -136,6 +136,14 @@ E2E で判明した重要事項:
 - グリフ URL はスペースを含む（`fonts/Noto Sans Regular/...`）。プロキシ側で
   percent-encode しないと HTTP リクエスト行が壊れる。
 
+### 緊急用パスコード
+
+設定 → セキュリティ → 緊急用パスコード。現在の PIN で認可し、通常の PIN とは
+別のコードだけを設定できる。設定時に「入力すると全データを消去する」警告と
+確認ダイアログを出す。ロック画面で一致した瞬間に、メッセージ・写真・
+libsignal ストア・Keychain（PIN/デュレス/状態鍵）・ゾーン・設定を消去する。
+サーバーには何も送らない。審査向けの説明と試験手順は `docs/APP_REVIEW.md`。
+
 ## 端末内の保存
 
 `LocalStore` が Application Support の `state.bin` に

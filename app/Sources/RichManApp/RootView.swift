@@ -27,6 +27,7 @@ struct RootView: View {
     @State private var notificationChat: NotificationChat?
     @State private var showDebugLocationPrimer = false
     @State private var showDebugPrivacyTutorial = false
+    @State private var showDebugDuress = false
 
     /// Screenshot/CI hook: launch with `-rm.skipOnboarding 1` to bypass setup.
     /// DEBUG only, so release builds always start at onboarding.
@@ -101,6 +102,12 @@ struct RootView: View {
                     showDebugPrivacyTutorial = true
                 }
             }
+            if UserDefaults.standard.bool(forKey: "rm.showDuress") {
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 400_000_000)
+                    showDebugDuress = true
+                }
+            }
             #endif
         }
         .onChange(of: scenePhase) { _, phase in
@@ -160,6 +167,9 @@ struct RootView: View {
         }
         .sheet(isPresented: $showDebugPrivacyTutorial) {
             PrivacyTutorialSheet()
+        }
+        .sheet(isPresented: $showDebugDuress) {
+            DuressView().environmentObject(lock)
         }
         .onChange(of: location.location?.timestamp) { _, _ in
             if scenePhase == .active { applySecurityZoneIfNeeded() }
@@ -242,8 +252,27 @@ struct RootView: View {
         store.wipeAllLocal()
         MediaStore.clearAll()
         lock.reset()
-        UserDefaults.standard.set(false, forKey: "rm.onboarded")
-        UserDefaults.standard.removeObject(forKey: "rm.displayName")
+        SecurityZoneStore.current = nil
+
+        // Remove every local preference that could describe the user, not just
+        // the chat state. This is also what the emergency passcode promises.
+        let defaults = UserDefaults.standard
+        let keys = [
+            "rm.onboarded", "rm.displayName", "rm.zoneWanted",
+            "rm.preview", "rm.autoLockSeconds", "rm.retentionDays",
+            "rm.shareLocation", "rm.wipeAfter",
+            "rm.lock.attempts", "rm.lock.pinLength", "rm.blocked",
+        ]
+        for key in keys { defaults.removeObject(forKey: key) }
+        for key in defaults.dictionaryRepresentation().keys
+        where key.hasPrefix("rm.ttl.") {
+            defaults.removeObject(forKey: key)
+        }
+
+        let center = UNUserNotificationCenter.current()
+        center.removeAllPendingNotificationRequests()
+        center.removeAllDeliveredNotifications()
+        center.setBadgeCount(0, withCompletionHandler: nil)
         savedName = ""
     }
 

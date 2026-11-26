@@ -9,6 +9,8 @@ import CryptoKit
 final class LockStore: ObservableObject {
     @Published private(set) var locked = false
     @Published private(set) var failedAttempts = 0
+    /// Kept published so Settings updates immediately after set/remove.
+    @Published private(set) var hasDuress = false
 
     private let service = "works.kelvins.richman.lock"
     private let account = "pin"
@@ -18,6 +20,7 @@ final class LockStore: ObservableObject {
 
     init() {
         failedAttempts = UserDefaults.standard.integer(forKey: attemptsKey)
+        hasDuress = loadKeychain(account: duressAccount) != nil
         locked = hasPIN
         #if DEBUG
         if UserDefaults.standard.bool(forKey: "rm.locked") { locked = true }
@@ -25,8 +28,6 @@ final class LockStore: ObservableObject {
     }
 
     var hasPIN: Bool { loadKeychain(account: account) != nil }
-
-    var hasDuress: Bool { loadKeychain(account: duressAccount) != nil }
 
     /// Main PIN length (non-secret UX hint for auto-submit). Defaults to 4.
     var pinLength: Int {
@@ -43,7 +44,9 @@ final class LockStore: ObservableObject {
 
     @discardableResult
     func setPIN(_ pin: String) -> Bool {
-        guard pin.count >= 4, pin.allSatisfy(\.isNumber) else { return false }
+        guard pin.count >= 4, pin.count <= 8, pin.allSatisfy(\.isNumber) else {
+            return false
+        }
         let salt = randomSalt()
         let hash = hashPIN(pin, salt: salt)
         let saved = saveKeychain(salt + hash, account: account)
@@ -57,14 +60,18 @@ final class LockStore: ObservableObject {
     /// from the normal PIN.
     @discardableResult
     func setDuress(_ pin: String) -> Bool {
-        guard pin.count >= 4, pin.allSatisfy(\.isNumber), !check(pin) else { return false }
+        guard pin.count >= 4, pin.count <= 8,
+              pin.allSatisfy(\.isNumber), !check(pin) else { return false }
         let salt = randomSalt()
         let hash = hashPIN(pin, salt: salt)
-        return saveKeychain(salt + hash, account: duressAccount)
+        let saved = saveKeychain(salt + hash, account: duressAccount)
+        if saved { hasDuress = true }
+        return saved
     }
 
     func removeDuress() {
         deleteKeychain(account: duressAccount)
+        hasDuress = false
     }
 
     func check(_ pin: String) -> Bool {
@@ -105,6 +112,7 @@ final class LockStore: ObservableObject {
         deleteKeychain(account: account)
         deleteKeychain(account: duressAccount)
         locked = false
+        hasDuress = false
         failedAttempts = 0
         UserDefaults.standard.set(0, forKey: attemptsKey)
         UserDefaults.standard.removeObject(forKey: pinLengthKey)
