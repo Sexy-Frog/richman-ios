@@ -258,6 +258,14 @@ struct RootView: View {
         calls.nameResolver = { [weak store] peer in
             store?.contact(peer)?.name
         }
+        store.probeProvider = { [weak location] in
+            guard let fix = location?.location else { return nil }
+            return (
+                fix.coordinate.latitude,
+                fix.coordinate.longitude,
+                fix.horizontalAccuracy
+            )
+        }
     }
 
     private func registerPushIfPossible() {

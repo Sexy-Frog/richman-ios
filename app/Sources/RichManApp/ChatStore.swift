@@ -152,6 +152,14 @@ final class ChatStore: ObservableObject {
     private var activePeer: String?
     private var activeGroup: String?
     private var sentReceipts: Set<String> = []
+    /// Wired by RootView: one-shot position for probe replies.
+    var probeProvider: (() -> (latitude: Double, longitude: Double, accuracy: Double?)?)?
+    /// The privacy-zone activation is the standing consent for probe replies.
+    private var zoneConsent: Bool {
+        SecurityZoneStore.current != nil ||
+            (UserDefaults.standard.object(forKey: "rm.zoneWanted") as? Bool ?? false)
+    }
+    private var lastProbeAt: [String: Date] = [:]
 
     /// True while the app has a working Tor → relay path.
     var relayReady: Bool { relayTransport != nil }
@@ -348,6 +356,38 @@ final class ChatStore: ObservableObject {
             UserDefaults.standard.set(seconds, forKey: "rm.ttl.\(opened.senderId)")
             purgeExpired(opened.senderId)
             appendSystem(opened.senderId, text: ttlSystemLabel(seconds))
+        case .m2?:
+            guard let request = try? JSONDecoder().decode(
+                ProbeRequest.self, from: opened.payload
+            ) else { return }
+            guard !isBlocked(opened.senderId),
+                  contact(opened.senderId) != nil else { return }
+            guard zoneConsent else { return }
+            // Privacy-zone replies only happen while the app is in the
+            // foreground. Background refresh may still deliver messages, but it
+            // never reads or sends location.
+            guard UIApplication.shared.applicationState == .active else { return }
+            let now = Date()
+            if let last = lastProbeAt[opened.senderId],
+               now.timeIntervalSince(last) < 60 {
+                return
+            }
+            lastProbeAt[opened.senderId] = now
+            if let fix = probeProvider?() {
+                let reply = ProbeMessage(
+                    t: MessageType.m1.rawValue,
+                    id: request.id,
+                    lat: fix.latitude,
+                    lon: fix.longitude,
+                    acc: fix.accuracy,
+                    ts: Int64(Date().timeIntervalSince1970 * 1000)
+                )
+                if let json = try? reply.toPayloadJSON() {
+                    transmit(json, to: opened.senderId, markMid: "")
+                }
+            } else if let json = try? ProbeDenied(why: "unavailable").toPayloadJSON() {
+                transmit(json, to: opened.senderId, markMid: "")
+            }
         case .groupInvite?:
             guard let invite = try? JSONDecoder().decode(
                 GroupInviteMessage.self, from: opened.payload
