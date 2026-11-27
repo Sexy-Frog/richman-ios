@@ -21,6 +21,7 @@ struct ZonePickerMap: UIViewRepresentable {
     }
 
     func updateUIView(_ map: MLNMapView, context: Context) {
+        context.coordinator.parent = self
         guard recenter != context.coordinator.lastRecenter else { return }
         context.coordinator.lastRecenter = recenter
         map.setCenter(center, zoomLevel: map.zoomLevel, animated: true)
@@ -29,7 +30,7 @@ struct ZonePickerMap: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     final class Coordinator: NSObject, MLNMapViewDelegate {
-        private let parent: ZonePickerMap
+        var parent: ZonePickerMap
         var lastRecenter = 0
 
         init(_ parent: ZonePickerMap) {

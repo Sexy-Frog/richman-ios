@@ -47,11 +47,6 @@ struct LockScreenView: View {
                 keypad
                     .padding(.top, 4)
 
-                Button("解除", action: unlock)
-                    .buttonStyle(.borderedProminent)
-                    .tint(RM.primary)
-                    .disabled(digits.count < 4)
-
                 Spacer()
             }
             .padding(.horizontal, 28)
