@@ -249,11 +249,9 @@ struct AddFriendView: View {
         }
 
         var raw: String?
-        var relayed = false
         if let transport = tor.readyTransport,
            let remote = try? await store.makeRelayInvite(using: transport) {
             raw = remote
-            relayed = true
         }
         if raw == nil {
             raw = try? store.makeInvite()
@@ -267,7 +265,7 @@ struct AddFriendView: View {
         let url = InviteLink.url(for: raw)
         shareURL = url
         qr = QRCode.image(from: url?.absoluteString ?? raw)
-        expiresAt = relayed ? Date().addingTimeInterval(15 * 60) : nil
+        expiresAt = Date().addingTimeInterval(15 * 60)
     }
 
     private func copyLink() {
