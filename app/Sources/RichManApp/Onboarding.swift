@@ -222,8 +222,9 @@ struct OnboardingView: View {
                                 .font(.subheadline.weight(.semibold))
                             ForEach(section.paragraphs, id: \.self) { paragraph in
                                 Text(paragraph)
-                                    .font(.footnote)
+                                    .font(.subheadline)
                                     .foregroundStyle(RM.onSurfaceVariant)
+                                    .lineSpacing(3)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                         }

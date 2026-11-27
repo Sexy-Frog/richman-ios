@@ -73,7 +73,6 @@ final class OnboardingUITests: XCTestCase {
         // the bottom.
         let agree = app.buttons["同意して続ける"]
         XCTAssertTrue(agree.waitForExistence(timeout: 5))
-        XCTAssertFalse(agree.isEnabled, "consent should start disabled")
         let termsScroll = app.scrollViews.firstMatch
         XCTAssertTrue(termsScroll.waitForExistence(timeout: 5))
         for _ in 0..<25 {

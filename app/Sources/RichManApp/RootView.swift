@@ -34,6 +34,7 @@ struct RootView: View {
     @State private var showDebugLocationPrimer = false
     @State private var showDebugPrivacyTutorial = false
     @State private var showDebugDuress = false
+    @State private var showDebugAddFriend = false
 
     /// Screenshot/CI hook: launch with `-rm.skipOnboarding 1` to bypass setup.
     /// DEBUG only, so release builds always start at onboarding.
@@ -109,6 +110,12 @@ struct RootView: View {
                 Task { @MainActor in
                     try? await Task.sleep(nanoseconds: 400_000_000)
                     showDebugDuress = true
+                }
+            }
+            if UserDefaults.standard.bool(forKey: "rm.addFriend") {
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 400_000_000)
+                    showDebugAddFriend = true
                 }
             }
             #endif
@@ -193,6 +200,11 @@ struct RootView: View {
         }
         .sheet(isPresented: $showDebugDuress) {
             DuressView().environmentObject(lock)
+        }
+        .sheet(isPresented: $showDebugAddFriend) {
+            AddFriendView()
+                .environmentObject(store)
+                .environmentObject(tor)
         }
         .onChange(of: location.location?.timestamp) { _, _ in
             if scenePhase == .active { applySecurityZoneIfNeeded() }
