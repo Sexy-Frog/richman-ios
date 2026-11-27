@@ -45,9 +45,9 @@ final class OnboardingUITests: XCTestCase {
         )
 
         // Page 4 -> name step
-        button("さあ始めよう").tap()
+        button("続ける").tap()
         XCTAssertTrue(
-            text("表示名を決めましょう").waitForExistence(timeout: 5),
+            text("表示名を設定").waitForExistence(timeout: 5),
             "start did not open the name step"
         )
 
@@ -69,11 +69,8 @@ final class OnboardingUITests: XCTestCase {
             "zone step did not advance to the terms step"
         )
 
-        // Terms are a dedicated screen now.
-        let toggle = app.switches.firstMatch
-        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
-        toggle.tap()
-        button("同意して次へ").tap()
+        // Terms page -> PIN step (the button is the consent action)
+        button("同意して続ける").tap()
         XCTAssertTrue(
             text("暗証番号を設定").waitForExistence(timeout: 5),
             "terms step did not advance to the PIN step"
@@ -81,7 +78,14 @@ final class OnboardingUITests: XCTestCase {
 
         enterPIN()
         // Confirmation round.
-        enterPIN(confirm: true)
+        enterPIN()
+
+        // Notifications page: skip the system prompt, then the hub opens.
+        XCTAssertTrue(
+            text("メッセージの取得").waitForExistence(timeout: 5),
+            "PIN did not advance to the notifications step"
+        )
+        button("後で").tap()
 
         // Hub is only reachable after onboarded flips.
         XCTAssertTrue(
@@ -90,7 +94,7 @@ final class OnboardingUITests: XCTestCase {
         )
     }
 
-    private func enterPIN(confirm: Bool = false) {
+    private func enterPIN() {
         for digit in ["1", "2", "3", "4"] {
             let key = app.buttons[digit]
             XCTAssertTrue(key.waitForExistence(timeout: 5))

@@ -1,9 +1,9 @@
 import SwiftUI
 import CoreLocation
 
-/// First launch: a one-screen-at-a-time intro, then a guided setup
-/// (display name → privacy zone → PIN). The privacy zone is a simple opt-in
-/// with a plain explanation; detailed tuning lives in Settings.
+/// First launch: one idea per screen, Signal-style. Every screen keeps its
+/// primary action pinned to the bottom as a full-width button; secondary
+/// choices and policy links sit just above it.
 struct OnboardingView: View {
     @AppStorage("rm.onboarded") private var onboarded = false
     @AppStorage("rm.displayName") private var savedName = ""
@@ -11,7 +11,7 @@ struct OnboardingView: View {
     @EnvironmentObject private var lock: LockStore
     @EnvironmentObject private var location: LocationProvider
 
-    private enum Step: Equatable { case intro, name, zone, terms, pin }
+    private enum Step: Equatable { case intro, name, zone, terms, pin, notifications }
 
     @State private var step: Step = {
         #if DEBUG
@@ -20,6 +20,7 @@ struct OnboardingView: View {
         case "zone": return .zone
         case "terms": return .terms
         case "pin": return .pin
+        case "notifications": return .notifications
         default: return .intro
         }
         #else
@@ -34,7 +35,6 @@ struct OnboardingView: View {
     @State private var pinEntry = ""
     @State private var pinFirst = ""
     @State private var pinConfirming = false
-    @State private var acceptedTerms = false
 
     private static let introPages: [(icon: String, title: String, text: String)] = [
         (
@@ -55,16 +55,19 @@ struct OnboardingView: View {
         (
             "location.circle.fill",
             "プライバシーゾーン",
-            "自宅に着いたら自動ロック、職場では履歴を消去。場所に応じて保護を切り替えられます。位置情報は端末内のゾーン判定にだけ使います。"
+            "自宅に着いたら自動ロック、職場では履歴を消去。場所に応じて保護を切り替えられます。"
         ),
     ]
 
     var body: some View {
         Group {
-            if step == .intro {
-                introStep
-            } else {
-                setupStep
+            switch step {
+            case .intro: introStep
+            case .name: nameStep
+            case .zone: zoneStep
+            case .terms: termsStep
+            case .pin: pinStep
+            case .notifications: notificationsStep
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -74,49 +77,28 @@ struct OnboardingView: View {
     // MARK: intro
 
     private var introStep: some View {
-        VStack(spacing: 14) {
-            // A plain state-driven page instead of a paged TabView. On iOS 26.0
-            // a programmatic TabView selection can stay on the old page, which
-            // made 次へ and the dots look dead.
-            let page = Self.introPages[min(introPage, Self.introPages.count - 1)]
-            VStack(spacing: 18) {
-                Spacer(minLength: 0)
-                Image(systemName: page.icon)
-                    .font(.system(size: 64))
-                    .foregroundStyle(RM.primary)
-                Text(page.title)
-                    .font(.title2.weight(.bold))
-                    .multilineTextAlignment(.center)
-                Text(page.text)
-                    .font(.subheadline)
-                    .foregroundStyle(RM.onSurfaceVariant)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 12)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 24)
-            .frame(maxWidth: .infinity)
-            .frame(height: 380)
-            .id(introPage)
-
-            HStack(spacing: 8) {
+        let page = Self.introPages[min(introPage, Self.introPages.count - 1)]
+        return screen(title: page.title, message: page.text) {
+            art(page.icon, height: 280)
+                .padding(.top, 6)
+            Spacer(minLength: 0)
+        } footer: {
+            HStack(spacing: 7) {
                 ForEach(0..<Self.introPages.count, id: \.self) { index in
                     Circle()
-                        .fill(index == introPage ? RM.primary : RM.outline.opacity(0.35))
-                        .frame(width: 8, height: 8)
+                        .fill(index == introPage ? RM.primary : RM.outline)
+                        .frame(width: 7, height: 7)
                 }
             }
+            .padding(.bottom, 4)
 
-            Button(introPage == Self.introPages.count - 1 ? "さあ始めよう" : "次へ") {
+            policyLinks
+
+            primaryButton(introPage == Self.introPages.count - 1 ? "続ける" : "次へ") {
                 advanceIntro()
             }
-            .buttonStyle(.borderedProminent)
-            .tint(RM.primary)
-            .controlSize(.large)
             .accessibilityIdentifier("introNext")
-            .accessibilityValue("page \(introPage)")
         }
-        .padding(24)
     }
 
     private func advanceIntro() {
@@ -127,70 +109,47 @@ struct OnboardingView: View {
         }
     }
 
-    // MARK: setup
-
-    private var setupStep: some View {
-        ScrollView {
-            VStack(spacing: 14) {
-                Image(systemName: "lock.shield.fill")
-                    .font(.system(size: 40))
-                    .foregroundStyle(RM.primary)
-                switch step {
-                case .name: nameStep
-                case .zone: zoneStep
-                case .terms: termsStep
-                case .pin: pinStep
-                case .intro: EmptyView()
-                }
-                if let error {
-                    Text(error)
-                        .font(.footnote)
-                        .foregroundStyle(RM.error)
-                        .multilineTextAlignment(.center)
-                }
-            }
-            .padding(24)
-            .frame(maxWidth: .infinity)
-        }
-        .scrollBounceBehavior(.basedOnSize)
-    }
+    // MARK: name
 
     private var nameStep: some View {
-        VStack(spacing: 14) {
-            stepCaption("1 / 4")
-            Text("表示名を決めましょう").font(.title2.weight(.bold))
-            Text("友だちに表示される名前です。あとから設定で変更できます。")
-                .font(.subheadline)
-                .foregroundStyle(RM.onSurfaceVariant)
-                .multilineTextAlignment(.center)
+        screen(
+            title: "表示名を設定",
+            message: "友だちに表示される名前です。あとから設定で変更できます。"
+        ) {
+            art("person.crop.circle", height: 180)
+                .padding(.top, 8)
             TextField("表示名", text: $name)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .submitLabel(.next)
                 .focused($nameFocused)
                 .onSubmit { continueFromName() }
-                .padding()
+                .font(.body)
+                .padding(.horizontal, 16)
+                .frame(height: 54)
                 .background(RM.surface, in: RoundedRectangle(cornerRadius: 12))
-            Button("次へ") { continueFromName() }
-                .buttonStyle(.borderedProminent)
-                .tint(RM.primary)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12).stroke(RM.outline, lineWidth: 1)
+                )
+                .padding(.top, 6)
+            errorText
+        } footer: {
+            primaryButton("次へ") { continueFromName() }
         }
         .onAppear { nameFocused = true }
     }
 
-    private var zoneStep: some View {
-        VStack(spacing: 16) {
-            stepCaption("2 / 4")
-            Text("プライバシーゾーン").font(.title2.weight(.bold))
-            Text("決めた場所に入ったときに、アプリを自動で守る機能です。")
-                .font(.subheadline)
-                .foregroundStyle(RM.onSurfaceVariant)
-                .multilineTextAlignment(.center)
+    // MARK: zone
 
-            VStack(alignment: .leading, spacing: 12) {
-                Text("たとえば")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(RM.onSurfaceVariant)
+    private var zoneStep: some View {
+        screen(
+            title: "プライバシーゾーン",
+            message: "決めた場所に入ったときに、アプリを自動で守る機能です。"
+        ) {
+            art("location.viewfinder", height: 190)
+                .padding(.top, 6)
+
+            VStack(alignment: .leading, spacing: 14) {
                 example(
                     "house.fill",
                     "自宅に着いたら自動ロック",
@@ -208,51 +167,28 @@ struct OnboardingView: View {
                 )
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(14)
-            .background(RM.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+            .padding(16)
+            .background(RM.surface, in: RoundedRectangle(cornerRadius: 14))
 
-            HStack(alignment: .top, spacing: 7) {
-                Image(systemName: "lock.shield.fill")
-                    .font(.caption2)
-                    .foregroundStyle(RM.primary)
-                Text("ゾーン判定は端末内で行い、位置情報をサーバーに送りません。")
-                    .font(.caption2)
-                    .foregroundStyle(RM.onSurfaceVariant)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Button("プライバシーゾーンを有効にする") {
-                enableZone()
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(RM.primary)
-
-            Button("後で設定する") {
-                UserDefaults.standard.set(false, forKey: "rm.zoneWanted")
-                step = .terms
-            }
-            .font(.footnote)
-
-            Text("有効化すると位置情報の許可を求めます。場所・半径・動作はあとから設定で選べます。")
-                .font(.caption2)
+            Text("ゾーン判定は端末内で行い、位置情報をサーバーに送りません。")
+                .font(.caption)
                 .foregroundStyle(RM.onSurfaceVariant)
                 .multilineTextAlignment(.center)
+            errorText
+        } footer: {
+            primaryButton("プライバシーゾーンを有効にする") { enableZone() }
+            secondaryButton("後で設定する") { skipZone() }
         }
-        .padding(.top, 4)
     }
 
-    /// Dedicated consent screen. Keeping the terms gate off the PIN keypad
-    /// makes the flow readable and gives the agreement the space it needs.
-    private var termsStep: some View {
-        VStack(spacing: 16) {
-            stepCaption("3 / 4")
-            Text("利用規約への同意").font(.title2.weight(.bold))
-            Text("RichMan を安心して使うために、次の内容を確認してください。")
-                .font(.subheadline)
-                .foregroundStyle(RM.onSurfaceVariant)
-                .multilineTextAlignment(.center)
+    // MARK: terms
 
-            VStack(alignment: .leading, spacing: 12) {
+    private var termsStep: some View {
+        screen(
+            title: "利用規約への同意",
+            message: "RichMan を安心して使うために、次の内容を確認してください。"
+        ) {
+            VStack(alignment: .leading, spacing: 14) {
                 example(
                     "nosign",
                     "禁止事項",
@@ -270,69 +206,57 @@ struct OnboardingView: View {
                 )
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(14)
-            .background(RM.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+            .padding(16)
+            .background(RM.surface, in: RoundedRectangle(cornerRadius: 14))
+            .padding(.top, 6)
 
-            Toggle(isOn: $acceptedTerms) {
-                Text("利用規約と禁止事項に同意します")
-                    .font(.footnote.weight(.medium))
-            }
-            .tint(RM.primary)
-            .padding(.horizontal, 4)
-
-            Link("利用規約を読む", destination: SupportConfig.termsURL)
-                .font(.caption)
-
-            Button("同意して次へ") {
-                guard acceptedTerms else {
-                    error = "利用規約への同意が必要です"
-                    return
-                }
-                error = nil
-                step = .pin
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(RM.primary)
-            .controlSize(.large)
-            .frame(maxWidth: .infinity)
-        }
-        .padding(.top, 4)
-    }
-
-    private var pinStep: some View {
-        VStack(spacing: 12) {
-            stepCaption("4 / 4")
-            Text(pinConfirming ? "もう一度入力" : "暗証番号を設定")
-                .font(.title2.weight(.bold))
-            Text(pinConfirming
-                 ? "確認のため同じ4桁を入力してください。"
-                 : "アプリのロック解除に使います。4桁の数字。")
-                .font(.subheadline)
+            Text("「同意して続ける」を押すと、利用規約とプライバシーポリシーに同意したものとみなされます。")
+                .font(.caption2)
                 .foregroundStyle(RM.onSurfaceVariant)
                 .multilineTextAlignment(.center)
+        } footer: {
+            policyLinks
+            primaryButton("同意して続ける") { step = .pin }
+        }
+    }
 
-            HStack(spacing: 12) {
+    // MARK: pin
+
+    private var pinStep: some View {
+        screen(
+            title: pinConfirming ? "もう一度入力" : "暗証番号を設定",
+            message: pinConfirming
+                ? "確認のため同じ4桁を入力してください。"
+                : "アプリのロック解除に使います。4桁の数字。"
+        ) {
+            HStack(spacing: 14) {
                 ForEach(0..<4, id: \.self) { index in
                     Circle()
-                        .fill(index < pinEntry.count ? RM.primary : RM.outline.opacity(0.4))
-                        .frame(width: 14, height: 14)
+                        .fill(index < pinEntry.count ? RM.primary : RM.outline)
+                        .frame(width: 15, height: 15)
                 }
             }
-            .padding(.vertical, 8)
+            .padding(.top, 18)
+            .padding(.bottom, 6)
 
             pinKeypad
+                .padding(.top, 4)
+            errorText
+            Spacer(minLength: 0)
+        } footer: {
+            EmptyView()
         }
     }
 
     private var pinKeypad: some View {
         LazyVGrid(
             columns: Array(repeating: GridItem(.flexible(), spacing: 18), count: 3),
-            spacing: 14
+            spacing: 16
         ) {
             ForEach(1...9, id: \.self) { digit in
                 pinKey(digit)
             }
-            Color.clear.frame(width: 60, height: 60)
+            Color.clear.frame(width: 64, height: 64)
             pinKey(0)
             Button {
                 if !pinEntry.isEmpty { pinEntry.removeLast() }
@@ -340,7 +264,7 @@ struct OnboardingView: View {
                 Image(systemName: "delete.left")
                     .font(.title3)
                     .foregroundStyle(RM.onSurface)
-                    .frame(width: 60, height: 60)
+                    .frame(width: 64, height: 64)
             }
         }
         .padding(.horizontal, 24)
@@ -351,28 +275,149 @@ struct OnboardingView: View {
             Text("\(digit)")
                 .font(.title2.weight(.medium))
                 .foregroundStyle(RM.onSurface)
-                .frame(width: 60, height: 60)
+                .frame(width: 64, height: 64)
                 .background(RM.surface, in: Circle())
+                .overlay(Circle().stroke(RM.outline, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: notifications
+
+    private var notificationsStep: some View {
+        screen(
+            title: "メッセージの取得",
+            message: "通知権限は、メッセージの着信や会話の更新をお知らせします。"
+        ) {
+            art("bell.badge.fill", height: 280)
+                .padding(.top, 10)
+            Text("通知の内容は端末内で決まり、リレーや Apple にメッセージ本文は送られません。")
+                .font(.caption)
+                .foregroundStyle(RM.onSurfaceVariant)
+                .multilineTextAlignment(.center)
+            Spacer(minLength: 0)
+        } footer: {
+            primaryButton("パーミッションを有効化") {
+                finish(requestNotifications: true)
+            }
+            secondaryButton("後で") {
+                finish(requestNotifications: false)
+            }
         }
     }
 
-    private func stepCaption(_ text: String) -> some View {
-        Text(text)
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(RM.onSurfaceVariant)
+    // MARK: shared layout
+
+    /// Title + message + content, with the action area pinned above the home
+    /// indicator. Matches Signal's onboarding rhythm: one thought per screen.
+    private func screen<Content: View, Footer: View>(
+        title: String,
+        message: String? = nil,
+        @ViewBuilder content: () -> Content,
+        @ViewBuilder footer: () -> Footer
+    ) -> some View {
+        ScrollView {
+            VStack(spacing: 14) {
+                Text(title)
+                    .font(.title2.weight(.bold))
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(RM.onBackground)
+                if let message {
+                    Text(message)
+                        .font(.subheadline)
+                        .foregroundStyle(RM.onSurfaceVariant)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 4)
+                }
+                content()
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 28)
+            .padding(.bottom, 12)
+            .frame(maxWidth: .infinity)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 10) {
+                footer()
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 10)
+            .padding(.bottom, 6)
+            .background(RM.background)
+        }
+    }
+
+    /// Large soft panel standing in for Signal's illustration.
+    private func art(_ symbol: String, height: CGFloat) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(RM.primary.opacity(0.08))
+            Circle()
+                .fill(RM.primary.opacity(0.10))
+                .frame(width: height * 0.58, height: height * 0.58)
+            Image(systemName: symbol)
+                .font(.system(size: height * 0.32, weight: .regular))
+                .foregroundStyle(RM.primary)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: height)
+    }
+
+    private func primaryButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(RM.onPrimary)
+                .frame(maxWidth: .infinity)
+                .frame(height: 52)
+                .background(RM.primary, in: RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func secondaryButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(RM.onSurfaceVariant)
+                .frame(maxWidth: .infinity)
+                .frame(height: 28)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var policyLinks: some View {
+        HStack(spacing: 6) {
+            Link("利用規約", destination: SupportConfig.termsURL)
+            Text("・").foregroundStyle(RM.onSurfaceVariant)
+            Link("プライバシーポリシー", destination: SupportConfig.privacyURL)
+        }
+        .font(.caption2)
+        .tint(RM.onSurfaceVariant)
+    }
+
+    @ViewBuilder
+    private var errorText: some View {
+        if let error {
+            Text(error)
+                .font(.footnote)
+                .foregroundStyle(RM.error)
+                .multilineTextAlignment(.center)
+        }
     }
 
     private func example(_ icon: String, _ title: String, _ text: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: 12) {
             Image(systemName: icon)
-                .font(.caption)
+                .font(.footnote)
                 .foregroundStyle(RM.primary)
-                .frame(width: 24, height: 24)
+                .frame(width: 28, height: 28)
                 .background(RM.primary.opacity(0.12), in: Circle())
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(title).font(.footnote.weight(.semibold))
                 Text(text)
-                    .font(.caption2)
+                    .font(.caption)
                     .foregroundStyle(RM.onSurfaceVariant)
             }
         }
@@ -392,7 +437,7 @@ struct OnboardingView: View {
 
     /// Opt in to the zone and ask iOS for location permission right here (the
     /// system prompt). The actual place/radius/action are chosen later in
-    /// Settings so onboarding stays to a single explanation + choice.
+    /// Settings.
     private func enableZone() {
         UserDefaults.standard.set(true, forKey: "rm.zoneWanted")
         if location.authorization == .notDetermined {
@@ -403,14 +448,20 @@ struct OnboardingView: View {
         step = .terms
     }
 
+    private func skipZone() {
+        UserDefaults.standard.set(false, forKey: "rm.zoneWanted")
+        step = .terms
+    }
+
     private func appendPin(_ digit: Int) {
-        guard acceptedTerms, pinEntry.count < 4 else { return }
+        guard pinEntry.count < 4 else { return }
         pinEntry.append(String(digit))
         guard pinEntry.count == 4 else { return }
 
         if pinConfirming {
             if pinEntry == pinFirst {
-                finish()
+                error = nil
+                step = .notifications
             } else {
                 error = "暗証番号が一致しません。もう一度入力してください。"
                 pinEntry = ""
@@ -425,7 +476,7 @@ struct OnboardingView: View {
         }
     }
 
-    private func finish() {
+    private func finish(requestNotifications: Bool) {
         error = nil
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else {
@@ -433,16 +484,19 @@ struct OnboardingView: View {
             step = .name
             return
         }
-        guard lock.setPIN(pinFirst) else {
+        guard !pinFirst.isEmpty, lock.setPIN(pinFirst) else {
             error = "暗証番号を保存できませんでした。もう一度お試しください。"
             pinEntry = ""
             pinFirst = ""
             pinConfirming = false
+            step = .pin
             return
         }
         savedName = trimmed
         store.displayName = trimmed
         onboarded = true
-        NotificationManager.shared.requestAuthorization()
+        if requestNotifications {
+            NotificationManager.shared.requestAuthorization()
+        }
     }
 }

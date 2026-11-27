@@ -225,6 +225,24 @@ jobs:
           cp ~/Library/Logs/DiagnosticReports/*RichMan* e2e-artifacts/ 2>/dev/null || true
           ls -la e2e-artifacts
 
+      - name: Redact the relay host from artifacts
+        if: always()
+        env:
+          RM_RELAY_HOST: ${{ secrets.RM_RELAY_HOST }}
+        run: |
+          set -euo pipefail
+          test -n "${RM_RELAY_HOST:-}" || exit 0
+          # The binary plist embeds the private relay address; drop it and
+          # scrub the address from the text logs before publishing artifacts.
+          rm -f app/e2e-artifacts/Info.plist
+          for f in app/e2e-artifacts/*; do
+            [ -f "$f" ] || continue
+            case "$f" in
+              *.png) continue ;;
+            esac
+            perl -pi -e 's/\Q$ENV{RM_RELAY_HOST}\E/relay.invalid/g' "$f" || true
+          done
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:

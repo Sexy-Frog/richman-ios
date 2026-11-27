@@ -246,9 +246,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
+          # The signed IPA embeds the private relay host, so it is never
+          # published as an artifact (this repo is public).
           name: ios-release
           path: |
-            app/build/export/*.ipa
             app/build/RichMan.xcarchive/dSYMs/*.dSYM
           if-no-files-found: warn
           retention-days: 7
