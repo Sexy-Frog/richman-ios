@@ -89,7 +89,7 @@ struct OnboardingView: View {
     private var introStep: some View {
         let page = Self.introPages[min(introPage, Self.introPages.count - 1)]
         return screen(title: page.title, message: page.text) {
-            art(page.icon, height: 280)
+            art(page.icon, height: 340)
                 .padding(.top, 6)
             Spacer(minLength: 0)
         } footer: {
@@ -379,7 +379,7 @@ struct OnboardingView: View {
             title: "メッセージの取得",
             message: "通知権限は、メッセージの着信や会話の更新をお知らせします。"
         ) {
-            art("bell.badge.fill", height: 280)
+            art("bell.badge.fill", height: 340)
                 .padding(.top, 10)
             Text("通知の内容は端末内で決まり、リレーや Apple にメッセージ本文は送られません。")
                 .font(.caption)
