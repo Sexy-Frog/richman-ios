@@ -93,3 +93,30 @@ targets:
           if [ "$CONFIGURATION" = "Release" ]; then
             rm -f "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/map_style_direct.json"
           fi
+
+  RichManUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - UITests
+    dependencies:
+      - target: RichMan
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: works.kelvins.richman.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: RichMan
+
+schemes:
+  RichMan:
+    build:
+      targets:
+        RichMan: all
+        RichManUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - RichManUITests
+
