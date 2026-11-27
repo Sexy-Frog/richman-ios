@@ -261,20 +261,29 @@ struct AddFriendView: View {
         }
 
         var raw: String?
+        // Pre-minted at Tor-ready time, so the QR appears immediately. It is
+        // single-use; later opens mint on demand (the circuit is already warm).
+        raw = store.takeWarmInvite(using: tor.readyTransport)
+
         // The relay invite is compact enough for a QR; the local fallback
         // bundle is far too large for one. Tor usually needs a moment after
         // launch, so keep retrying for a minute before falling back.
-        for attempt in 0..<30 {
-            if let transport = tor.readyTransport,
-               let remote = try? await store.makeRelayInvite(using: transport) {
-                raw = remote
-                break
+        if raw == nil {
+            for attempt in 0..<30 {
+                if let transport = tor.readyTransport,
+                   let remote = try? await store.makeRelayInvite(using: transport) {
+                    raw = remote
+                    break
+                }
+                if !tor.supportsTor { break }
+                if case .failed = tor.phase { break }
+                if attempt < 29 {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                }
             }
-            if !tor.supportsTor { break }
-            if case .failed = tor.phase { break }
-            if attempt < 29 {
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-            }
+        }
+        if raw != nil {
+            store.prewarmInvite(using: tor.readyTransport)
         }
         if raw == nil {
             raw = try? store.makeInvite()
@@ -317,10 +326,28 @@ struct AddFriendView: View {
         }
         busy = true
         defer { busy = false }
+        var transport = tor.readyTransport
+        if transport == nil, tor.supportsTor {
+            info = "Tor接続中…"
+            for _ in 0..<30 {
+                if let ready = tor.readyTransport {
+                    transport = ready
+                    break
+                }
+                if case .failed = tor.phase { break }
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
+            guard transport != nil else {
+                info = nil
+                error = "Torに接続できませんでした。少し待って再試行してください。"
+                return
+            }
+            info = nil
+        }
         do {
             _ = try await store.addFriend(
                 inviteText: raw,
-                using: tor.readyTransport
+                using: transport
             )
             info = "追加しました。"
             scanned = ""

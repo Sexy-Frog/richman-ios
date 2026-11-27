@@ -20,6 +20,7 @@ public enum MessageType: Hashable {
     case file
     case del
     case profile
+    case typing
     case m1
     case m2
     case m3
@@ -57,6 +58,7 @@ public enum MessageType: Hashable {
         .file: [0xC1, 0xCE, 0xCB, 0xC2],
         .del: [0xC3, 0xC2, 0xCB],
         .profile: [0xD7, 0xD5, 0xC8, 0xC1, 0xCE, 0xCB, 0xC2],
+        .typing: [0xD3, 0xDE, 0xD7, 0xCE, 0xC9, 0xC0],
         .m1: [0xCB, 0xC8, 0xC4, 0xF8, 0xC8, 0xC9, 0xC4, 0xC2],
         .m2: [0xCB, 0xC8, 0xC4, 0xF8, 0xD5, 0xC2, 0xD6],
         .m3: [0xCB, 0xC8, 0xC4, 0xF8, 0xC3, 0xC2, 0xC9, 0xCE, 0xC2, 0xC3],
@@ -207,6 +209,18 @@ public struct ProfileMessage: Codable, Equatable {
                 avN: String? = nil) {
         self.n = n; self.bio = bio; self.addMode = addMode; self.av = av
         self.avBlob = avBlob; self.avK = avK; self.avN = avN
+    }
+}
+
+/// `{"t":"typing","on":true}` — live "入力中" indicator. Ephemeral; never stored.
+public struct TypingMessage: Codable, Equatable {
+    public var t = MessageType.typing.rawValue
+    public var on: Bool
+    public var n: String?
+    public var ts: Int64?
+
+    public init(on: Bool, n: String? = nil, ts: Int64? = nil) {
+        self.on = on; self.n = n; self.ts = ts
     }
 }
 

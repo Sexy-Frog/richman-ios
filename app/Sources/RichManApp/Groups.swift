@@ -115,7 +115,6 @@ struct GroupChatView: View {
     @State private var showInfo = false
     @State private var showTTL = false
     @State private var ttlSeconds = 0
-    @State private var showAttach = false
     @State private var showPhotos = false
     @State private var showFiles = false
     @State private var photoItem: PhotosPickerItem?
@@ -200,11 +199,6 @@ struct GroupChatView: View {
             }
         }
         .onDisappear { store.setActiveGroup(nil) }
-        .confirmationDialog("送信する", isPresented: $showAttach, titleVisibility: .visible) {
-            Button("写真") { showPhotos = true }
-            Button("ファイル") { showFiles = true }
-            Button("キャンセル", role: .cancel) {}
-        }
         .photosPicker(isPresented: $showPhotos, selection: $photoItem, matching: .images)
         .fileImporter(
             isPresented: $showFiles,
@@ -231,7 +225,10 @@ struct GroupChatView: View {
         VStack(spacing: 0) {
             if let replyTo { replyBar(replyTo) }
             HStack(alignment: .bottom, spacing: 8) {
-                Button { showAttach = true } label: {
+                Menu {
+                    Button("写真", systemImage: "photo") { showPhotos = true }
+                    Button("ファイル", systemImage: "doc") { showFiles = true }
+                } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 20, weight: .semibold))
                         .foregroundStyle(RM.primary)

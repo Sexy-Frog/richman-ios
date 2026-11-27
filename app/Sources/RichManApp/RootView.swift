@@ -102,6 +102,7 @@ struct RootView: View {
                 store.attachRelayFactory(nil)
             } else {
                 store.attachRelayFactory(tor.readyTransportFactory)
+                store.prewarmInvite(using: tor.readyTransport)
             }
             wireCalls()
             AppServices.shared.register(store: store, tor: tor, lock: lock)
@@ -242,6 +243,7 @@ struct RootView: View {
                 store.attachRelayFactory(nil)
             } else {
                 store.attachRelayFactory(tor.readyTransportFactory)
+                store.prewarmInvite(using: tor.readyTransport)
                 registerPushIfPossible()
             }
         }

@@ -22,6 +22,13 @@ final class ChatStore: ObservableObject {
     /// Blocked contact ids (App Store UGC requirement — blocked peers can't be
     /// messaged and their inbound messages are dropped). Persisted in UserDefaults.
     @Published private(set) var blockedIds: Set<String> = []
+    /// Peers currently shown as "入力中…" (cleared automatically).
+    @Published private(set) var typingPeers: Set<String> = []
+    private var typingClearTasks: [String: Task<Void, Never>] = [:]
+    private var lastTypingSent: [String: Date] = [:]
+    /// APNs token + the receive-mailbox set last registered with the relay.
+    private var pushToken: String?
+    private var lastRegisteredBoxes: Set<String> = []
     /// Per-conversation mute and "hidden from Talks" flags (UserDefaults).
     @Published private(set) var mutedIds: Set<String> = []
     @Published private(set) var hiddenIds: Set<String> = []
@@ -49,6 +56,13 @@ final class ChatStore: ObservableObject {
     private var pendingBoxes: Set<String> = []
     private var saveTask: Task<Void, Never>?
     private var loaded = false
+    /// Invite minted ahead of time so the QR appears instantly. The relay's
+    /// invite is single-use, so this is handed out once and a replacement is
+    /// minted in the background for the next display.
+    private var warmInviteRaw: String?
+    private var warmInviteAt: Date?
+    private var prewarmingInvite = false
+    private var inviteGeneration = 0
 
     /// Demo/screenshot builds must stay deterministic, so they never read or
     /// write the sealed state file.
@@ -150,8 +164,13 @@ final class ChatStore: ObservableObject {
     }
 
     func setActivePeer(_ peerId: String?) {
+        let changed = activePeer != peerId
         activePeer = peerId
         if let peerId { markRead(peerId) }
+        // Re-target the long-poll so the open chat receives instantly.
+        if changed, relayServiceInstance != nil {
+            startPolling()
+        }
     }
 
     func setActiveGroup(_ groupId: String?) {
@@ -212,13 +231,24 @@ final class ChatStore: ObservableObject {
     /// Send the current APNs token and all receive mailboxes to the relay over
     /// Tor. Content-free push only; the relay never sees message bodies.
     func registerPush(token: String) {
-        guard let service = relayService() else { return }
-        let boxes = contacts
-            .filter { !$0.official }
-            .compactMap(\.recvBox) + Array(pendingBoxes)
+        pushToken = token
+        registerPushIfNeeded(force: true)
+    }
+
+    /// Re-register when the set of receive mailboxes changes (new contact,
+    /// invite box claimed, new per-contact box). The relay keeps this mapping
+    /// in memory, so a stale mapping means no notification while the app is
+    /// closed.
+    private func registerPushIfNeeded(force: Bool = false) {
+        guard let token = pushToken, let service = relayService() else { return }
+        let boxes = Set(
+            contacts.filter { !$0.official }.compactMap(\.recvBox)
+        ).union(pendingBoxes)
         guard !boxes.isEmpty else { return }
+        if !force, boxes == lastRegisteredBoxes { return }
+        lastRegisteredBoxes = boxes
         Task {
-            try? await service.registerPush(token: token, boxes: boxes)
+            try? await service.registerPush(token: token, boxes: Array(boxes))
         }
     }
 
@@ -228,10 +258,11 @@ final class ChatStore: ObservableObject {
             while !Task.isCancelled {
                 guard let self else { return }
                 await self.pollOnce()
-                if self.fastPeer == nil {
-                    // One empty poll per mailbox every 5s. During a call the
-                    // fast path long-polls instead (see pollOnce).
-                    try? await Task.sleep(nanoseconds: 5_000_000_000)
+                // With an open chat (or a call) the priority poll is a 20 s
+                // long-poll that returns on the first message, so loop again
+                // immediately. Otherwise check every 2 s.
+                if self.fastPeer == nil && self.activePeer == nil {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
                 }
             }
         }
@@ -288,6 +319,7 @@ final class ChatStore: ObservableObject {
                 for message in opened { await apply(message) }
             }
         }
+        registerPushIfNeeded()
     }
 
     /// Apply a decrypted inbound message: learn the peer's reply mailbox,
@@ -296,9 +328,9 @@ final class ChatStore: ObservableObject {
     private func apply(_ opened: OpenedMessage) async {
         guard !isBlocked(opened.senderId) else { return }
         if !contacts.contains(where: { $0.id == opened.senderId }) {
-            // Only a text/first message may create a contact; receipts from a
-            // stranger must not appear as a chat.
-            guard opened.type == .text else { return }
+            // Only a text/first message or a profile hello may create a contact;
+            // receipts from a stranger must not appear as a chat.
+            guard opened.type == .text || opened.type == .profile else { return }
             contacts.append(
                 Contact(
                     id: opened.senderId,
@@ -359,6 +391,11 @@ final class ChatStore: ObservableObject {
                 contacts[index].name = name
                 scheduleSave()
             }
+        case .typing?:
+            guard let typing = try? JSONDecoder().decode(
+                TypingMessage.self, from: opened.payload
+            ) else { return }
+            updateTyping(typing.on, from: opened.senderId)
         case .ttl?:
             guard let ttl = try? JSONDecoder().decode(
                 TtlMessage.self, from: opened.payload
@@ -567,6 +604,46 @@ final class ChatStore: ObservableObject {
     func setHidden(_ id: String, _ hidden: Bool) {
         if hidden { hiddenIds.insert(id) } else { hiddenIds.remove(id) }
         UserDefaults.standard.set(Array(hiddenIds), forKey: hiddenKey)
+    }
+
+    // MARK: typing indicators
+
+    func isTyping(_ peerId: String) -> Bool { typingPeers.contains(peerId) }
+
+    private func updateTyping(_ on: Bool, from peerId: String) {
+        typingClearTasks[peerId]?.cancel()
+        typingClearTasks[peerId] = nil
+        guard contact(peerId) != nil else { return }
+        if on {
+            typingPeers.insert(peerId)
+            typingClearTasks[peerId] = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 6_000_000_000)
+                guard !Task.isCancelled else { return }
+                self?.typingPeers.remove(peerId)
+            }
+        } else {
+            typingPeers.remove(peerId)
+        }
+    }
+
+    /// Throttled outgoing typing signal (at most one "on" per 2.5 s).
+    func sendTyping(_ on: Bool, to peerId: String) {
+        guard let contact = contact(peerId), !contact.official else { return }
+        if on {
+            if let last = lastTypingSent[peerId],
+               Date().timeIntervalSince(last) < 2.5 { return }
+            lastTypingSent[peerId] = Date()
+        } else {
+            guard lastTypingSent[peerId] != nil else { return }
+            lastTypingSent[peerId] = nil
+        }
+        let message = TypingMessage(
+            on: on,
+            n: displayName,
+            ts: Int64(Date().timeIntervalSince1970 * 1000)
+        )
+        guard let json = try? message.toPayloadJSON() else { return }
+        transmit(json, to: peerId, markMid: "")
     }
 
     func messages(for peerId: String) -> [ChatMessage] { messagesByPeer[peerId] ?? [] }
@@ -1099,8 +1176,17 @@ final class ChatStore: ObservableObject {
         blockedIds.removeAll()
         mutedIds.removeAll()
         hiddenIds.removeAll()
+        typingPeers.removeAll()
+        typingClearTasks.values.forEach { $0.cancel() }
+        typingClearTasks.removeAll()
+        lastTypingSent.removeAll()
         pendingBoxes.removeAll()
         saveTask?.cancel()
+        lastRegisteredBoxes = []
+        inviteGeneration += 1
+        warmInviteRaw = nil
+        warmInviteAt = nil
+        prewarmingInvite = false
         UserDefaults.standard.removeObject(forKey: blockedKey)
         UserDefaults.standard.removeObject(forKey: mutedKey)
         UserDefaults.standard.removeObject(forKey: hiddenKey)
@@ -1181,8 +1267,10 @@ final class ChatStore: ObservableObject {
     }
 
     func setTTL(_ seconds: Int, for peerId: String) {
+        guard ttl(for: peerId) != seconds else { return }
         UserDefaults.standard.set(seconds, forKey: "rm.ttl.\(peerId)")
         purgeExpired(peerId)
+        appendSystem(peerId, text: ttlSystemLabel(seconds))
         scheduleSave()
         // Keep both ends' expiry in step (Android sends `{"t":"ttl","ms":N}`).
         if let json = try? TtlMessage(ms: Int64(seconds) * 1000).toPayloadJSON() {
@@ -1193,7 +1281,11 @@ final class ChatStore: ObservableObject {
     private func appendSystem(_ peerId: String, text: String) {
         messagesByPeer[peerId, default: []].append(
             ChatMessage(
-                id: UUID().uuidString, body: text, mine: false, ts: Date()
+                id: UUID().uuidString,
+                body: text,
+                mine: false,
+                ts: Date(),
+                system: true
             )
         )
         scheduleSave()
@@ -1886,6 +1978,8 @@ final class ChatStore: ObservableObject {
         )
         let token = try await RelayClient(transport: transport).putInvite(bundle: envelope)
         pendingBoxes.insert(material.box)
+        scheduleSave()
+        registerPushIfNeeded()
         let qr = QRInvite(
             id: material.id,
             n: material.n,
@@ -1895,6 +1989,50 @@ final class ChatStore: ObservableObject {
             t: token
         )
         return String(decoding: try JSONEncoder().encode(qr), as: UTF8.self)
+    }
+
+    /// Mint one invite ahead of time so the QR appears instantly when
+    /// 友だちを追加 opens. Each displayed QR is single-use; a fresh replacement
+    /// is minted in the background for the next display.
+    func prewarmInvite(using transport: RelayTransport?) {
+        guard let transport,
+              !prewarmingInvite,
+              warmInviteRaw == nil else { return }
+        prewarmingInvite = true
+        let generation = inviteGeneration
+        Task { [weak self] in
+            guard let self else { return }
+            var raw: String?
+            for attempt in 0..<4 {
+                raw = try? await self.makeRelayInvite(using: transport)
+                if raw != nil { break }
+                if attempt < 3 {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                }
+            }
+            self.prewarmingInvite = false
+            if let raw,
+               self.inviteGeneration == generation,
+               self.warmInviteRaw == nil {
+                self.warmInviteRaw = raw
+                self.warmInviteAt = Date()
+            }
+        }
+    }
+
+    /// Hand out the pre-minted invite once, if it is still inside the relay's
+    /// 15-minute window, and start minting the next one.
+    func takeWarmInvite(using transport: RelayTransport?) -> String? {
+        guard let raw = warmInviteRaw, let at = warmInviteAt,
+              Date().timeIntervalSince(at) < 10 * 60 else {
+            warmInviteRaw = nil
+            warmInviteAt = nil
+            return nil
+        }
+        warmInviteRaw = nil
+        warmInviteAt = nil
+        prewarmInvite(using: transport)
+        return raw
     }
 
     /// Add a contact from a scanned/pasted invite. With a transport this runs
@@ -1933,6 +2071,12 @@ final class ChatStore: ObservableObject {
         )
         contacts.append(c)
         scheduleSave()
+        // Announce ourselves immediately so the inviter's app creates the
+        // contact without waiting for the first chat message.
+        if let profile = try? ProfileMessage(n: displayName, av: 0).toPayloadJSON() {
+            transmit(profile, to: c.id, markMid: "")
+        }
+        registerPushIfNeeded()
         return c
     }
 
@@ -2036,4 +2180,7 @@ struct ChatMessage: Identifiable, Hashable, Codable {
     var inviteMembers: [String]? = nil
     /// nil = awaiting the user, true = joined, false = declined.
     var inviteAccepted: Bool? = nil
+    /// Local system notice (e.g. a disappearing-message change) rendered
+    /// centred like a date divider instead of as a chat bubble.
+    var system: Bool? = nil
 }

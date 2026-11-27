@@ -18,7 +18,6 @@ struct ChatView: View {
     @State private var showTTL = false
     @State private var showProfile = false
     @State private var confirmRemove = false
-    @State private var showAttach = false
     @State private var showPhotos = false
     @State private var showFiles = false
     @State private var photoItem: PhotosPickerItem?
@@ -89,6 +88,7 @@ struct ChatView: View {
             store.purgeExpired(contact.id)
         }
         .onDisappear {
+            store.sendTyping(false, to: contact.id)
             store.setActivePeer(nil)
         }
         .toolbar {
@@ -107,9 +107,14 @@ struct ChatView: View {
                                     .foregroundStyle(RM.primary)
                             }
                         }
-                        Text("端末間暗号化")
+                        Text(store.isTyping(contact.id) ? "入力中…" : "端末間暗号化")
                             .font(.system(size: 10))
-                            .foregroundStyle(RM.onSurfaceVariant)
+                            .foregroundStyle(
+                                store.isTyping(contact.id)
+                                    ? RM.primary
+                                    : RM.onSurfaceVariant
+                            )
+                            .animation(.easeOut(duration: 0.15), value: store.isTyping(contact.id))
                     }
                 }
                 .buttonStyle(.plain)
@@ -209,11 +214,6 @@ struct ChatView: View {
                 photoItem = nil
             }
         }
-        .confirmationDialog("送信する", isPresented: $showAttach, titleVisibility: .visible) {
-            Button("写真") { showPhotos = true }
-            Button("ファイル") { showFiles = true }
-            Button("キャンセル", role: .cancel) {}
-        }
         .sheet(item: $imagePreview) { preview in
             NavigationStack {
                 ZStack {
@@ -253,17 +253,27 @@ struct ChatView: View {
             ) {
             DateDivider(date: message.ts)
         }
-        MessageBubble(
-            message: message,
-            replyPreview: replyPreview(for: message),
-            onReply: handleReply,
-            onDelete: { store.deleteMessage($0, in: contact.id, everyone: false) },
-            onDeleteEveryone: { store.deleteMessage($0, in: contact.id, everyone: true) },
-            onOpenImage: { imagePreview = ImagePreview(image: $0) },
-            onAcceptInvite: acceptInvite,
-            onDeclineInvite: declineInvite
-        )
-        .id(message.id)
+        if message.system == true {
+            Text(message.body)
+                .font(.system(size: 11))
+                .foregroundStyle(RM.onSurfaceVariant)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 6)
+                .id(message.id)
+        } else {
+            MessageBubble(
+                message: message,
+                replyPreview: replyPreview(for: message),
+                onReply: handleReply,
+                onDelete: { store.deleteMessage($0, in: contact.id, everyone: false) },
+                onDeleteEveryone: { store.deleteMessage($0, in: contact.id, everyone: true) },
+                onOpenImage: { imagePreview = ImagePreview(image: $0) },
+                onAcceptInvite: acceptInvite,
+                onDeclineInvite: declineInvite
+            )
+            .id(message.id)
+        }
     }
 
     private func handleReply(_ target: ChatMessage) {
@@ -431,7 +441,10 @@ struct ChatView: View {
     private var composer: some View {
         HStack(alignment: .bottom, spacing: 8) {
             if !isOfficial {
-                Button { showAttach = true } label: {
+                Menu {
+                    Button("写真", systemImage: "photo") { showPhotos = true }
+                    Button("ファイル", systemImage: "doc") { showFiles = true }
+                } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 20, weight: .semibold))
                         .foregroundStyle(isBlocked ? RM.onSurfaceVariant : RM.primary)
@@ -446,6 +459,9 @@ struct ChatView: View {
                 .textFieldStyle(.plain)
                 .autocorrectionDisabled()
                 .focused($composerFocused)
+                .onChange(of: draft) { _, text in
+                    store.sendTyping(!text.isEmpty, to: contact.id)
+                }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .frame(minHeight: 40)
@@ -499,6 +515,7 @@ struct ChatView: View {
         let reply = replyTo?.id
         draft = ""
         replyTo = nil
+        store.sendTyping(false, to: contact.id)
         store.send(to: contact.id, text: text, replyTo: reply)
     }
 }

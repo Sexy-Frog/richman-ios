@@ -58,7 +58,10 @@ struct TalksView: View {
                         if !visibleContacts.isEmpty {
                             Section("友だち") {
                                 ForEach(visibleContacts) { contact in
-                                    ContactRow(contact: contact)
+                                    ContactRow(
+                                        contact: contact,
+                                        typing: store.isTyping(contact.id)
+                                    )
                                         .contentShape(Rectangle())
                                         .onTapGesture { path.append(contact) }
                                         .onLongPressGesture(minimumDuration: 0.45) {
@@ -270,6 +273,7 @@ private struct ChatPeekPopup: View {
 
 private struct ContactRow: View {
     let contact: Contact
+    var typing: Bool = false
     var body: some View {
         HStack(spacing: 12) {
             if contact.official {
@@ -293,8 +297,14 @@ private struct ContactRow: View {
                             .background(RM.primary.opacity(0.12), in: Capsule())
                     }
                 }
-                Text(contact.lastMessage.isEmpty ? "トークを始めましょう" : contact.lastMessage)
-                    .font(.subheadline).foregroundStyle(RM.onSurfaceVariant).lineLimit(1)
+                if typing {
+                    Text("入力中…")
+                        .font(.subheadline)
+                        .foregroundStyle(RM.primary)
+                } else {
+                    Text(contact.lastMessage.isEmpty ? "トークを始めましょう" : contact.lastMessage)
+                        .font(.subheadline).foregroundStyle(RM.onSurfaceVariant).lineLimit(1)
+                }
             }
             Spacer()
             if contact.unread > 0 {
@@ -363,6 +373,10 @@ struct FriendsView: View {
             }
             .navigationTitle("友だち")
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                // Have the QR ready by the time 友だちを追加 is tapped.
+                store.prewarmInvite(using: tor.readyTransport)
+            }
             .overlay(alignment: .bottomTrailing) {
                 FABButton(label: "友だちを追加") { showAdd = true }
             }
