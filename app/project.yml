@@ -32,7 +32,10 @@ settings:
     Release:
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: ""
       SWIFT_OPTIMIZATION_LEVEL: "-Osize"
-      SWIFT_REFLECTION_METADATA_LEVEL: none
+      # SwiftUI uses reflection metadata to invalidate views when @State
+      # changes. Stripping it ("none") compiles fine but leaves Release builds
+      # with frozen UI: buttons mutate state that never re-renders.
+      SWIFT_REFLECTION_METADATA_LEVEL: "all"
       STRIP_INSTALLED_PRODUCT: YES
       COPY_PHASE_STRIP: YES
       DEPLOYMENT_POSTPROCESSING: YES

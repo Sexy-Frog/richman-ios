@@ -34,7 +34,9 @@ settings:
     Release:
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: "REAL_CRYPTO"
       SWIFT_OPTIMIZATION_LEVEL: "-Osize"
-      SWIFT_REFLECTION_METADATA_LEVEL: none
+      # Keep reflection metadata: SwiftUI needs it to re-render on @State
+      # changes. "none" produced Release builds whose UI never updated.
+      SWIFT_REFLECTION_METADATA_LEVEL: "all"
       STRIP_INSTALLED_PRODUCT: YES
       COPY_PHASE_STRIP: YES
       DEPLOYMENT_POSTPROCESSING: YES

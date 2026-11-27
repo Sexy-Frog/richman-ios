@@ -50,7 +50,7 @@ jobs:
         working-directory: app
         run: |
           set -euo pipefail
-          for config in Release; do
+          for config in Debug Release; do
             echo "::group::Onboarding UI test ($config)"
             # The first run completes onboarding and sets a PIN, and iOS keeps
             # the keychain across app installs. Erase the simulator so the

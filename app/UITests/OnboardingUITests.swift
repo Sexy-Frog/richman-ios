@@ -20,7 +20,6 @@ final class OnboardingUITests: XCTestCase {
 
         // Page 1 -> 2
         app.buttons["introNext"].tap()
-        print("introNext value after tap: \(app.buttons["introNext"].value ?? "nil")")
         let page2 = text("会話は端末間で暗号化")
         if !page2.waitForExistence(timeout: 5) {
             print("=== UI TREE AFTER 次へ ===")
