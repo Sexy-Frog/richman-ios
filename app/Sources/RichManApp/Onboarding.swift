@@ -27,6 +27,7 @@ struct OnboardingView: View {
     }()
     @State private var introPage = 0
     @State private var name = ""
+    @FocusState private var nameFocused: Bool
     @State private var error: String?
 
     @State private var pinEntry = ""
@@ -73,30 +74,29 @@ struct OnboardingView: View {
 
     private var introStep: some View {
         VStack(spacing: 14) {
-            TabView(selection: $introPage) {
-                ForEach(0..<Self.introPages.count, id: \.self) { index in
-                    let page = Self.introPages[index]
-                    VStack(spacing: 18) {
-                        Spacer(minLength: 0)
-                        Image(systemName: page.icon)
-                            .font(.system(size: 64))
-                            .foregroundStyle(RM.primary)
-                        Text(page.title)
-                            .font(.title2.weight(.bold))
-                            .multilineTextAlignment(.center)
-                        Text(page.text)
-                            .font(.subheadline)
-                            .foregroundStyle(RM.onSurfaceVariant)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 12)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 24)
-                    .tag(index)
-                }
+            // A plain state-driven page instead of a paged TabView. On iOS 26.0
+            // a programmatic TabView selection can stay on the old page, which
+            // made 次へ and the dots look dead.
+            let page = Self.introPages[min(introPage, Self.introPages.count - 1)]
+            VStack(spacing: 18) {
+                Spacer(minLength: 0)
+                Image(systemName: page.icon)
+                    .font(.system(size: 64))
+                    .foregroundStyle(RM.primary)
+                Text(page.title)
+                    .font(.title2.weight(.bold))
+                    .multilineTextAlignment(.center)
+                Text(page.text)
+                    .font(.subheadline)
+                    .foregroundStyle(RM.onSurfaceVariant)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 12)
+                Spacer(minLength: 0)
             }
-            .tabViewStyle(.page(indexDisplayMode: .never))
+            .padding(.horizontal, 24)
+            .frame(maxWidth: .infinity)
             .frame(height: 380)
+            .id(introPage)
 
             HStack(spacing: 8) {
                 ForEach(0..<Self.introPages.count, id: \.self) { index in
@@ -107,17 +107,23 @@ struct OnboardingView: View {
             }
 
             Button(introPage == Self.introPages.count - 1 ? "さあ始めよう" : "次へ") {
-                if introPage == Self.introPages.count - 1 {
-                    step = .name
-                } else {
-                    withAnimation { introPage += 1 }
-                }
+                advanceIntro()
             }
             .buttonStyle(.borderedProminent)
             .tint(RM.primary)
             .controlSize(.large)
+            .accessibilityIdentifier("introNext")
+            .accessibilityValue("page \(introPage)")
         }
         .padding(24)
+    }
+
+    private func advanceIntro() {
+        if introPage >= Self.introPages.count - 1 {
+            step = .name
+        } else {
+            introPage += 1
+        }
     }
 
     // MARK: setup
@@ -156,13 +162,18 @@ struct OnboardingView: View {
                 .foregroundStyle(RM.onSurfaceVariant)
                 .multilineTextAlignment(.center)
             TextField("表示名", text: $name)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.next)
+                .focused($nameFocused)
+                .onSubmit { continueFromName() }
                 .padding()
                 .background(RM.surface, in: RoundedRectangle(cornerRadius: 12))
             Button("次へ") { continueFromName() }
                 .buttonStyle(.borderedProminent)
                 .tint(RM.primary)
-                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
         }
+        .onAppear { nameFocused = true }
     }
 
     private var zoneStep: some View {
@@ -240,18 +251,21 @@ struct OnboardingView: View {
                 .foregroundStyle(RM.onSurfaceVariant)
                 .multilineTextAlignment(.center)
 
-            HStack(alignment: .top, spacing: 8) {
-                Toggle("", isOn: $acceptedTerms)
-                    .labelsHidden()
-                    .tint(RM.primary)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("利用規約と禁止事項に同意します")
-                        .font(.caption)
-                    Link("利用規約を読む", destination: SupportConfig.termsURL)
-                        .font(.caption2)
-                }
+            Toggle(isOn: $acceptedTerms) {
+                Text("利用規約と禁止事項に同意します")
+                    .font(.caption)
             }
+            .tint(RM.primary)
             .padding(.horizontal, 24)
+
+            Link("利用規約を読む", destination: SupportConfig.termsURL)
+                .font(.caption2)
+
+            if !acceptedTerms {
+                Text("同意すると暗証番号を入力できます")
+                    .font(.caption2)
+                    .foregroundStyle(RM.onSurfaceVariant)
+            }
 
             HStack(spacing: 12) {
                 ForEach(0..<4, id: \.self) { index in
@@ -330,6 +344,7 @@ struct OnboardingView: View {
             return
         }
         error = nil
+        nameFocused = false
         step = .zone
     }
 

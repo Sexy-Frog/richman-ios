@@ -50,20 +50,34 @@ jobs:
         working-directory: app
         run: |
           set -euo pipefail
-          xcodebuild test \
-            -project RichMan.xcodeproj \
-            -scheme RichMan \
-            -destination "platform=iOS Simulator,id=$UDID" \
-            -derivedDataPath build \
-            -only-testing:RichManUITests/OnboardingUITests/testIntroNextAdvancesAndOnboardingCompletes \
-            -resultBundlePath TestResults.xcresult \
-            -parallel-testing-enabled NO
+          for config in Debug Release; do
+            echo "::group::Onboarding UI test ($config)"
+            # The first run completes onboarding and sets a PIN, and iOS keeps
+            # the keychain across app installs. Erase the simulator so the
+            # second configuration also starts at first launch.
+            xcrun simctl shutdown "$UDID" >/dev/null 2>&1 || true
+            xcrun simctl erase "$UDID"
+            xcrun simctl boot "$UDID"
+            xcrun simctl bootstatus "$UDID" -b
+            xcrun simctl ui "$UDID" appearance light
+            rm -rf "TestResults-$config.xcresult"
+            xcodebuild test \
+              -project RichMan.xcodeproj \
+              -scheme RichMan \
+              -configuration "$config" \
+              -destination "platform=iOS Simulator,id=$UDID" \
+              -derivedDataPath "build-$config" \
+              -only-testing:RichManUITests/OnboardingUITests/testIntroNextAdvancesAndOnboardingCompletes \
+              -resultBundlePath "TestResults-$config.xcresult" \
+              -parallel-testing-enabled NO
+            echo "::endgroup::"
+          done
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: onboarding-xcresult
-          path: app/TestResults.xcresult
+          path: app/TestResults-*.xcresult
           if-no-files-found: warn
           retention-days: 7
