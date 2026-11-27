@@ -225,7 +225,7 @@ private struct SecuritySettingsView: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("緊急用パスコード")
-                            Text("入力すると端末内のデータを消去")
+                            Text("入力時の動作を選べます")
                                 .font(.caption2)
                                 .foregroundStyle(RM.onSurfaceVariant)
                         }
@@ -278,6 +278,7 @@ private struct DataSettingsView: View {
 
     @State private var confirmClearChats = false
     @State private var confirmClearFriends = false
+    @State private var confirmDeleteAccount = false
 
     var body: some View {
         Form {
@@ -288,6 +289,14 @@ private struct DataSettingsView: View {
                 Button("友だちを全員消す", role: .destructive) {
                     confirmClearFriends = true
                 }
+            }
+
+            Section {
+                Button("アカウントを消去", role: .destructive) {
+                    confirmDeleteAccount = true
+                }
+            } footer: {
+                Text("鍵・友だち・トーク・設定をこの端末から完全に削除し、最初の設定に戻ります。取り消せません。")
             }
 
             if !store.blockedContacts.isEmpty {
@@ -327,6 +336,18 @@ private struct DataSettingsView: View {
             Button("キャンセル", role: .cancel) {}
         } message: {
             Text("友だちとトーク履歴をこの端末から削除します。")
+        }
+        .confirmationDialog(
+            "アカウントを消去しますか？",
+            isPresented: $confirmDeleteAccount,
+            titleVisibility: .visible
+        ) {
+            Button("消去", role: .destructive) {
+                NotificationCenter.default.post(name: .richManWipeAccount, object: nil)
+            }
+            Button("キャンセル", role: .cancel) {}
+        } message: {
+            Text("鍵・友だち・トーク・設定を完全に削除し、最初の設定に戻ります。元に戻せません。")
         }
     }
 }
@@ -570,13 +591,16 @@ struct DuressView: View {
     @State private var confirm = ""
     @State private var error: String?
     @State private var confirmSave = false
+    @AppStorage("rm.duress.chats") private var duressChats = true
+    @AppStorage("rm.duress.friends") private var duressFriends = true
+    @AppStorage("rm.duress.account") private var duressAccount = true
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
                     Label(
-                        "入力すると端末内のデータをすべて消去します",
+                        "入力すると選んだ動作を実行します",
                         systemImage: "exclamationmark.triangle.fill"
                     )
                     .foregroundStyle(RM.error)
@@ -585,6 +609,18 @@ struct DuressView: View {
                         .foregroundStyle(RM.onSurfaceVariant)
                 } header: {
                     Text("緊急用パスコードとは")
+                }
+
+                Section {
+                    Toggle("トークを全部削除", isOn: $duressChats)
+                        .disabled(duressAccount)
+                    Toggle("友達を全部削除", isOn: $duressFriends)
+                        .disabled(duressAccount)
+                    Toggle("アカウントをランダム名で作り直す", isOn: $duressAccount)
+                } header: {
+                    Text("入力時の動作")
+                } footer: {
+                    Text("複数選べます。アカウントを作り直す場合は鍵・友達・トークをすべて消去し、ランダムな名前で初期設定に戻ります。何も選ばない場合は全消去します。")
                 }
 
                 Section("現在の暗証番号") {
@@ -599,7 +635,7 @@ struct DuressView: View {
                 } header: {
                     Text("新しい緊急用パスコード")
                 } footer: {
-                    Text("通常の暗証番号と同じ桁数で設定します。ロック画面でこのパスコードを入力した瞬間に、メッセージ・写真・鍵などの端末内データを消去します。確認画面は出ません。")
+                    Text("通常の暗証番号と同じ桁数で設定します。ロック画面でこのパスコードを入力した瞬間に、上で選んだ動作を実行します。確認画面は出ません。")
                 }
                 if lock.hasDuress {
                     Section {
@@ -636,7 +672,7 @@ struct DuressView: View {
                 Button("設定する", role: .destructive) { save() }
                 Button("キャンセル", role: .cancel) {}
             } message: {
-                Text("ロック画面でこのパスコードを入力すると、端末内のデータがすべて消去されます。この操作は取り消せません。")
+                Text("ロック画面でこのパスコードを入力すると、選んだ動作を実行します。この操作は取り消せません。")
             }
         }
     }

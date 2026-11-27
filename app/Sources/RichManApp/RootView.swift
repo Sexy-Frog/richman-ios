@@ -4,6 +4,12 @@ import Combine
 import UserNotifications
 import RichManCore
 
+extension Notification.Name {
+    /// Posted by Settings → アカウントを消去. RootView performs the wipe so the
+    /// onboarding gate flips in one place.
+    static let richManWipeAccount = Notification.Name("rm.wipeAccount")
+}
+
 private struct NotificationChat: Identifiable {
     let id: String
 }
@@ -51,7 +57,7 @@ struct RootView: View {
         ZStack {
             Group {
                 if lock.locked {
-                    LockScreenView(onWipe: wipeLocalData)
+                    LockScreenView(onWipe: performEmergencyAction)
                 } else if let gid = debugGroupId, let group = store.group(gid) {
                     NavigationStack { GroupChatView(group: group) }
                 } else if let peer = debugChatPeer, let contact = store.contact(peer) {
@@ -74,6 +80,11 @@ struct RootView: View {
         .environmentObject(location)
         .environmentObject(tor)
         .tint(RM.primary)
+        .onReceive(
+            NotificationCenter.default.publisher(for: .richManWipeAccount)
+        ) { _ in
+            wipeLocalData()
+        }
         .onAppear {
             if !savedName.isEmpty { store.displayName = savedName }
             #if DEBUG
@@ -308,9 +319,11 @@ struct RootView: View {
         store.registerPush(token: token)
     }
 
-    private func wipeLocalData() {        store.wipeAllLocal()
+    private func wipeLocalData() {
+        store.wipeAllLocal()
         MediaStore.clearAll()
         MediaStore.clearExports()
+        profile.removeAvatar()
         TorSession.wipeStorage()
         PrivacyStorage.wipeCaches()
         lock.reset()
@@ -325,7 +338,8 @@ struct RootView: View {
             "rm.preview", "rm.autoLockSeconds", "rm.retentionDays",
             "rm.shareLocation", "rm.wipeAfter",
             "rm.lock.attempts", "rm.lock.pinLength", "rm.lock.duressLength",
-            "rm.blocked",
+            "rm.blocked", "rm.muted", "rm.hidden",
+            "rm.duress.chats", "rm.duress.friends", "rm.duress.account",
         ]
         for key in keys { defaults.removeObject(forKey: key) }
         for key in defaults.dictionaryRepresentation().keys
@@ -338,6 +352,45 @@ struct RootView: View {
         center.removeAllDeliveredNotifications()
         center.setBadgeCount(0, withCompletionHandler: nil)
         savedName = ""
+    }
+
+    /// Emergency passcode: apply the actions toggled in Settings → セキュリティ.
+    private func performEmergencyAction() {
+        let defaults = UserDefaults.standard
+        let recreate = defaults.object(forKey: "rm.duress.account") as? Bool ?? true
+        let friends = defaults.object(forKey: "rm.duress.friends") as? Bool ?? true
+        let chats = defaults.object(forKey: "rm.duress.chats") as? Bool ?? true
+
+        if recreate {
+            // A fresh identity: wipe everything and prefill a random name so
+            // onboarding can be completed instantly.
+            let name = Self.randomDisplayName()
+            wipeLocalData()
+            savedName = name
+            return
+        }
+        if friends {
+            store.clearAllContacts()
+            MediaStore.clearAll()
+            MediaStore.clearExports()
+            PrivacyStorage.wipeCaches()
+        } else if chats {
+            store.clearAllMessages()
+            MediaStore.clearAll()
+            MediaStore.clearExports()
+            PrivacyStorage.wipeCaches()
+        } else {
+            // Never leave the emergency code inert: fall back to a full reset.
+            let name = Self.randomDisplayName()
+            wipeLocalData()
+            savedName = name
+        }
+    }
+
+    private static func randomDisplayName() -> String {
+        let bases = ["ゲスト", "ユーザー", "名無し", "匿名", "通りすがり"]
+        let base = bases.randomElement() ?? "ゲスト"
+        return "\(base)\(Int.random(in: 100...999))"
     }
 
     /// Applies the security-zone action when the user is inside the zone.

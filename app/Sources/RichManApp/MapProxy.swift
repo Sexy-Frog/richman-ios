@@ -17,9 +17,25 @@ final class MapProxy: @unchecked Sendable {
     private var port: UInt16 = 0
     private var transport: RelayTransport?
     private var resolvedStyle: Data?
-    private let workers = DispatchSemaphore(value: 6)
+    private let workers = DispatchSemaphore(value: 12)
+    private let prefetchWorkers = DispatchSemaphore(value: 4)
+    private let memory = NSCache<NSString, NSData>()
+    private let cacheDirectory: URL
 
-    private init() {}
+    private init() {
+        let base = FileManager.default.urls(
+            for: .cachesDirectory,
+            in: .userDomainMask
+        )[0]
+        cacheDirectory = base.appendingPathComponent(
+            "RichManMap", isDirectory: true
+        )
+        try? FileManager.default.createDirectory(
+            at: cacheDirectory,
+            withIntermediateDirectories: true
+        )
+        memory.countLimit = 256
+    }
 
     var styleURL: URL? {
         lock.lock()
@@ -96,6 +112,16 @@ final class MapProxy: @unchecked Sendable {
         thread.stackSize = 512 * 1024
         lock.unlock()
         thread.start()
+
+        // Warm the sprite (needed for every symbol layer) so the first map
+        // open does not wait for it after the style loads.
+        for path in ["sprites/ofm_f384/ofm.png", "sprites/ofm_f384/ofm.json"] {
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                guard let self, self.cached(path) == nil,
+                      let data = self.fetch(path) else { return }
+                self.store(data, for: path)
+            }
+        }
         return url
     }
 
@@ -171,12 +197,91 @@ final class MapProxy: @unchecked Sendable {
         let encoded = subpath.addingPercentEncoding(
             withAllowedCharacters: .urlPathAllowed
         ) ?? subpath
+        if let hit = cached(subpath) {
+            respond(client, status: 200, type: Self.contentType(subpath), body: hit)
+            return
+        }
         guard let data = fetch(encoded) else {
             // 5xx is treated as temporary by MapLibre, so it retries.
             respond(client, status: 503, type: "text/plain", body: Data())
             return
         }
+        store(data, for: subpath)
         respond(client, status: 200, type: Self.contentType(subpath), body: data)
+    }
+
+    // MARK: cache
+
+    private func cached(_ subpath: String) -> Data? {
+        if let hit = memory.object(forKey: subpath as NSString) {
+            return hit as Data
+        }
+        guard let data = try? Data(contentsOf: cacheURL(for: subpath)) else {
+            return nil
+        }
+        memory.setObject(data as NSData, forKey: subpath as NSString)
+        return data
+    }
+
+    private func store(_ data: Data, for subpath: String) {
+        memory.setObject(data as NSData, forKey: subpath as NSString)
+        try? data.write(to: cacheURL(for: subpath), options: .atomic)
+    }
+
+    private func cacheURL(for subpath: String) -> URL {
+        var name = subpath
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: " ", with: "_")
+        if name.count > 180 { name = String(name.suffix(180)) }
+        return cacheDirectory.appendingPathComponent(name)
+    }
+
+    /// Warm the vector tiles around a coordinate. Called when the zone editor
+    /// opens so MapLibre finds them in the disk cache instead of fetching each
+    /// tile through Tor while the user watches an empty screen.
+    func prefetch(latitude: Double, longitude: Double, zoom: Double = 15) {
+        guard isRunning else { return }
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self else { return }
+            let baseZoom = max(8, min(14, Int(floor(zoom))))
+            for level in [baseZoom, baseZoom - 1, baseZoom - 2] where level >= 8 {
+                let (cx, cy) = Self.tile(
+                    latitude: latitude, longitude: longitude, zoom: level
+                )
+                let radius = level == baseZoom ? 1 : 0
+                let count = 1 << level
+                for dx in -radius...radius {
+                    for dy in -radius...radius {
+                        let x = cx + dx
+                        let y = cy + dy
+                        guard (0..<count).contains(x),
+                              (0..<count).contains(y) else { continue }
+                        let path = "tiles/\(level)/\(x)/\(y).pbf"
+                        if self.cached(path) != nil { continue }
+                        self.prefetchWorkers.wait()
+                        DispatchQueue.global(qos: .utility).async { [weak self] in
+                            guard let self else { return }
+                            if let data = self.fetch(path) {
+                                self.store(data, for: path)
+                            }
+                            self.prefetchWorkers.signal()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private static func tile(
+        latitude: Double,
+        longitude: Double,
+        zoom: Int
+    ) -> (Int, Int) {
+        let n = pow(2.0, Double(zoom))
+        let x = Int(floor((longitude + 180.0) / 360.0 * n))
+        let lat = latitude * .pi / 180.0
+        let y = Int(floor((1.0 - log(tan(lat) + 1.0 / cos(lat)) / .pi) / 2.0 * n))
+        return (x, y)
     }
 
     /// Fetch one map resource through the relay. Blocking (the caller is a

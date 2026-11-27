@@ -95,7 +95,12 @@ struct AddFriendView: View {
                         .scaledToFit()
                         .padding(12)
                 } else if generating {
-                    ProgressView().tint(.black)
+                    VStack(spacing: 10) {
+                        ProgressView().tint(.black)
+                        Text(tor.phase == .starting ? "Tor接続中…" : "招待を作成中…")
+                            .font(.caption2)
+                            .foregroundStyle(.black.opacity(0.5))
+                    }
                 } else {
                     VStack(spacing: 8) {
                         Image(systemName: "qrcode")
@@ -251,14 +256,16 @@ struct AddFriendView: View {
         var raw: String?
         // The relay invite is compact enough for a QR; the local fallback
         // bundle is far too large for one. Tor usually needs a moment after
-        // launch, so retry briefly instead of silently falling back.
-        for attempt in 0..<8 {
+        // launch, so keep retrying for a minute before falling back.
+        for attempt in 0..<30 {
             if let transport = tor.readyTransport,
                let remote = try? await store.makeRelayInvite(using: transport) {
                 raw = remote
                 break
             }
-            if attempt < 7 {
+            if !tor.supportsTor { break }
+            if case .failed = tor.phase { break }
+            if attempt < 29 {
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
             }
         }

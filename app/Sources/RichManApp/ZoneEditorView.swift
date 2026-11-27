@@ -51,7 +51,21 @@ struct ZoneEditorView: View {
                 bottomCard
             }
         }
-        .onAppear { prepareInitialCenter() }
+        .onAppear {
+            prepareInitialCenter()
+            MapProxy.shared.prefetch(
+                latitude: center.latitude,
+                longitude: center.longitude,
+                zoom: 15
+            )
+        }
+        .onChange(of: recenterToken) { _, _ in
+            MapProxy.shared.prefetch(
+                latitude: center.latitude,
+                longitude: center.longitude,
+                zoom: 15
+            )
+        }
         .onChange(of: location.location?.timestamp) { _, _ in
             guard waitingForInitialFix, let fix = location.location else { return }
             waitingForInitialFix = false

@@ -1032,6 +1032,7 @@ final class ChatStore: ObservableObject {
             guard var state = LocalStore.load() else { return }
             let keep = state.contacts.first { $0.official }?.id
             state.messages = state.messages.filter { $0.key == keep }
+            state.groupMessages.removeAll()
             for i in state.contacts.indices {
                 state.contacts[i].lastMessage = ""
                 state.contacts[i].unread = 0
@@ -1041,20 +1042,43 @@ final class ChatStore: ObservableObject {
         }
         let keep = contacts.first { $0.official }?.id
         messagesByPeer = messagesByPeer.filter { $0.key == keep }
+        groupMessages.removeAll()
         for i in contacts.indices {
             contacts[i].lastMessage = ""
             contacts[i].unread = 0
+        }
+        for i in groups.indices {
+            groups[i].unread = 0
         }
         updateBadge()
         scheduleSave()
     }
 
     /// Delete contacts and messages on this device. The peer's copy is untouched.
+    /// Also used by the emergency passcode while the app is PIN-locked, so it
+    /// edits the sealed file when the in-memory state is suspended.
     func clearAllContacts() {
+        if persistenceEnabled, !loaded {
+            guard var state = LocalStore.load() else { return }
+            let keep = state.contacts.first { $0.official }?.id
+            state.contacts.removeAll { !$0.official }
+            state.messages = state.messages.filter { $0.key == keep }
+            state.groups.removeAll()
+            state.groupMessages.removeAll()
+            state.pendingBoxes.removeAll()
+            state.blocked.removeAll()
+            LocalStore.save(state)
+            return
+        }
         let keep = contacts.first { $0.official }?.id
         contacts.removeAll { !$0.official }
         messagesByPeer = messagesByPeer.filter { $0.key == keep }
+        groups.removeAll()
+        groupMessages.removeAll()
         pendingBoxes.removeAll()
+        blockedIds.removeAll()
+        UserDefaults.standard.removeObject(forKey: mutedKey)
+        UserDefaults.standard.removeObject(forKey: hiddenKey)
         updateBadge()
         scheduleSave()
     }
@@ -1073,9 +1097,13 @@ final class ChatStore: ObservableObject {
         messagesByPeer.removeAll()
         groupMessages.removeAll()
         blockedIds.removeAll()
+        mutedIds.removeAll()
+        hiddenIds.removeAll()
         pendingBoxes.removeAll()
         saveTask?.cancel()
         UserDefaults.standard.removeObject(forKey: blockedKey)
+        UserDefaults.standard.removeObject(forKey: mutedKey)
+        UserDefaults.standard.removeObject(forKey: hiddenKey)
         LocalStore.wipe()
         MediaStore.clearAll()
         crypto.wipeLocalState()

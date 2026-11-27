@@ -35,7 +35,7 @@ struct OnboardingView: View {
         #endif
     }()
     @State private var introPage = 0
-    @State private var name = ""
+    @State private var name = UserDefaults.standard.string(forKey: "rm.displayName") ?? ""
     @FocusState private var nameFocused: Bool
     @State private var error: String?
 
