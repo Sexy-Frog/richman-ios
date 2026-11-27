@@ -275,28 +275,12 @@ private struct SecuritySettingsView: View {
 
 private struct DataSettingsView: View {
     @EnvironmentObject private var store: ChatStore
-    @AppStorage("rm.retentionDays") private var retentionDays = 30
 
     @State private var confirmClearChats = false
     @State private var confirmClearFriends = false
 
     var body: some View {
         Form {
-            Section {
-                Picker("メッセージの自動削除", selection: $retentionDays) {
-                    Text("オフ").tag(0)
-                    Text("7日").tag(7)
-                    Text("30日").tag(30)
-                    Text("90日").tag(90)
-                    Text("365日").tag(365)
-                }
-                .onChange(of: retentionDays) { _, days in
-                    store.purgeOldMessages(days: days)
-                }
-            } footer: {
-                Text("この端末の履歴だけを削除します。相手の端末には残ります。")
-            }
-
             Section {
                 Button("トークを全部消す", role: .destructive) {
                     confirmClearChats = true
