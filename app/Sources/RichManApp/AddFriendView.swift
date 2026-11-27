@@ -249,9 +249,18 @@ struct AddFriendView: View {
         }
 
         var raw: String?
-        if let transport = tor.readyTransport,
-           let remote = try? await store.makeRelayInvite(using: transport) {
-            raw = remote
+        // The relay invite is compact enough for a QR; the local fallback
+        // bundle is far too large for one. Tor usually needs a moment after
+        // launch, so retry briefly instead of silently falling back.
+        for attempt in 0..<8 {
+            if let transport = tor.readyTransport,
+               let remote = try? await store.makeRelayInvite(using: transport) {
+                raw = remote
+                break
+            }
+            if attempt < 7 {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
         }
         if raw == nil {
             raw = try? store.makeInvite()
@@ -265,6 +274,9 @@ struct AddFriendView: View {
         let url = InviteLink.url(for: raw)
         shareURL = url
         qr = QRCode.image(from: url?.absoluteString ?? raw)
+        if qr == nil {
+            error = "QRを表示できませんでした。「QRを更新」を押してください。リンクの共有はできます。"
+        }
         expiresAt = Date().addingTimeInterval(15 * 60)
     }
 

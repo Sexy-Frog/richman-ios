@@ -365,6 +365,7 @@ struct GroupChatView: View {
         case .image: return "画像"
         case .file: return "ファイル"
         case .location: return "位置情報"
+        case .invite: return "グループへの招待"
         case .text: return message.body
         }
     }
@@ -585,6 +586,10 @@ private struct GroupBubble: View {
             Label("位置情報", systemImage: "location.fill")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(textColor)
+        case .invite:
+            Label("グループへの招待", systemImage: "person.3.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(textColor)
         }
     }
 
@@ -631,9 +636,17 @@ struct GroupInfoView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var confirmDelete = false
     @State private var confirmLeave = false
+    @State private var confirmLocalDelete = false
     @State private var showAdd = false
 
     private var group: ChatGroup? { store.group(groupId) }
+
+    private var muteBinding: Binding<Bool> {
+        Binding(
+            get: { store.isMuted(groupId) },
+            set: { store.setMuted(groupId, $0) }
+        )
+    }
 
     var body: some View {
         NavigationStack {
@@ -665,6 +678,11 @@ struct GroupInfoView: View {
                             }
                         }
                     }
+                    Section("通知") {
+                        Toggle(isOn: muteBinding) {
+                            Label("ミュート", systemImage: "bell.slash")
+                        }
+                    }
                     Section {
                         if group.ownerId == store.myId {
                             Button("グループを削除（全員）", role: .destructive) {
@@ -674,6 +692,9 @@ struct GroupInfoView: View {
                             Button("グループを退出", role: .destructive) {
                                 confirmLeave = true
                             }
+                        }
+                        Button("トークを削除（この端末のみ）", role: .destructive) {
+                            confirmLocalDelete = true
                         }
                     }
                 } else {
@@ -712,6 +733,19 @@ struct GroupInfoView: View {
                 Button("キャンセル", role: .cancel) {}
             } message: {
                 Text("この端末からグループと履歴を削除します。メンバーには退出が通知されます。")
+            }
+            .confirmationDialog(
+                "トークを削除しますか？",
+                isPresented: $confirmLocalDelete,
+                titleVisibility: .visible
+            ) {
+                Button("削除", role: .destructive) {
+                    store.deleteGroupLocally(groupId)
+                    dismiss()
+                }
+                Button("キャンセル", role: .cancel) {}
+            } message: {
+                Text("この端末からグループと履歴を消します。他のメンバーには通知されません。")
             }
             .sheet(isPresented: $showAdd) {
                 AddMembersView(groupId: groupId).environmentObject(store)

@@ -26,6 +26,7 @@ struct ChatView: View {
     @State private var imagePreview: ImagePreview?
     @State private var confirmClearChat = false
     @State private var bubbleGeometry = ChatBubbleGeometry()
+    @State private var joinedGroup: ChatGroup?
     @Environment(\.dismiss) private var dismiss
 
     private var messages: [ChatMessage] { store.messages(for: contact.id) }
@@ -182,6 +183,12 @@ struct ChatView: View {
         }) {
             TTLSheet(seconds: $ttlSeconds)
         }
+        .sheet(item: $joinedGroup) { group in
+            NavigationStack {
+                GroupChatView(group: group)
+            }
+            .environmentObject(store)
+        }
         .photosPicker(isPresented: $showPhotos, selection: $photoItem, matching: .images)
         .fileImporter(
             isPresented: $showFiles,
@@ -252,7 +259,9 @@ struct ChatView: View {
             onReply: handleReply,
             onDelete: { store.deleteMessage($0, in: contact.id, everyone: false) },
             onDeleteEveryone: { store.deleteMessage($0, in: contact.id, everyone: true) },
-            onOpenImage: { imagePreview = ImagePreview(image: $0) }
+            onOpenImage: { imagePreview = ImagePreview(image: $0) },
+            onAcceptInvite: acceptInvite,
+            onDeclineInvite: declineInvite
         )
         .id(message.id)
     }
@@ -263,6 +272,17 @@ struct ChatView: View {
         }
         composerFocused = true
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
+    private func acceptInvite(_ message: ChatMessage) {
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        if let group = store.acceptGroupInvite(message, in: contact.id) {
+            joinedGroup = group
+        }
+    }
+
+    private func declineInvite(_ message: ChatMessage) {
+        store.declineGroupInvite(message, in: contact.id)
     }
 
     private var profilePopup: some View {
@@ -497,6 +517,8 @@ private struct MessageBubble: View {
     let onDelete: (ChatMessage) -> Void
     let onDeleteEveryone: (ChatMessage) -> Void
     let onOpenImage: (UIImage) -> Void
+    let onAcceptInvite: (ChatMessage) -> Void
+    let onDeclineInvite: (ChatMessage) -> Void
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 4) {
@@ -634,7 +656,69 @@ private struct MessageBubble: View {
                 .foregroundStyle(textColor)
         case .file:
             fileContent
+        case .invite:
+            inviteContent
         }
+    }
+
+    private var inviteContent: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 7) {
+                Image(systemName: "person.3.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                Text("グループへの招待")
+                    .font(.system(size: 12, weight: .bold))
+            }
+            .foregroundStyle(message.mine ? Color.white : RM.primary)
+
+            Text(message.inviteName ?? message.body)
+                .font(.system(size: 16, weight: .bold))
+                .lineLimit(2)
+                .foregroundStyle(textColor)
+
+            Text("\((message.inviteMembers?.count ?? 0) + 2)人のグループ")
+                .font(.system(size: 11))
+                .foregroundStyle(subColor)
+
+            switch message.inviteAccepted {
+            case true?:
+                Label("参加済み", systemImage: "checkmark.circle.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(message.mine ? Color.white : RM.primary)
+            case false?:
+                Label("辞退しました", systemImage: "xmark.circle")
+                    .font(.system(size: 12))
+                    .foregroundStyle(subColor)
+            default:
+                HStack(spacing: 8) {
+                    Button { onAcceptInvite(message) } label: {
+                        Text("参加")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(RM.primary)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(Color.white, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+
+                    Button { onDeclineInvite(message) } label: {
+                        Text("拒否")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(message.mine ? Color.white : RM.onSurface)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(
+                                message.mine
+                                    ? Color.white.opacity(0.16)
+                                    : RM.surfaceVariant,
+                                in: Capsule()
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .frame(maxWidth: 230, alignment: .leading)
     }
 
     @ViewBuilder

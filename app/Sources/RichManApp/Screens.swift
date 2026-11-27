@@ -92,14 +92,12 @@ struct TalksView: View {
                 }
             }
             .navigationTitle("トーク")
+            .navigationBarTitleDisplayMode(.inline)
             .overlay(alignment: .bottomTrailing) {
                 FABButton(label: "グループを作成") { showCreateGroup = true }
             }
             .sheet(isPresented: $showCreateGroup) {
                 CreateGroupView().environmentObject(store)
-            }
-            .sheet(item: $peek) { contact in
-                ChatPeekView(contact: contact).environmentObject(store)
             }
             .onAppear {
                 store.purgeAllExpired()
@@ -112,68 +110,147 @@ struct TalksView: View {
                 #endif
             }
         }
+        .overlay {
+            if let contact = peek {
+                ChatPeekPopup(
+                    contact: contact,
+                    onOpen: {
+                        peek = nil
+                        path.append(contact)
+                    },
+                    onClose: { peek = nil }
+                )
+            }
+        }
     }
 }
 
-/// Long-press preview for the talks list. Read-only: never marks the chat as
-/// read or resets its unread badge.
-private struct ChatPeekView: View {
+/// LINE-style long-press popup for a talk: recent messages plus quick actions.
+/// Rendered in place (never presented as a bottom sheet).
+private struct ChatPeekPopup: View {
     let contact: Contact
+    var onOpen: () -> Void
+    var onClose: () -> Void
     @EnvironmentObject private var store: ChatStore
-    @Environment(\.dismiss) private var dismiss
 
     private var recent: [ChatMessage] {
-        Array(store.messages(for: contact.id).suffix(8))
+        Array(store.messages(for: contact.id).suffix(4))
     }
+    private var muted: Bool { store.isMuted(contact.id) }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 8) {
-                    if contact.unread > 0 {
-                        Label(
-                            "未読 \(contact.unread)件 — 開くまで既読になりません",
-                            systemImage: "eye.slash"
-                        )
-                        .font(.caption)
-                        .foregroundStyle(RM.onSurfaceVariant)
-                    }
-                    ForEach(recent) { message in
-                        HStack {
-                            if message.mine { Spacer(minLength: 40) }
-                            Text(previewText(message))
-                                .font(.subheadline)
-                                .foregroundStyle(
-                                    message.mine ? RM.bubbleMeText : RM.bubbleThemText
-                                )
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(
-                                    message.mine ? RM.bubbleMe : RM.bubbleThem,
-                                    in: RoundedRectangle(cornerRadius: 14)
-                                )
-                            if !message.mine { Spacer(minLength: 40) }
+        ZStack {
+            Color.black.opacity(0.42)
+                .ignoresSafeArea()
+                .onTapGesture { onClose() }
+
+            VStack(spacing: 0) {
+                header
+                if !recent.isEmpty {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(recent) { message in
+                            HStack(alignment: .top, spacing: 8) {
+                                if message.mine { Spacer(minLength: 30) }
+                                Text(previewText(message))
+                                    .font(.system(size: 13))
+                                    .lineLimit(2)
+                                    .foregroundStyle(RM.onSurface)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(
+                                        message.mine
+                                            ? RM.primary.opacity(0.16)
+                                            : RM.surfaceVariant,
+                                        in: RoundedRectangle(cornerRadius: 10)
+                                    )
+                                if !message.mine { Spacer(minLength: 30) }
+                            }
                         }
                     }
-                    if recent.isEmpty {
-                        Text("まだメッセージはありません")
-                            .font(.footnote)
-                            .foregroundStyle(RM.onSurfaceVariant)
+                    .padding(12)
+                }
+                Divider()
+                actionRow("開く", "bubble.left", tint: RM.primary) { onOpen() }
+                actionRow(
+                    muted ? "通知をオン" : "通知オフ",
+                    muted ? "bell" : "bell.slash"
+                ) {
+                    store.setMuted(contact.id, !muted)
+                    onClose()
+                }
+                actionRow("既読にする", "envelope.open") {
+                    store.markRead(contact.id)
+                    onClose()
+                }
+                if !contact.official {
+                    actionRow("非表示", "eye.slash") {
+                        store.setHidden(contact.id, true)
+                        onClose()
+                    }
+                    actionRow("削除", "trash", tint: RM.error) {
+                        store.clearChat(contact.id)
+                        store.setHidden(contact.id, true)
+                        onClose()
                     }
                 }
-                .padding(16)
             }
-            .navigationTitle(contact.name)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("閉じる") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    NavigationLink("開く") { ChatView(contact: contact) }
-                }
-            }
+            .frame(maxWidth: 320)
+            .background(RM.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .shadow(color: .black.opacity(0.25), radius: 30, y: 12)
+            .padding(28)
+            .transition(.scale(scale: 0.94).combined(with: .opacity))
         }
+    }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            Avatar(name: contact.name, size: 44)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(contact.name)
+                    .font(.headline)
+                    .lineLimit(1)
+                if contact.unread > 0 {
+                    Text("未読 \(contact.unread)件")
+                        .font(.caption2)
+                        .foregroundStyle(RM.primary)
+                } else {
+                    Text("トークのプレビュー")
+                        .font(.caption2)
+                        .foregroundStyle(RM.onSurfaceVariant)
+                }
+            }
+            Spacer()
+            Button { onClose() } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(RM.onSurfaceVariant)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("閉じる")
+        }
+        .padding(14)
+    }
+
+    private func actionRow(
+        _ title: String,
+        _ icon: String,
+        tint: Color = RM.onSurface,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                Image(systemName: icon)
+                    .frame(width: 22)
+                Text(title)
+                    .font(.subheadline)
+                Spacer()
+            }
+            .foregroundStyle(tint)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func previewText(_ message: ChatMessage) -> String {
@@ -181,6 +258,7 @@ private struct ChatPeekView: View {
         case .image: return "画像"
         case .file: return "ファイル"
         case .location: return "位置情報"
+        case .invite: return "グループへの招待"
         case .text: return message.body
         }
     }
@@ -280,6 +358,7 @@ struct FriendsView: View {
                 }
             }
             .navigationTitle("友だち")
+            .navigationBarTitleDisplayMode(.inline)
             .overlay(alignment: .bottomTrailing) {
                 FABButton(label: "友だちを追加") { showAdd = true }
             }

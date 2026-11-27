@@ -403,26 +403,36 @@ final class ChatStore: ObservableObject {
             guard let invite = try? JSONDecoder().decode(
                 GroupInviteMessage.self, from: opened.payload
             ) else { return }
-            ensureGroup(
-                invite.gid,
-                name: invite.name,
-                members: invite.members.map(\.id) + [opened.senderId]
-            )
-            if let index = groups.firstIndex(where: { $0.id == invite.gid }) {
-                // The inviter is authenticated by libsignal. Never let the
-                // unauthenticated `hub` field name a different owner.
-                groups[index].ownerId = invite.hub == opened.senderId
-                    ? invite.hub
-                    : opened.senderId
-            }
-            appendGroupMessage(
-                invite.gid,
-                message: ChatMessage(
+            // The inviter must be an existing contact; a stranger cannot drop a
+            // group invitation into the app.
+            guard let inviterName = contact(opened.senderId)?.name else { return }
+            // Already a member, or this invite is already pending: ignore.
+            if groups.contains(where: { $0.id == invite.gid }) { return }
+            if messagesByPeer[opened.senderId]?.contains(where: {
+                $0.kind == .invite && $0.inviteGid == invite.gid
+            }) == true { return }
+
+            let hub = invite.hub == opened.senderId ? invite.hub : opened.senderId
+            messagesByPeer[opened.senderId, default: []].append(
+                ChatMessage(
                     id: UUID().uuidString,
-                    body: "\(invite.n ?? contact(opened.senderId)?.name ?? "友だち")がグループ「\(invite.name)」に招待しました",
+                    body: invite.name,
                     mine: false,
-                    ts: Date()
+                    ts: Date(),
+                    kind: .invite,
+                    senderName: inviterName,
+                    senderId: opened.senderId,
+                    inviteGid: invite.gid,
+                    inviteName: invite.name,
+                    inviteHub: hub,
+                    inviteMembers: invite.members.map(\.id)
+                        .filter { $0 != crypto.myId && $0 != opened.senderId }
                 )
+            )
+            noteIncoming(
+                opened.senderId,
+                preview: "グループ「\(invite.name)」への招待",
+                notify: true
             )
         case .groupMsg?:
             guard let groupMessage = try? JSONDecoder().decode(
@@ -437,6 +447,9 @@ final class ChatStore: ObservableObject {
                 guard group.memberIds.contains(opened.senderId)
                         || group.ownerId == opened.senderId else { return }
             } else {
+                // Never bypass the invite card: if one is waiting (or was
+                // declined), drop group traffic until the user joins.
+                if hasInviteCard(for: groupMessage.gid) { return }
                 guard contact(opened.senderId) != nil else { return }
                 ensureGroup(
                     groupMessage.gid,
@@ -654,6 +667,7 @@ final class ChatStore: ObservableObject {
             case .image: snippet = "画像"
             case .file: snippet = "ファイル"
             case .location: snippet = "位置情報"
+            case .invite: snippet = "グループへの招待"
             case .text: snippet = target.body
             }
             replyPreview = String(snippet.prefix(80))
@@ -762,6 +776,7 @@ final class ChatStore: ObservableObject {
         case .image: return "画像"
         case .file: return "ファイル"
         case .location: return "位置情報"
+        case .invite: return "グループへの招待"
         }
     }
 
@@ -1365,6 +1380,14 @@ final class ChatStore: ObservableObject {
 
     func messages(forGroup id: String) -> [ChatMessage] { groupMessages[id] ?? [] }
 
+    /// True when a 1:1 chat holds an invitation card (pending or answered) for
+    /// this group id, so group traffic must not auto-create the group.
+    private func hasInviteCard(for gid: String) -> Bool {
+        messagesByPeer.values.contains { list in
+            list.contains { $0.kind == .invite && $0.inviteGid == gid }
+        }
+    }
+
     func memberNames(of group: ChatGroup) -> [String] {
         group.memberIds.map { id in contacts.first { $0.id == id }?.name ?? "メンバー" }
     }
@@ -1412,6 +1435,51 @@ final class ChatStore: ObservableObject {
         }
     }
 
+    // MARK: group invitations
+
+    /// Join a group after the user taps 参加 on an invite card.
+    @discardableResult
+    func acceptGroupInvite(_ message: ChatMessage, in peerId: String) -> ChatGroup? {
+        guard let gid = message.inviteGid else { return nil }
+        let hub = message.inviteHub ?? peerId
+        ensureGroup(
+            gid,
+            name: message.inviteName ?? message.body,
+            members: (message.inviteMembers ?? []) + [hub]
+        )
+        if let index = groups.firstIndex(where: { $0.id == gid }) {
+            groups[index].ownerId = hub
+        }
+        setInviteState(message.id, in: peerId, accepted: true)
+        return group(gid)
+    }
+
+    /// Decline an invite: the hub removes us so no group is created locally.
+    func declineGroupInvite(_ message: ChatMessage, in peerId: String) {
+        guard let gid = message.inviteGid else { return }
+        setInviteState(message.id, in: peerId, accepted: false)
+        let hub = message.inviteHub ?? peerId
+        let payload = GroupMembershipMessage(
+            t: MessageType.groupLeave.rawValue,
+            gid: gid,
+            id: crypto.myId,
+            name: displayName,
+            n: displayName,
+            ts: Int64(Date().timeIntervalSince1970 * 1000)
+        )
+        if let json = try? payload.toPayloadJSON() {
+            transmit(json, to: hub, markMid: "")
+        }
+    }
+
+    private func setInviteState(_ messageId: String, in peerId: String, accepted: Bool) {
+        guard var list = messagesByPeer[peerId],
+              let index = list.firstIndex(where: { $0.id == messageId }) else { return }
+        list[index].inviteAccepted = accepted
+        messagesByPeer[peerId] = list
+        scheduleSave()
+    }
+
     func send(toGroup id: String, text: String, replyTo: ChatMessage? = nil) {
         let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty, let group = self.group(id) else { return }
@@ -1432,6 +1500,7 @@ final class ChatStore: ObservableObject {
             case .image: snippet = "画像"
             case .file: snippet = "ファイル"
             case .location: snippet = "位置情報"
+            case .invite: snippet = "グループへの招待"
             case .text: snippet = replyTo.body
             }
             replyPreview = String(snippet.prefix(80))
@@ -1674,6 +1743,7 @@ final class ChatStore: ObservableObject {
             case .image: preview = "画像"
             case .file: preview = "ファイル"
             case .location: preview = "位置情報"
+            case .invite: preview = "グループへの招待"
             case .text: preview = message.body
             }
             let mentioned = message.mentions?.contains(crypto.myId) == true
@@ -1709,6 +1779,11 @@ final class ChatStore: ObservableObject {
                 transmit(json, to: member, markMid: "")
             }
         }
+        removeGroupLocally(id)
+    }
+
+    /// Remove the group and its history from this device only (no signals).
+    func deleteGroupLocally(_ id: String) {
         removeGroupLocally(id)
     }
 
@@ -1868,7 +1943,7 @@ struct ChatGroup: Identifiable, Hashable, Codable {
 
 struct ChatMessage: Identifiable, Hashable, Codable {
     enum Kind: String, Hashable, Codable {
-        case text, image, file, location
+        case text, image, file, location, invite
     }
 
     enum Delivery: String, Hashable, Codable {
@@ -1898,4 +1973,13 @@ struct ChatMessage: Identifiable, Hashable, Codable {
     /// Local media file name (image/file messages).
     var mediaName: String? = nil
     var fileSize: Int? = nil
+    /// Pending group invitation (kind == .invite). Nil on accepted/declined
+    /// cards? No: `inviteAccepted` carries the decision, the rest stay filled
+    /// so the card can still name the group after the fact.
+    var inviteGid: String? = nil
+    var inviteName: String? = nil
+    var inviteHub: String? = nil
+    var inviteMembers: [String]? = nil
+    /// nil = awaiting the user, true = joined, false = declined.
+    var inviteAccepted: Bool? = nil
 }

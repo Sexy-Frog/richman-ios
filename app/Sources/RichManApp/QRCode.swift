@@ -7,21 +7,33 @@ import CoreImage.CIFilterBuiltins
 enum QRCode {
     private static let context = CIContext()
 
+    /// Falls back to lower error-correction levels when the payload is large
+    /// (a full local prekey bundle can exceed level H's capacity). The centre
+    /// mark shrinks with the level so it stays scannable.
     static func image(from string: String, size: CGFloat = 720) -> UIImage? {
-        let filter = CIFilter.qrCodeGenerator()
-        filter.message = Data(string.utf8)
-        filter.correctionLevel = "H"
-        guard let output = filter.outputImage else { return nil }
+        let data = Data(string.utf8)
+        guard !data.isEmpty else { return nil }
 
-        let scale = size / output.extent.width
-        let scaled = output.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-        guard let cg = context.createCGImage(scaled, from: scaled.extent) else { return nil }
+        let levels: [(level: String, mark: CGFloat)] = [
+            ("H", 0.22), ("Q", 0.20), ("M", 0.17), ("L", 0.14),
+        ]
+        for candidate in levels {
+            let filter = CIFilter.qrCodeGenerator()
+            filter.message = data
+            filter.correctionLevel = candidate.level
+            guard let output = filter.outputImage,
+                  output.extent.width > 1,
+                  output.extent.height > 1 else { continue }
 
-        let qr = UIImage(cgImage: cg)
-        return withMark(qr, size: size)
+            let scale = size / output.extent.width
+            let scaled = output.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            guard let cg = context.createCGImage(scaled, from: scaled.extent) else { continue }
+            return withMark(UIImage(cgImage: cg), size: size, markRatio: candidate.mark)
+        }
+        return nil
     }
 
-    private static func withMark(_ qr: UIImage, size: CGFloat) -> UIImage {
+    private static func withMark(_ qr: UIImage, size: CGFloat, markRatio: CGFloat) -> UIImage {
         let format = UIGraphicsImageRendererFormat.default()
         format.scale = 1
         format.opaque = false
@@ -32,7 +44,7 @@ enum QRCode {
         return renderer.image { _ in
             qr.draw(in: CGRect(x: 0, y: 0, width: size, height: size))
 
-            let mark = size * 0.22
+            let mark = size * markRatio
             let rect = CGRect(
                 x: (size - mark) / 2,
                 y: (size - mark) / 2,
