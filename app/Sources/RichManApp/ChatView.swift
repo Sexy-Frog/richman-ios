@@ -13,6 +13,7 @@ struct ChatView: View {
 
     @State private var draft = ""
     @State private var replyTo: ChatMessage?
+    @FocusState private var composerFocused: Bool
     @State private var showReport = false
     @State private var showTTL = false
     @State private var showAttach = false
@@ -55,7 +56,13 @@ struct ChatView: View {
                             MessageBubble(
                                 message: message,
                                 replyPreview: replyPreview(for: message),
-                                onReply: { replyTo = $0 },
+                                onReply: {
+                                    withAnimation(.easeOut(duration: 0.15)) {
+                                        replyTo = $0
+                                    }
+                                    composerFocused = true
+                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                },
                                 onDelete: {
                                     store.deleteMessage(
                                         $0, in: contact.id, everyone: false
@@ -90,7 +97,6 @@ struct ChatView: View {
                 .onPreferenceChange(BubbleFrameKey.self) {
                     bubbleGeometry.frames = $0
                 }
-                .swipeBackToTalks(geometry: bubbleGeometry) { dismiss() }
             }
 
             if !isOfficial, let replyTo { replyBar(replyTo) }
@@ -126,6 +132,12 @@ struct ChatView: View {
                 }
             }
             if !isOfficial {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showTTL = true } label: {
+                        Image(systemName: "timer")
+                    }
+                    .accessibilityLabel("消えるメッセージ")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                     calls.startCall(peerId: contact.id, name: contact.name)
@@ -275,26 +287,31 @@ struct ChatView: View {
     }
 
     private func replyBar(_ target: ChatMessage) -> some View {
-        HStack(spacing: 8) {
-            Rectangle()
-                .fill(RM.primary)
-                .frame(width: 3)
+        HStack(spacing: 10) {
+            Image(systemName: "arrowshape.turn.up.left.fill")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(RM.primary)
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(target.mine ? "自分" : contact.name) に返信")
-                    .font(.caption.weight(.semibold))
-                Text(target.kind == .text ? target.body : "添付ファイル")
+                Text("返信")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(RM.primary)
+                Text("\(target.mine ? "自分" : contact.name): \(target.kind == .text ? target.body : "添付")")
                     .font(.caption)
                     .lineLimit(1)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(RM.onSurfaceVariant)
             }
             Spacer()
             Button { replyTo = nil } label: {
-                Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(RM.onSurfaceVariant)
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(RM.surface)
+        .padding(.vertical, 8)
+        .background(RM.primary.opacity(0.08))
+        .overlay(alignment: .leading) {
+            Rectangle().fill(RM.primary).frame(width: 3)
+        }
     }
 
     private var composer: some View {
@@ -314,6 +331,7 @@ struct ChatView: View {
                 .font(.body)
                 .textFieldStyle(.plain)
                 .autocorrectionDisabled()
+                .focused($composerFocused)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .frame(minHeight: 40)
@@ -576,7 +594,7 @@ private struct MessageBubble: View {
     }
 }
 
-private struct TTLSheet: View {
+struct TTLSheet: View {
     @Binding var seconds: Int
     @Environment(\.dismiss) private var dismiss
 

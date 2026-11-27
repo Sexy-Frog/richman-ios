@@ -111,7 +111,10 @@ struct GroupChatView: View {
     @EnvironmentObject private var store: ChatStore
     @State private var draft = ""
     @State private var replyTo: ChatMessage?
+    @FocusState private var composerFocused: Bool
     @State private var showInfo = false
+    @State private var showTTL = false
+    @State private var ttlSeconds = 0
     @State private var showAttach = false
     @State private var showPhotos = false
     @State private var showFiles = false
@@ -126,6 +129,7 @@ struct GroupChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if ttlSeconds > 0 { ttlBanner }
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 6) {
@@ -143,7 +147,13 @@ struct GroupChatView: View {
                                 message: message,
                                 mentioned: message.mentions?
                                     .contains(store.myId) == true,
-                                onReply: { replyTo = $0 },
+                                onReply: {
+                                    withAnimation(.easeOut(duration: 0.15)) {
+                                        replyTo = $0
+                                    }
+                                    composerFocused = true
+                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                },
                                 onDelete: {
                                     store.deleteGroupMessage($0, in: group.id)
                                 },
@@ -173,8 +183,8 @@ struct GroupChatView: View {
                 .onPreferenceChange(BubbleFrameKey.self) {
                     bubbleGeometry.frames = $0
                 }
-                .swipeBackToTalks(geometry: bubbleGeometry) { dismiss() }
             }
+            mentionSuggestions
             composer
         }
         .background(RM.chatBg)
@@ -192,13 +202,32 @@ struct GroupChatView: View {
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
+                Button { showTTL = true } label: { Image(systemName: "timer") }
+                    .accessibilityLabel("消えるメッセージ")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 Button { showInfo = true } label: { Image(systemName: "info.circle") }
             }
         }
         .sheet(isPresented: $showInfo) {
             GroupInfoView(groupId: group.id).environmentObject(store)
         }
-        .onAppear { store.setActiveGroup(group.id) }
+        .sheet(isPresented: $showTTL, onDismiss: {
+            store.setGroupTTL(ttlSeconds, for: group.id)
+        }) {
+            TTLSheet(seconds: $ttlSeconds)
+        }
+        .onAppear {
+            store.setActiveGroup(group.id)
+            ttlSeconds = store.ttl(for: group.id)
+            store.purgeExpiredGroup(group.id)
+        }
+        .task(id: group.id) {
+            while !Task.isCancelled {
+                store.purgeExpiredGroup(group.id)
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+            }
+        }
         .onDisappear { store.setActiveGroup(nil) }
         .confirmationDialog("送信する", isPresented: $showAttach, titleVisibility: .visible) {
             Button("写真") { showPhotos = true }
@@ -259,6 +288,7 @@ struct GroupChatView: View {
                     .font(.body)
                     .textFieldStyle(.plain)
                     .autocorrectionDisabled()
+                    .focused($composerFocused)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
                     .frame(minHeight: 40)
@@ -282,15 +312,38 @@ struct GroupChatView: View {
         .background(RM.background)
     }
 
+    private var ttlBanner: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "timer")
+            Text("消えるメッセージ: \(ttlLabel(ttlSeconds))")
+            Spacer()
+        }
+        .font(.caption2)
+        .foregroundStyle(RM.onSurfaceVariant)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+        .background(RM.surface)
+    }
+
+    private func ttlLabel(_ seconds: Int) -> String {
+        switch seconds {
+        case 3600: return "1時間"
+        case 86_400: return "1日"
+        case 604_800: return "7日"
+        default: return "オフ"
+        }
+    }
+
     private func replyBar(_ message: ChatMessage) -> some View {
-        HStack(spacing: 8) {
-            Rectangle()
-                .fill(RM.primary)
-                .frame(width: 3)
+        HStack(spacing: 10) {
+            Image(systemName: "arrowshape.turn.up.left.fill")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(RM.primary)
             VStack(alignment: .leading, spacing: 2) {
-                Text(message.mine ? "自分" : (message.senderName ?? "メンバー"))
-                    .font(.caption2.weight(.semibold))
-                Text(previewText(message))
+                Text("返信")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(RM.primary)
+                Text("\(message.mine ? "自分" : (message.senderName ?? "メンバー")): \(previewText(message))")
                     .font(.caption)
                     .lineLimit(1)
                     .foregroundStyle(RM.onSurfaceVariant)
@@ -302,8 +355,11 @@ struct GroupChatView: View {
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(RM.surfaceVariant)
+        .padding(.vertical, 8)
+        .background(RM.primary.opacity(0.08))
+        .overlay(alignment: .leading) {
+            Rectangle().fill(RM.primary).frame(width: 3)
+        }
     }
 
     private func previewText(_ message: ChatMessage) -> String {
@@ -313,6 +369,64 @@ struct GroupChatView: View {
         case .location: return "位置情報"
         case .text: return message.body
         }
+    }
+
+    private var mentionQuery: String? {
+        guard let at = draft.lastIndex(of: "@") else { return nil }
+        if at != draft.startIndex {
+            let prev = draft[draft.index(before: at)]
+            guard prev == " " || prev == "\n" else { return nil }
+        }
+        let tail = draft[draft.index(after: at)...]
+        guard !tail.contains(" "), !tail.contains("\n") else { return nil }
+        return String(tail)
+    }
+
+    private var mentionCandidates: [(id: String, name: String)] {
+        guard let query = mentionQuery else { return [] }
+        var list: [(id: String, name: String)] = [("all", "全員")]
+        for id in group.memberIds {
+            if let contact = store.contact(id) {
+                list.append((id, contact.name))
+            }
+        }
+        guard !query.isEmpty else { return list }
+        return list.filter { $0.name.localizedCaseInsensitiveContains(query) }
+    }
+
+    @ViewBuilder
+    private var mentionSuggestions: some View {
+        if mentionQuery != nil, !mentionCandidates.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(mentionCandidates, id: \.id) { candidate in
+                        Button {
+                            applyMention(candidate.name)
+                        } label: {
+                            Text("@\(candidate.name)")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(RM.primary)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .background(RM.surface, in: Capsule())
+                                .overlay(Capsule().stroke(RM.outline, lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+            }
+            .background(RM.background)
+        }
+    }
+
+    private func applyMention(_ name: String) {
+        guard let at = draft.lastIndex(of: "@") else {
+            insertMention(name)
+            return
+        }
+        draft = String(draft[..<at]) + "@\(name) "
     }
 
     private func insertMention(_ name: String) {

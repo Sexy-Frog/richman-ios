@@ -1109,6 +1109,23 @@ final class ChatStore: ObservableObject {
         }
     }
 
+    /// Per-conversation disappearing timer for a group (local to this device).
+    func setGroupTTL(_ seconds: Int, for groupId: String) {
+        UserDefaults.standard.set(seconds, forKey: "rm.ttl.\(groupId)")
+        purgeExpiredGroup(groupId)
+    }
+
+    func purgeExpiredGroup(_ groupId: String) {
+        let seconds = ttl(for: groupId)
+        guard seconds > 0, let list = groupMessages[groupId] else { return }
+        let cutoff = Date().addingTimeInterval(-Double(seconds))
+        let kept = list.filter { $0.ts > cutoff }
+        if kept.count != list.count {
+            groupMessages[groupId] = kept
+            scheduleSave()
+        }
+    }
+
     /// Global retention (Settings → データ). 0 keeps messages forever.
     func purgeOldMessages(days: Int) {
         guard days > 0 else { return }

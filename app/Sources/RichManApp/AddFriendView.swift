@@ -115,7 +115,7 @@ struct AddFriendView: View {
             if let expiresAt {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     let remaining = max(0, expiresAt.timeIntervalSince(context.date))
-                    Text(remaining > 0 ? "あと \(mmss(remaining))" : "期限切れ")
+                    Text(remaining > 0 ? mmss(remaining) : "期限切れ")
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(remaining > 0 ? RM.onSurfaceVariant : RM.error)
                 }

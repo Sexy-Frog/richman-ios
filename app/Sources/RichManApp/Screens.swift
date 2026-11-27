@@ -46,16 +46,8 @@ struct TalksView: View {
                 }
             }
             .navigationTitle("トーク")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button("グループを作成", systemImage: "person.3") {
-                            showCreateGroup = true
-                        }
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                }
+            .overlay(alignment: .bottomTrailing) {
+                FABButton(label: "グループを作成") { showCreateGroup = true }
             }
             .sheet(isPresented: $showCreateGroup) {
                 CreateGroupView().environmentObject(store)
@@ -240,13 +232,8 @@ struct FriendsView: View {
                 }
             }
             .navigationTitle("友だち")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { showAdd = true } label: {
-                        Image(systemName: "person.badge.plus")
-                    }
-                    .accessibilityLabel("友だちを追加")
-                }
+            .overlay(alignment: .bottomTrailing) {
+                FABButton(label: "友だちを追加") { showAdd = true }
             }
             .sheet(isPresented: $showAdd) {
                 AddFriendView()
@@ -310,6 +297,26 @@ struct EmptyState: View {
         .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(RM.background)
+    }
+}
+
+struct FABButton: View {
+    let label: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "plus")
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 56, height: 56)
+                .background(RM.primary, in: Circle())
+                .shadow(color: .black.opacity(0.22), radius: 8, y: 4)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .padding(.trailing, 20)
+        .padding(.bottom, 16)
     }
 }
 
