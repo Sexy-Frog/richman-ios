@@ -1480,6 +1480,7 @@ final class ChatStore: ObservableObject {
     func receive(inGroup id: String, from sender: String, text: String) {
         let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty else { return }
+        if hiddenIds.contains(id) { setHidden(id, false) }
         groupMessages[id, default: []].append(
             ChatMessage(
                 id: UUID().uuidString, body: body, mine: false, ts: Date(), senderName: sender

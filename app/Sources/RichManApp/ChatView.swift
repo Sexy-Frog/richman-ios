@@ -139,9 +139,6 @@ struct ChatView: View {
                             showReport = true
                         }
                         Divider()
-                        Button("消えるメッセージ", systemImage: "timer") {
-                            showTTL = true
-                        }
                         Button("トークを削除", systemImage: "trash", role: .destructive) {
                             confirmClearChat = true
                         }
