@@ -62,17 +62,22 @@ final class OnboardingUITests: XCTestCase {
             "name did not advance to the zone step"
         )
 
-        // Zone (later) -> PIN step
+        // Zone (later) -> terms step
         button("後で設定する").tap()
         XCTAssertTrue(
-            text("暗証番号を設定").waitForExistence(timeout: 5),
-            "zone step did not advance to the PIN step"
+            text("利用規約への同意").waitForExistence(timeout: 5),
+            "zone step did not advance to the terms step"
         )
 
-        // Terms are required before the keypad works.
+        // Terms are a dedicated screen now.
         let toggle = app.switches.firstMatch
         XCTAssertTrue(toggle.waitForExistence(timeout: 5))
         toggle.tap()
+        button("同意して次へ").tap()
+        XCTAssertTrue(
+            text("暗証番号を設定").waitForExistence(timeout: 5),
+            "terms step did not advance to the PIN step"
+        )
 
         enterPIN()
         // Confirmation round.

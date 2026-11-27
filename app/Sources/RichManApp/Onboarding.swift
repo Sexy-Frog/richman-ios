@@ -11,13 +11,14 @@ struct OnboardingView: View {
     @EnvironmentObject private var lock: LockStore
     @EnvironmentObject private var location: LocationProvider
 
-    private enum Step: Equatable { case intro, name, zone, pin }
+    private enum Step: Equatable { case intro, name, zone, terms, pin }
 
     @State private var step: Step = {
         #if DEBUG
         switch UserDefaults.standard.string(forKey: "rm.onboardingStep") {
         case "name": return .name
         case "zone": return .zone
+        case "terms": return .terms
         case "pin": return .pin
         default: return .intro
         }
@@ -137,6 +138,7 @@ struct OnboardingView: View {
                 switch step {
                 case .name: nameStep
                 case .zone: zoneStep
+                case .terms: termsStep
                 case .pin: pinStep
                 case .intro: EmptyView()
                 }
@@ -155,7 +157,7 @@ struct OnboardingView: View {
 
     private var nameStep: some View {
         VStack(spacing: 14) {
-            stepCaption("1 / 3")
+            stepCaption("1 / 4")
             Text("表示名を決めましょう").font(.title2.weight(.bold))
             Text("友だちに表示される名前です。あとから設定で変更できます。")
                 .font(.subheadline)
@@ -178,7 +180,7 @@ struct OnboardingView: View {
 
     private var zoneStep: some View {
         VStack(spacing: 16) {
-            stepCaption("2 / 3")
+            stepCaption("2 / 4")
             Text("プライバシーゾーン").font(.title2.weight(.bold))
             Text("決めた場所に入ったときに、アプリを自動で守る機能です。")
                 .font(.subheadline)
@@ -227,7 +229,7 @@ struct OnboardingView: View {
 
             Button("後で設定する") {
                 UserDefaults.standard.set(false, forKey: "rm.zoneWanted")
-                step = .pin
+                step = .terms
             }
             .font(.footnote)
 
@@ -239,9 +241,67 @@ struct OnboardingView: View {
         .padding(.top, 4)
     }
 
+    /// Dedicated consent screen. Keeping the terms gate off the PIN keypad
+    /// makes the flow readable and gives the agreement the space it needs.
+    private var termsStep: some View {
+        VStack(spacing: 16) {
+            stepCaption("3 / 4")
+            Text("利用規約への同意").font(.title2.weight(.bold))
+            Text("RichMan を安心して使うために、次の内容を確認してください。")
+                .font(.subheadline)
+                .foregroundStyle(RM.onSurfaceVariant)
+                .multilineTextAlignment(.center)
+
+            VStack(alignment: .leading, spacing: 12) {
+                example(
+                    "nosign",
+                    "禁止事項",
+                    "嫌がらせ、詐欺、違法な取引、他人の権利を侵害する行為は禁止です。"
+                )
+                example(
+                    "clock.badge.exclamationmark",
+                    "通報への対応",
+                    "通報は24時間以内に確認し、必要に応じて利用停止や削除を行います。"
+                )
+                example(
+                    "lock.shield.fill",
+                    "データの扱い",
+                    "会話は端末間で暗号化され、運営が内容を読むことはありません。"
+                )
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+            .background(RM.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+
+            Toggle(isOn: $acceptedTerms) {
+                Text("利用規約と禁止事項に同意します")
+                    .font(.footnote.weight(.medium))
+            }
+            .tint(RM.primary)
+            .padding(.horizontal, 4)
+
+            Link("利用規約を読む", destination: SupportConfig.termsURL)
+                .font(.caption)
+
+            Button("同意して次へ") {
+                guard acceptedTerms else {
+                    error = "利用規約への同意が必要です"
+                    return
+                }
+                error = nil
+                step = .pin
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(RM.primary)
+            .controlSize(.large)
+            .frame(maxWidth: .infinity)
+        }
+        .padding(.top, 4)
+    }
+
     private var pinStep: some View {
         VStack(spacing: 12) {
-            stepCaption("3 / 3")
+            stepCaption("4 / 4")
             Text(pinConfirming ? "もう一度入力" : "暗証番号を設定")
                 .font(.title2.weight(.bold))
             Text(pinConfirming
@@ -250,22 +310,6 @@ struct OnboardingView: View {
                 .font(.subheadline)
                 .foregroundStyle(RM.onSurfaceVariant)
                 .multilineTextAlignment(.center)
-
-            Toggle(isOn: $acceptedTerms) {
-                Text("利用規約と禁止事項に同意します")
-                    .font(.caption)
-            }
-            .tint(RM.primary)
-            .padding(.horizontal, 24)
-
-            Link("利用規約を読む", destination: SupportConfig.termsURL)
-                .font(.caption2)
-
-            if !acceptedTerms {
-                Text("同意すると暗証番号を入力できます")
-                    .font(.caption2)
-                    .foregroundStyle(RM.onSurfaceVariant)
-            }
 
             HStack(spacing: 12) {
                 ForEach(0..<4, id: \.self) { index in
@@ -277,8 +321,6 @@ struct OnboardingView: View {
             .padding(.vertical, 8)
 
             pinKeypad
-                .disabled(!acceptedTerms)
-                .opacity(acceptedTerms ? 1 : 0.35)
         }
     }
 
@@ -358,7 +400,7 @@ struct OnboardingView: View {
         } else {
             location.startIfAuthorized()
         }
-        step = .pin
+        step = .terms
     }
 
     private func appendPin(_ digit: Int) {

@@ -92,6 +92,16 @@ jobs:
             -rm.onboardingStep zone >/dev/null
           sleep 6
           snap shots/onboarding-zone.png
+          xcrun simctl terminate "$UDID" works.kelvins.richman >/dev/null 2>&1 || true
+          xcrun simctl launch "$UDID" works.kelvins.richman -rm.demo 1 \
+            -rm.onboardingStep terms >/dev/null
+          sleep 6
+          snap shots/onboarding-terms.png
+          xcrun simctl terminate "$UDID" works.kelvins.richman >/dev/null 2>&1 || true
+          xcrun simctl launch "$UDID" works.kelvins.richman -rm.demo 1 \
+            -rm.onboardingStep pin >/dev/null
+          sleep 6
+          snap shots/onboarding-pin.png
           shoot primer -rm.locationPrimer 1
           shoot tutorial -rm.privacyTutorial 1
           shoot duress -rm.showDuress 1
