@@ -16,6 +16,11 @@ on:
         description: "Upload the IPA to App Store Connect after export"
         type: boolean
         default: true
+      build_number:
+        description: "CFBundleVersion to publish (default: GitHub run number)"
+        type: string
+        required: false
+        default: ""
 
 concurrency:
   group: release-${{ github.ref }}
@@ -34,13 +39,21 @@ jobs:
       - name: Install tools
         run: brew install protobuf xcodegen
 
+      - name: Resolve build number
+        env:
+          INPUT_BUILD_NUMBER: ${{ inputs.build_number }}
+        run: |
+          set -euo pipefail
+          BUILD_NUMBER="${INPUT_BUILD_NUMBER:-$GITHUB_RUN_NUMBER}"
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
+
       - name: Cache libsignal FFI and Tor xcframework
         uses: actions/cache@v4
         with:
           path: |
             crypto/third_party/libsignal/target
             tor/Vendor
-          key: release-ffi-${{ hashFiles('crypto/third_party/libsignal/rust-toolchain', 'crypto/third_party/libsignal/Cargo.lock') }}-v1
+          key: release-ffi-${{ hashFiles('crypto/third_party/libsignal/rust-toolchain', 'crypto/third_party/libsignal/Cargo.lock') }}-v2
 
       - name: Build libsignal FFI (iOS device)
         working-directory: crypto
@@ -55,11 +68,19 @@ jobs:
         working-directory: tor
         run: bash scripts/fetch-tor.sh
 
+      - name: Verify Tor exports only the public API
+        working-directory: tor
+        run: bash scripts/verify-tor.sh
+
       - name: Generate app project (real crypto)
         working-directory: app
         env:
           RM_RELAY_HOST: ${{ secrets.RM_RELAY_HOST }}
-        run: xcodegen generate --spec project-crypto.yml
+        run: |
+          xcodegen generate --spec project-crypto.yml
+          # XcodeGen writes a literal CFBundleVersion; pin the build number
+          # before the build so export/signing cannot renumber it.
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" Info-Crypto.plist
 
       - name: Write App Store Connect API key
         env:
@@ -110,12 +131,16 @@ jobs:
             PRODUCT_BUNDLE_IDENTIFIER=works.kelvins.richman \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
             LIBRARY_SEARCH_PATHS="$FFI_DIR" \
             OTHER_LDFLAGS="-lsignal_ffi" \
             ARCHS=arm64 \
             ONLY_ACTIVE_ARCH=YES \
             archive
+          # Pin the published build number regardless of how XcodeGen filled
+          # CFBundleVersion. The archive is unsigned, so patching is safe.
+          APP="build/RichMan.xcarchive/Products/Applications/RichManCryptoApp.app"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$APP/Info.plist"
 
       - name: Verify archive contents
         working-directory: app
@@ -127,6 +152,11 @@ jobs:
           test -f "$APP/PrivacyInfo.xcprivacy"
           test -f "$APP/Assets.car"
           test ! -e "$APP/map_style_direct.json"
+          # Tor is a dynamic framework so its bundled OpenSSL stays private
+          # (libsignal links BoringSSL with the same C symbol names).
+          test -f "$APP/Frameworks/Tor.framework/Tor"
+          /usr/bin/otool -L "$APP/RichManCryptoApp" | grep -q '@rpath/Tor.framework/Tor'
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "$BUILD_NUMBER"
           HOST=$(/usr/libexec/PlistBuddy -c "Print :RMRelayHost" "$APP/Info.plist")
           case "$HOST" in
             *.onion) echo "relay host present" ;;
@@ -187,6 +217,10 @@ jobs:
             -authenticationKeyPath "$ASC_KEY_PATH" \
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+          IPA=$(find build/export -maxdepth 1 -name '*.ipa' | head -n1)
+          test -n "$IPA"
+          unzip -l "$IPA" > /tmp/ipa-contents.txt
+          grep -q 'Payload/RichManCryptoApp.app/Frameworks/Tor.framework/Tor' /tmp/ipa-contents.txt
           ls -lh build/export
 
       - name: Upload to App Store Connect

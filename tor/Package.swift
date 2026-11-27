@@ -20,15 +20,14 @@ let package = Package(
     ],
     targets: [
         // Vendor/tor.xcframework is produced by `scripts/fetch-tor.sh` (run in
-        // CI before building). The upstream archive ships `tor.a`, which SwiftPM
-        // rejects for a static library ("must be prefixed with lib"), so the
-        // script repacks each slice as `libtor.a`.
+        // CI before building). It contains a dynamic Tor.framework that exports
+        // only the public tor_* C API (Tor's bundled OpenSSL stays private).
         .binaryTarget(
             name: "tor",
             path: "Vendor/tor.xcframework"
         ),
-        // Header-only shim: the xcframework has no module map, so we expose
-        // `feature/api/tor_api.h` under a SwiftPM module name.
+        // Header-only shim: the public Tor C API is vendored in this target, so
+        // TorSupport does not depend on the binary framework's headers.
         .target(
             name: "CTorMin",
             dependencies: ["tor"],

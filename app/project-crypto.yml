@@ -60,6 +60,7 @@ targets:
       path: Info-Crypto.plist
       properties:
         CFBundleDisplayName: RichMan
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         # Export compliance: standard published encryption (libsignal/Signal
         # protocol, TLS, Tor) used for the app's own messaging qualifies for the
         # mass-market exemption. "true" (non-exempt) additionally requires an
