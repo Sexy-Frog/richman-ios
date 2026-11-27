@@ -102,6 +102,7 @@ struct TalksView: View {
                 ChatPeekView(contact: contact).environmentObject(store)
             }
             .onAppear {
+                store.purgeAllExpired()
                 #if DEBUG
                 if peek == nil,
                    let id = UserDefaults.standard.string(forKey: "rm.peek"),

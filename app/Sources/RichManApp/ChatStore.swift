@@ -1161,6 +1161,16 @@ final class ChatStore: ObservableObject {
         purgeExpiredGroup(groupId)
     }
 
+    /// Apply every conversation's timer (used when the Talks list appears).
+    func purgeAllExpired() {
+        for peerId in Array(messagesByPeer.keys) {
+            purgeExpired(peerId)
+        }
+        for groupId in Array(groupMessages.keys) {
+            purgeExpiredGroup(groupId)
+        }
+    }
+
     func purgeExpiredGroup(_ groupId: String) {
         let seconds = ttl(for: groupId)
         guard seconds > 0, let list = groupMessages[groupId] else { return }
