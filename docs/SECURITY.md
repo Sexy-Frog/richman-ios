@@ -44,12 +44,13 @@ independent audit.
   APNs. Map tiles go through the loopback `MapProxy` → Tor relay. The DEBUG-only
   direct map style is removed from Release builds.
 
-## Location (privacy zone only)
+## Location (privacy zone + receiver-only probe)
 
 - Location permission is requested for the on-device privacy zone.
-- The iOS client has **no** location request UI, hidden command, shared-location
-  map, receiver-side probe, or background location. It never sends location to
-  the server or to peers.
+- The iOS client has **no** location request UI, hidden user command, or
+  shared-location map. A receiver-only probe handler remains for compatible
+  clients; it replies once while the zone is enabled and the app is active.
+- It does not use background location and does not send location to the server.
 - The zone action (lock / clear chats / clear account) runs locally.
 
 ## At rest and seizure resistance
