@@ -134,7 +134,6 @@ private struct ChatPeekView: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
     }
 
     private func previewText(_ message: ChatMessage) -> String {

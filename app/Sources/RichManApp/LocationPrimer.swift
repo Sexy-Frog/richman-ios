@@ -66,7 +66,6 @@ struct LocationPrimer: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
     }
 
     private func benefit(_ icon: String, _ title: String, _ text: String) -> some View {

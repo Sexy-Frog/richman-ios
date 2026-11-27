@@ -4,10 +4,6 @@ import SwiftUI
 /// short, predictable index (profile + five destinations).
 struct SettingsView: View {
     @EnvironmentObject private var store: ChatStore
-    @EnvironmentObject private var tor: TorSession
-    @AppStorage("rm.preview") private var previewInNotifications = false
-    @AppStorage("rm.autoLockSeconds") private var autoLockSeconds = 30
-    @AppStorage("rm.retentionDays") private var retentionDays = 30
     @AppStorage("rm.privacyTutorialSeen") private var privacyTutorialSeen = false
 
     @State private var showNameEdit = false
@@ -44,47 +40,27 @@ struct SettingsView: View {
                     NavigationLink {
                         PrivacyZoneSettingsView(zone: $zone)
                     } label: {
-                        SettingsRow(
-                            icon: "location.circle.fill",
-                            title: "プライバシーゾーン",
-                            value: zone.map { "\(Int($0.radius))m" } ?? "未設定"
-                        )
+                        SettingsRow(icon: "location.circle.fill", title: "プライバシーゾーン")
                     }
                     NavigationLink {
                         NotificationSettingsView()
                     } label: {
-                        SettingsRow(
-                            icon: "bell.badge.fill",
-                            title: "通知",
-                            value: previewInNotifications ? "プレビュー表示" : "内容を隠す"
-                        )
+                        SettingsRow(icon: "bell.badge.fill", title: "通知")
                     }
                     NavigationLink {
                         SecuritySettingsView()
                     } label: {
-                        SettingsRow(
-                            icon: "lock.shield.fill",
-                            title: "セキュリティ",
-                            value: autoLockLabel
-                        )
+                        SettingsRow(icon: "lock.shield.fill", title: "セキュリティ")
                     }
                     NavigationLink {
                         DataSettingsView()
                     } label: {
-                        SettingsRow(
-                            icon: "externaldrive.fill",
-                            title: "データ",
-                            value: retentionLabel
-                        )
+                        SettingsRow(icon: "externaldrive.fill", title: "データ")
                     }
                     NavigationLink {
                         NetworkSettingsView()
                     } label: {
-                        SettingsRow(
-                            icon: "network",
-                            title: "ネットワーク",
-                            value: tor.statusText
-                        )
+                        SettingsRow(icon: "network", title: "ネットワーク")
                     }
                 }
 
@@ -92,12 +68,12 @@ struct SettingsView: View {
                     NavigationLink {
                         AboutSettingsView()
                     } label: {
-                        SettingsRow(icon: "info.circle", title: "このアプリ", value: appVersion)
+                        SettingsRow(icon: "info.circle", title: "このアプリ")
                     }
                     NavigationLink {
                         SupportSettingsView()
                     } label: {
-                        SettingsRow(icon: "questionmark.circle", title: "サポート", value: nil)
+                        SettingsRow(icon: "questionmark.circle", title: "サポート")
                     }
                 }
             }
@@ -122,22 +98,6 @@ struct SettingsView: View {
         let id = store.myId
         guard id.count > 12 else { return id }
         return String(id.prefix(6)) + "…" + String(id.suffix(4))
-    }
-
-    private var autoLockLabel: String {
-        switch autoLockSeconds {
-        case 0: return "オフ"
-        case 5: return "5秒"
-        case 15: return "15秒"
-        case 30: return "30秒"
-        case 60: return "1分"
-        case 300: return "5分"
-        default: return "\(autoLockSeconds)秒"
-        }
-    }
-
-    private var retentionLabel: String {
-        retentionDays == 0 ? "オフ" : "\(retentionDays)日"
     }
 }
 
@@ -463,7 +423,6 @@ private struct SupportSettingsView: View {
 private struct SettingsRow: View {
     let icon: String
     let title: String
-    var value: String?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -475,12 +434,6 @@ private struct SettingsRow: View {
             Text(title)
                 .foregroundStyle(RM.onSurface)
             Spacer(minLength: 8)
-            if let value {
-                Text(value)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
         }
     }
 }
