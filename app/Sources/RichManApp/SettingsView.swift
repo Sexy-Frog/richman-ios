@@ -356,7 +356,9 @@ private struct DataSettingsView: View {
 
 private struct NetworkSettingsView: View {
     @EnvironmentObject private var tor: TorSession
+    @EnvironmentObject private var store: ChatStore
     @AppStorage("rm.useTor") private var useTor = false
+    @AppStorage("rm.pushToken") private var pushToken = ""
 
     var body: some View {
         Form {
@@ -364,6 +366,14 @@ private struct NetworkSettingsView: View {
                 Toggle("高匿名モード（Tor）", isOn: $useTor)
                 LabeledContent("接続", value: tor.statusText)
                 LabeledContent("リレー", value: tor.reachable ? "接続OK" : "未接続")
+                LabeledContent(
+                    "APNsトークン",
+                    value: pushToken.isEmpty ? "未取得" : "取得済み"
+                )
+                LabeledContent(
+                    "通知登録",
+                    value: store.pushRegistered ? "済み" : "未登録"
+                )
                 if let lastError = tor.lastError {
                     Text(lastError)
                         .font(.caption)
@@ -371,6 +381,11 @@ private struct NetworkSettingsView: View {
                         .lineLimit(3)
                 }
                 Button("接続を確認") { tor.checkNow() }
+                if pushToken.isEmpty {
+                    Text("通知が許可されていないとトークンを取得できません。iOSの設定 → 通知 → RichMan を確認してください。")
+                        .font(.caption)
+                        .foregroundStyle(RM.onSurfaceVariant)
+                }
                 if useTor && !tor.supportsTor {
                     Text("このビルドではTorを利用できません。次回起動時に直接接続へ戻してください。")
                         .font(.caption)

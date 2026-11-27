@@ -24,6 +24,8 @@ final class ChatStore: ObservableObject {
     @Published private(set) var blockedIds: Set<String> = []
     /// Peers currently shown as "入力中…" (cleared automatically).
     @Published private(set) var typingPeers: Set<String> = []
+    /// True after the relay accepted the APNs token/mailbox registration.
+    @Published private(set) var pushRegistered = false
     private var typingClearTasks: [String: Task<Void, Never>] = [:]
     private var lastTypingSent: [String: Date] = [:]
     /// APNs token + the receive-mailbox set last registered with the relay.
@@ -246,9 +248,15 @@ final class ChatStore: ObservableObject {
         ).union(pendingBoxes)
         guard !boxes.isEmpty else { return }
         if !force, boxes == lastRegisteredBoxes { return }
-        lastRegisteredBoxes = boxes
         Task {
-            try? await service.registerPush(token: token, boxes: Array(boxes))
+            do {
+                try await service.registerPush(token: token, boxes: Array(boxes))
+                pushRegistered = true
+                lastRegisteredBoxes = boxes
+            } catch {
+                pushRegistered = false
+                lastRegisteredBoxes = []
+            }
         }
     }
 
@@ -1205,6 +1213,7 @@ final class ChatStore: ObservableObject {
         pendingBoxes.removeAll()
         saveTask?.cancel()
         lastRegisteredBoxes = []
+        pushRegistered = false
         inviteGeneration += 1
         warmInviteRaw = nil
         warmInviteAt = nil

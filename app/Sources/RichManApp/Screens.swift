@@ -313,8 +313,13 @@ private struct ContactRow: View {
             Spacer()
             if contact.unread > 0 {
                 Text("\(contact.unread)")
-                    .font(.caption2.weight(.bold)).foregroundStyle(.white)
-                    .padding(6).background(RM.primary, in: Circle())
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .frame(minWidth: 20)
+                    .background(RM.primary, in: Capsule())
+                    .accessibilityLabel("未読 \(contact.unread)件")
             }
         }
         .padding(.vertical, 4)
