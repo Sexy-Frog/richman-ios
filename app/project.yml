@@ -1,4 +1,4 @@
-# XcodeGen spec  Egenerates RichMan.xcodeproj on the macOS CI runner
+# XcodeGen spec — generates RichMan.xcodeproj on the macOS CI runner
 # (`brew install xcodegen && xcodegen generate`). Hand-writing a .pbxproj is
 # avoided; the project is reproducible from this file. The app depends ONLY on
 # RichManCore + MapLibre so it compiles for the iOS Simulator with no signing and
@@ -64,9 +64,9 @@ targets:
         # Connect; without that code the upload fails with error 90592.
         # The annual self-classification report is filed separately.
         ITSAppUsesNonExemptEncryption: false
-        NSCameraUsageDescription: "QRコードを読み取って友だちを追加します、E
-        NSMicrophoneUsageDescription: "通話で音声を送受信するためにマイクを使用します。通話は端末間で暗号化され、E��音は保存しません、E
-        NSLocationWhenInUseUsageDescription: "プライバシーゾーンの設定と判定に使用します。位置惁E��は端末冁E��処琁E��、サーバ�Eには送信しません。バチE��グラウンドでは取得しません、E
+        NSCameraUsageDescription: "QRコードを読み取って友だちを追加します。"
+        NSMicrophoneUsageDescription: "通話で音声を送受信するためにマイクを使用します。通話は端末間で暗号化され、録音は保存しません。"
+        NSLocationWhenInUseUsageDescription: "プライバシーゾーンの設定と判定に使用します。位置情報は端末内で処理し、サーバーには送信しません。バックグラウンドでは取得しません。"
         # Map tiles are served from the loopback proxy (which uses Tor), never
         # from the clearnet. Everything else stays HTTPS.
         NSAppTransportSecurity:
