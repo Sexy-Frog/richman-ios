@@ -42,12 +42,26 @@ public final class DirectTransport: RelayTransport, @unchecked Sendable {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("*/*", forHTTPHeaderField: "Accept")
+        request.setValue(
+            "RichMan/1.0 (iPhone; iOS) CFNetwork/3826.500.71 Darwin/24.5.0",
+            forHTTPHeaderField: "User-Agent"
+        )
         if let contentType {
             request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         }
         request.httpBody = body
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<(Data, URLResponse?), Error>) in
+            let task = session.dataTask(with: request) { data, response, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: (data ?? Data(), response))
+                }
+            }
+            task.resume()
+        }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         return RelayResponse(status: status, body: data)
     }
