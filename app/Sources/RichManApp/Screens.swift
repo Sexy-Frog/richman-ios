@@ -137,7 +137,11 @@ private struct ChatPeekPopup: View {
     @EnvironmentObject private var store: ChatStore
 
     private var recent: [ChatMessage] {
-        Array(store.messages(for: contact.id).suffix(6))
+        Array(
+            store.messages(for: contact.id)
+                .filter { $0.system != true }
+                .suffix(6)
+        )
     }
     private var muted: Bool { store.isMuted(contact.id) }
 
