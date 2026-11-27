@@ -356,27 +356,28 @@ private struct DataSettingsView: View {
 
 private struct NetworkSettingsView: View {
     @EnvironmentObject private var tor: TorSession
+    @AppStorage("rm.useTor") private var useTor = false
 
     var body: some View {
         Form {
             Section {
-                LabeledContent("Tor", value: tor.statusText)
-                if tor.supportsTor {
-                    LabeledContent("リレー", value: tor.reachable ? "接続OK" : "未接続")
-                    if let lastError = tor.lastError {
-                        Text(lastError)
-                            .font(.caption)
-                            .foregroundStyle(RM.onSurfaceVariant)
-                            .lineLimit(3)
-                    }
-                    Button("接続を確認") { tor.checkNow() }
-                } else {
-                    Text("モックビルドでは無効です（実ビルドで有効になります）。")
+                Toggle("高匿名モード（Tor）", isOn: $useTor)
+                LabeledContent("接続", value: tor.statusText)
+                LabeledContent("リレー", value: tor.reachable ? "接続OK" : "未接続")
+                if let lastError = tor.lastError {
+                    Text(lastError)
                         .font(.caption)
                         .foregroundStyle(RM.onSurfaceVariant)
+                        .lineLimit(3)
+                }
+                Button("接続を確認") { tor.checkNow() }
+                if useTor && !tor.supportsTor {
+                    Text("このビルドではTorを利用できません。次回起動時に直接接続へ戻してください。")
+                        .font(.caption)
+                        .foregroundStyle(RM.error)
                 }
             } footer: {
-                Text("メッセージと招待は .onion リレーへ Tor 経由でのみ送信されます。直接のインターネット接続は行いません。\nロックダウンモードでも Tor 通信・通知・QR 読み取りは動作し、Web ページの表示のみ iOS の制限を受けます。")
+                Text("オフ: HTTPSでリレーへ直接接続します（高速・通知が安定）。オン: Tor経由でIPアドレスを隠します（接続と配信が遅くなります）。切り替えは次回起動時に反映されます。\n内容はどちらの経路でも端末間で暗号化されます。")
             }
         }
         .navigationTitle("ネットワーク")

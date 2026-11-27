@@ -5,10 +5,10 @@ import RichManCore
 import TorSupport
 #endif
 
-/// Owns the embedded Tor daemon and the SOCKS transport to the relay. Tor is
-/// the only path to the relay: there is no clearnet fallback. In the mock /
-/// Simulator build (no TorSupport package linked) this object reports
-/// `unsupported` instead of pretending to be online.
+/// Owns the network path to the relay. The default is a direct HTTPS transport
+/// (no bootstrap delay, reliable push registration); an optional high-anonymity
+/// mode routes everything through the embedded Tor daemon. In the mock /
+/// Simulator build without TorSupport, direct mode still works.
 @MainActor
 final class TorSession: ObservableObject {
     /// The relay's v3 onion address, injected at build time (`RM_RELAY_HOST`)
@@ -18,6 +18,14 @@ final class TorSession: ObservableObject {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
     static let relayPort: UInt16 = 80
+
+    /// Public HTTPS relay endpoint (Apache `/relay/` proxy). Not a secret.
+    static var directRelayURL: URL? {
+        let raw = (Bundle.main.object(forInfoDictionaryKey: "RMDirectRelayURL") as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let fallback = "https://kelvins.works/relay/"
+        return URL(string: raw.isEmpty ? fallback : raw)
+    }
 
     /// Emergency wipe: remove Tor's data directory, cached descriptors and the
     /// debug log. This also makes the next launch bootstrap from scratch.
@@ -67,7 +75,10 @@ final class TorSession: ObservableObject {
     }
 
     var statusText: String {
-        if supportsTor && !configured { return "リレー未設定" }
+        if !useTor {
+            return reachable ? "直接接続（HTTPS）" : "直接接続（未確認）"
+        }
+        if Self.relayHost.isEmpty { return "リレー未設定" }
         return switch phase {
         case .unsupported: "このビルドでは無効"
         case .stopped: "停止"
@@ -77,17 +88,33 @@ final class TorSession: ObservableObject {
         }
     }
 
-    /// Transport for relay calls, and only when Tor has reached the relay.
+    /// Default: direct HTTPS. `rm.useTor` opts into the high-anonymity Tor path
+    /// (takes effect on the next launch).
+    var useTor: Bool {
+        UserDefaults.standard.object(forKey: "rm.useTor") as? Bool ?? false
+    }
+
+    private var directTransport: DirectTransport? {
+        guard !useTor, let url = Self.directRelayURL else { return nil }
+        return DirectTransport(baseURL: url)
+    }
+
+    /// Transport for relay calls. Direct mode is ready immediately; Tor mode
+    /// waits for the SOCKS path to reach the relay.
     var readyTransport: RelayTransport? {
+        if !useTor { return directTransport }
         guard phase == .ready else { return nil }
         return transport(isolation: "default")
     }
 
-    /// Factory used by `ChatStore`: a stable SOCKS username per mailbox makes
-    /// Tor's `IsolateSOCKSAuth` put different contacts on different circuits.
-    /// Captures only value types, so it is safe to hand to the relay actor.
+    /// Factory used by `ChatStore`. In Tor mode a stable SOCKS username per
+    /// mailbox isolates contacts; direct mode shares the HTTPS session.
     var readyTransportFactory: (@Sendable (String) -> RelayTransport)? {
-        guard phase == .ready, configured else { return nil }
+        if !useTor {
+            guard let url = Self.directRelayURL else { return nil }
+            return { _ in DirectTransport(baseURL: url) }
+        }
+        guard phase == .ready, !Self.relayHost.isEmpty else { return nil }
         let host = Self.relayHost
         let port = Self.relayPort
         let socks = socksPort
@@ -102,16 +129,17 @@ final class TorSession: ObservableObject {
         }
     }
 
-    /// False when the build was produced without a relay address.
-    var configured: Bool { !Self.relayHost.isEmpty }
+    /// False when the build has neither a direct URL nor an onion address.
+    var configured: Bool { Self.directRelayURL != nil || !Self.relayHost.isEmpty }
 
-    /// Transport for relay calls, only once the SOCKS listener is up.
-    var relayTransport: SOCKS5Transport? {
-        transport(isolation: "default")
+    /// Transport for relay calls (direct or Tor).
+    var relayTransport: RelayTransport? {
+        if !useTor { return directTransport }
+        return transport(isolation: "default")
     }
 
     func transport(isolation: String) -> SOCKS5Transport? {
-        guard phase != .unsupported, configured else { return nil }
+        guard phase != .unsupported, !Self.relayHost.isEmpty else { return nil }
         return SOCKS5Transport(
             proxy: SOCKS5Address(host: "127.0.0.1", port: socksPort),
             targetHost: Self.relayHost,
@@ -122,6 +150,14 @@ final class TorSession: ObservableObject {
     }
 
     func start() {
+        if !useTor {
+            phase = .ready
+            if mapStyleURL == nil, let transport = readyTransport {
+                mapStyleURL = MapProxy.shared.start(transport: transport)
+            }
+            checkNow()
+            return
+        }
         #if DEBUG
         // CI E2E uses a Tor daemon on the host Mac (simulators share its
         // loopback), which keeps the embedded-Tor lifecycle out of the E2E
@@ -244,11 +280,11 @@ final class TorSession: ObservableObject {
                 phase = .ready
                 lastError = nil
                 if mapStyleURL == nil {
-                    // Tiles/glyphs/sprites now go through the loopback proxy,
-                    // which fetches them over the same Tor transport.
-                    mapStyleURL = MapProxy.shared.start(
-                        transport: self.transport(isolation: "map") ?? active
-                    )
+                    // Tiles/glyphs/sprites go through the loopback proxy.
+                    let mapTransport = useTor
+                        ? (self.transport(isolation: "map") ?? active)
+                        : active
+                    mapStyleURL = MapProxy.shared.start(transport: mapTransport)
                 }
                 return true
             }
