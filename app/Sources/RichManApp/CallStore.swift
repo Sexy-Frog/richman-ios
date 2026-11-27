@@ -26,9 +26,12 @@ final class CallStore: ObservableObject {
     private var audio: CallAudioEngine?
     private var seq: Int64 = 0
     private var negotiatedRate = 16_000
+    /// Cap on audio packets waiting for Tor. Dropping frames keeps latency
+    /// bounded instead of letting the call fall seconds behind.
+    private var audioInFlight = 0
 
     /// Wired by RootView.
-    var sendPayload: ((String, Data) -> Void)?
+    var sendPayload: ((String, Data, (() -> Void)?) -> Void)?
     var onFastPolling: ((Bool, String?) -> Void)?
     var nameResolver: ((String) -> String?)?
 
@@ -164,6 +167,7 @@ final class CallStore: ObservableObject {
         phase = .active
         seconds = 0
         seq = 0
+        audioInFlight = 0
         startTimer()
         onFastPolling?(true, peerId)
         ensureMic { [weak self] granted in
@@ -193,17 +197,23 @@ final class CallStore: ObservableObject {
 
     private func sendAudio(_ data: Data) {
         guard phase == .active, !callId.isEmpty else { return }
+        // Two packets in flight (~600 ms of audio) is the ceiling; beyond that,
+        // stale frames would only add delay.
+        guard audioInFlight < 2, let send = sendPayload else { return }
         let packet = CallAudio(
             id: callId, peer: peerId, seq: seq, d: Base64URL.encode(data)
         )
         seq += 1
         guard let json = try? packet.toPayloadJSON() else { return }
-        sendPayload?(peerId, json)
+        audioInFlight += 1
+        send(peerId, json) { [weak self] in
+            self?.audioInFlight = max(0, (self?.audioInFlight ?? 1) - 1)
+        }
     }
 
     private func send(_ signal: CallSignal, to peerId: String? = nil) {
         guard let json = try? signal.toPayloadJSON() else { return }
-        sendPayload?(peerId ?? self.peerId, json)
+        sendPayload?(peerId ?? self.peerId, json, nil)
     }
 
     private func finish(error: String? = nil) {
@@ -213,6 +223,7 @@ final class CallStore: ObservableObject {
         timer = nil
         audio?.stop()
         audio = nil
+        audioInFlight = 0
         onFastPolling?(false, nil)
         callId = ""
         seconds = 0

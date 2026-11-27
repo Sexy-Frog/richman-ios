@@ -278,30 +278,30 @@ final class ChatStore: ObservableObject {
     }
 
     /// Send one call signal / audio packet over the usual encrypted 1:1 path.
-    func sendCallPayload(_ payload: Data, to peerId: String) {
-        transmit(payload, to: peerId, markMid: "")
+    func sendCallPayload(
+        _ payload: Data,
+        to peerId: String,
+        completion: (() -> Void)? = nil
+    ) {
+        transmit(payload, to: peerId, markMid: "", completion: completion)
     }
 
     /// One pass over every mailbox we own: per-contact receive boxes plus
     /// invite boxes that no scanner has claimed yet.
     func pollOnce() async {
         guard let service = relayService() else { return }
-        let wait = fastPeer == nil ? 0 : 15
-        let peers = contacts
-            .filter { !$0.official }
-            .sorted { lhs, rhs in
-                (lhs.id == fastPeer ? 0 : 1) < (rhs.id == fastPeer ? 0 : 1)
-            }
+        let priority = fastPeer ?? activePeer
+        let peers = contacts.filter { !$0.official }
 
-        for peer in peers {
+        // Quick-poll every non-active chat first so friend requests and other
+        // chats are not starved by the long-poll below.
+        for peer in peers where peer.id != priority {
             if Task.isCancelled { return }
             guard let text = peer.recvBox,
                   let box = try? Base64URL.decode(text), box.count == 32 else { continue }
             guard let opened = try? await service.poll(
-                box: box, knownSender: peer.id, wait: wait
-            ) else {
-                continue
-            }
+                box: box, knownSender: peer.id, wait: 0
+            ) else { continue }
             for message in opened { await apply(message) }
         }
 
@@ -316,6 +316,19 @@ final class ChatStore: ObservableObject {
             }
             if !opened.isEmpty {
                 pendingBoxes.remove(text)
+                for message in opened { await apply(message) }
+            }
+        }
+
+        // The open chat (or the call peer) long-polls, so an incoming message
+        // wakes this loop immediately instead of waiting for the next cycle.
+        if let priority,
+           let peer = peers.first(where: { $0.id == priority }),
+           let text = peer.recvBox,
+           let box = try? Base64URL.decode(text), box.count == 32 {
+            if let opened = try? await service.poll(
+                box: box, knownSender: peer.id, wait: 20
+            ) {
                 for message in opened { await apply(message) }
             }
         }
@@ -768,13 +781,22 @@ final class ChatStore: ObservableObject {
 
     /// Seal a payload with libsignal and POST it to the peer's mailbox. Does
     /// nothing (message stays local) without a live Tor relay.
-    private func transmit(_ payload: Data, to peerId: String, markMid: String) {
+    private func transmit(
+        _ payload: Data,
+        to peerId: String,
+        markMid: String,
+        completion: (() -> Void)? = nil
+    ) {
         guard let peer = contact(peerId),
               let boxText = peer.box,
               let box = try? Base64URL.decode(boxText), box.count == 32,
               let service = relayService(),
-              let replyBox = ensureRecvBox(peerId) else { return }
+              let replyBox = ensureRecvBox(peerId) else {
+            completion?()
+            return
+        }
         Task { [weak self] in
+            defer { completion?() }
             do {
                 try await service.send(
                     payload: payload, to: peerId, box: box, replyBox: replyBox

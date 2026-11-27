@@ -296,8 +296,8 @@ struct RootView: View {
         store.onCallAudio = { [weak calls] peer, packet in
             calls?.handleAudio(from: peer, packet: packet)
         }
-        calls.sendPayload = { [weak store] peer, data in
-            store?.sendCallPayload(data, to: peer)
+        calls.sendPayload = { [weak store] peer, data, done in
+            store?.sendCallPayload(data, to: peer, completion: done)
         }
         calls.onFastPolling = { [weak store] on, peer in
             store?.setFastPolling(on, peerId: peer)
