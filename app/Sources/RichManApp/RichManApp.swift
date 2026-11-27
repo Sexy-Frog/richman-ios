@@ -13,9 +13,6 @@ struct RichManApp: App {
         // A reinstall keeps Keychain items (PIN, zone/store keys); clear them
         // when UserDefaults shows this is a fresh install.
         FreshInstall.resetIfNeeded()
-        // A full wipe needs a fresh process before a new identity is created,
-        // so clear the "restart required" gate at launch.
-        UserDefaults.standard.removeObject(forKey: "rm.needsRelaunch")
         // Exclude Application Support from backups as early as possible; new
         // files inherit the excluded directory.
         PrivacyStorage.prepare()

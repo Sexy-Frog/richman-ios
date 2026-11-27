@@ -25,7 +25,6 @@ struct RootView: View {
     @AppStorage("rm.onboarded") private var onboarded = false
     @AppStorage("rm.displayName") private var savedName = ""
     @AppStorage("rm.autoLockSeconds") private var autoLockSeconds = 30
-    @AppStorage("rm.needsRelaunch") private var needsRelaunch = false
     @Environment(\.scenePhase) private var scenePhase
 
     @StateObject private var store = ChatStore(displayName: "自分")
@@ -59,8 +58,6 @@ struct RootView: View {
             Group {
                 if lock.locked {
                     LockScreenView(onWipe: performEmergencyAction)
-                } else if needsRelaunch {
-                    relaunchNotice
                 } else if let gid = debugGroupId, let group = store.group(gid) {
                     NavigationStack { GroupChatView(group: group) }
                 } else if let peer = debugChatPeer, let contact = store.contact(peer) {
@@ -322,28 +319,8 @@ struct RootView: View {
         store.registerPush(token: token)
     }
 
-    /// Shown after a full wipe. A fresh process is required before the app can
-    /// mint the new identity, so the stale in-memory crypto session is not
-    /// exposed to the user.
-    private var relaunchNotice: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "checkmark.shield.fill")
-                .font(.system(size: 54))
-                .foregroundStyle(RM.primary)
-            Text("初期化しました")
-                .font(.title3.weight(.bold))
-            Text("アプリを終了して、もう一度開いてください。\n最初の設定から始まります。")
-                .font(.callout)
-                .multilineTextAlignment(.center)
-                .foregroundStyle(RM.onSurfaceVariant)
-        }
-        .padding(32)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(RM.background.ignoresSafeArea())
-    }
-
     private func wipeLocalData() {
-        store.wipeAllLocal()
+        store.recreateAccount(displayName: "")
         MediaStore.clearAll()
         MediaStore.clearExports()
         profile.removeAvatar()
@@ -352,9 +329,13 @@ struct RootView: View {
         lock.reset()
         SecurityZoneStore.wipe()
         PrivacyStorage.prepare()
+        clearLocalPreferences()
+        savedName = ""
+        onboarded = false
+    }
 
-        // Remove every local preference that could describe the user, not just
-        // the chat state. This is also what the emergency passcode promises.
+    /// Remove every local preference that could describe the user.
+    private func clearLocalPreferences() {
         let defaults = UserDefaults.standard
         let keys = [
             "rm.onboarded", "rm.displayName", "rm.zoneWanted",
@@ -363,6 +344,7 @@ struct RootView: View {
             "rm.lock.attempts", "rm.lock.pinLength", "rm.lock.duressLength",
             "rm.blocked", "rm.muted", "rm.hidden",
             "rm.duress.chats", "rm.duress.friends", "rm.duress.account",
+            "rm.privacyTutorialSeen",
         ]
         for key in keys { defaults.removeObject(forKey: key) }
         for key in defaults.dictionaryRepresentation().keys
@@ -374,8 +356,6 @@ struct RootView: View {
         center.removeAllPendingNotificationRequests()
         center.removeAllDeliveredNotifications()
         center.setBadgeCount(0, withCompletionHandler: nil)
-        savedName = ""
-        needsRelaunch = true
     }
 
     /// Emergency passcode: apply the actions toggled in Settings → セキュリティ.
@@ -386,11 +366,23 @@ struct RootView: View {
         let chats = defaults.object(forKey: "rm.duress.chats") as? Bool ?? true
 
         if recreate {
-            // A fresh identity: wipe everything and prefill a random name so
-            // onboarding can be completed instantly.
+            // A brand-new identity with a random name, immediately usable:
+            // no relaunch notice and no onboarding. The app looks as if this
+            // account existed from the start.
             let name = Self.randomDisplayName()
-            wipeLocalData()
+            store.recreateAccount(displayName: name)
+            MediaStore.clearExports()
+            profile.removeAvatar()
+            MediaStore.clearAll()
+            TorSession.wipeStorage()
+            PrivacyStorage.wipeCaches()
+            PrivacyStorage.prepare()
+            lock.reset()
+            SecurityZoneStore.wipe()
+            clearLocalPreferences()
             savedName = name
+            onboarded = true
+            store.attachRelayFactory(tor.readyTransportFactory)
             return
         }
         if friends {
@@ -406,8 +398,19 @@ struct RootView: View {
         } else {
             // Never leave the emergency code inert: fall back to a full reset.
             let name = Self.randomDisplayName()
-            wipeLocalData()
+            store.recreateAccount(displayName: name)
+            MediaStore.clearExports()
+            profile.removeAvatar()
+            MediaStore.clearAll()
+            TorSession.wipeStorage()
+            PrivacyStorage.wipeCaches()
+            PrivacyStorage.prepare()
+            lock.reset()
+            SecurityZoneStore.wipe()
+            clearLocalPreferences()
             savedName = name
+            onboarded = true
+            store.attachRelayFactory(tor.readyTransportFactory)
         }
     }
 

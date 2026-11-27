@@ -29,7 +29,7 @@ final class ChatStore: ObservableObject {
     private let mutedKey = "rm.muted"
     private let hiddenKey = "rm.hidden"
 
-    let crypto: CryptoProvider
+    private(set) var crypto: CryptoProvider
     /// Non-nil only when Tor is up and the app is foreground. Every send/poll
     /// goes through this; nil means the chat stays local (Simulator/demo).
     private var relayTransport: RelayTransport?
@@ -1107,6 +1107,32 @@ final class ChatStore: ObservableObject {
         LocalStore.wipe()
         MediaStore.clearAll()
         crypto.wipeLocalState()
+    }
+
+    /// Start over with a brand-new identity in the same process. Used by the
+    /// emergency passcode (random name + straight into the app) and by
+    /// Settings → アカウントを消去 (empty name + onboarding). The old provider is
+    /// discarded, so nothing from the previous account survives in memory.
+    func recreateAccount(displayName newName: String) {
+        pollTask?.cancel()
+        pollTask = nil
+        relayServiceInstance = nil
+        relayTransport = nil
+        relayFactory = nil
+        activePeer = nil
+        activeGroup = nil
+        fastPeer = nil
+
+        wipeAllLocal()
+        crypto = CryptoProviderFactory.make()
+
+        displayName = newName
+        blockedIds = []
+        mutedIds = []
+        hiddenIds = []
+        loaded = true
+        seedOfficialIfNeeded()
+        scheduleSave()
     }
 
     // MARK: official account (one-way broadcast, local only)
