@@ -1,0 +1,69 @@
+name: iOS Onboarding UI
+
+# Walks the real first-run onboarding (the other suites skip it). Uses the
+# mock-crypto app so it stays cheap; onboarding itself is shared with the
+# real-crypto build.
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'app/UITests/**'
+      - 'app/Sources/RichManApp/Onboarding.swift'
+      - 'app/project.yml'
+      - '.github/workflows/onboarding.yml'
+
+concurrency:
+  group: onboarding-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  onboarding:
+    name: Onboarding UI (Simulator)
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: app
+        run: xcodegen generate
+
+      - name: Boot simulator
+        run: |
+          set -euo pipefail
+          UDID=$(xcrun simctl list devices available | grep -E "iPhone .*Pro" | head -1 | sed -E 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/')
+          if [ -z "$UDID" ]; then
+            UDID=$(xcrun simctl list devices available | grep -E "iPhone" | head -1 | sed -E 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/')
+          fi
+          test -n "$UDID"
+          echo "Simulator: $UDID"
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl ui "$UDID" appearance light
+
+      - name: Run onboarding UI test
+        working-directory: app
+        run: |
+          set -euo pipefail
+          xcodebuild test \
+            -project RichMan.xcodeproj \
+            -scheme RichMan \
+            -destination "platform=iOS Simulator,id=$UDID" \
+            -derivedDataPath build \
+            -only-testing:RichManUITests/OnboardingUITests/testIntroNextAdvancesAndOnboardingCompletes \
+            -resultBundlePath TestResults.xcresult \
+            -parallel-testing-enabled NO
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: onboarding-xcresult
+          path: app/TestResults.xcresult
+          if-no-files-found: warn
+          retention-days: 7
