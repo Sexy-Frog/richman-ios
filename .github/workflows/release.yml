@@ -226,6 +226,13 @@ jobs:
           test -n "$IPA"
           unzip -l "$IPA" > /tmp/ipa-contents.txt
           grep -q 'Payload/RichManCryptoApp.app/Frameworks/Tor.framework/Tor' /tmp/ipa-contents.txt
+          rm -rf build/ipa && mkdir -p build/ipa
+          unzip -q "$IPA" -d build/ipa
+          ENTITLED_APP="build/ipa/Payload/RichManCryptoApp.app"
+          ENTITLEMENTS=$(codesign -d --entitlements :- "$ENTITLED_APP" 2>/dev/null || true)
+          echo "$ENTITLEMENTS"
+          echo "$ENTITLEMENTS" | grep -q 'aps-environment' \
+            || { echo "::error::aps-environment missing from the signed app"; exit 1; }
           ls -lh build/export
 
       - name: Upload to App Store Connect

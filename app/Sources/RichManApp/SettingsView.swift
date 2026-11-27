@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import PhotosUI
 
 /// Settings hub. Each category lives on its own screen so this list stays a
@@ -359,6 +360,7 @@ private struct NetworkSettingsView: View {
     @EnvironmentObject private var store: ChatStore
     @AppStorage("rm.useTor") private var useTor = false
     @AppStorage("rm.pushToken") private var pushToken = ""
+    @AppStorage("rm.pushError") private var pushError = ""
 
     var body: some View {
         Form {
@@ -385,6 +387,15 @@ private struct NetworkSettingsView: View {
                     Text("通知が許可されていないとトークンを取得できません。iOSの設定 → 通知 → RichMan を確認してください。")
                         .font(.caption)
                         .foregroundStyle(RM.onSurfaceVariant)
+                }
+                if !pushError.isEmpty {
+                    Text(pushError)
+                        .font(.caption)
+                        .foregroundStyle(RM.error)
+                }
+                Button("通知を再登録") {
+                    UserDefaults.standard.removeObject(forKey: "rm.pushError")
+                    UIApplication.shared.registerForRemoteNotifications()
                 }
                 if useTor && !tor.supportsTor {
                     Text("このビルドではTorを利用できません。次回起動時に直接接続へ戻してください。")

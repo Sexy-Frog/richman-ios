@@ -23,6 +23,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     ) {
         let token = deviceToken.map { String(format: "%02x", $0) }.joined()
         UserDefaults.standard.set(token, forKey: "rm.pushToken")
+        UserDefaults.standard.removeObject(forKey: "rm.pushError")
         NotificationCenter.default.post(name: .rmPushToken, object: token)
     }
 
@@ -30,6 +31,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         _ application: UIApplication,
         didFailToRegisterForRemoteNotificationsWithError error: Error
     ) {
+        UserDefaults.standard.set(
+            error.localizedDescription,
+            forKey: "rm.pushError"
+        )
         #if DEBUG
         NSLog("APNs registration failed: %@", String(describing: error))
         #endif
