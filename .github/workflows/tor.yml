@@ -33,6 +33,10 @@ jobs:
         working-directory: tor
         run: bash scripts/fetch-tor.sh
 
+      - name: Verify Tor exports only the public API
+        working-directory: tor
+        run: bash scripts/verify-tor.sh
+
       - name: Build & test TorSupport (macOS)
         working-directory: tor
         run: |
