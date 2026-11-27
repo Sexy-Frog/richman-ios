@@ -62,6 +62,13 @@ struct AddFriendView: View {
             .task {
                 if myInvite.isEmpty { await makeInvite() }
             }
+            .onChange(of: tor.phase) { _, phase in
+                // Tor may finish bootstrapping after the initial wait; mint the
+                // compact relay invite then so the QR appears automatically.
+                if phase == .ready, qr == nil, !generating {
+                    Task { await makeInvite(regenerate: true) }
+                }
+            }
             .sheet(isPresented: $showScanner) {
                 ZStack(alignment: .topTrailing) {
                     QRScannerView { code in
