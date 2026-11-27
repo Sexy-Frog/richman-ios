@@ -15,7 +15,7 @@ struct ZonePickerMap: UIViewRepresentable {
         map.delegate = context.coordinator
         map.showsLogoView = false
         map.showsAttributionButton = false
-        map.setCenter(center, zoomLevel: 15.0, animated: false)
+        map.setCenter(center, zoomLevel: 16.0, animated: false)
         context.coordinator.lastRecenter = recenter
         context.coordinator.lastStyleURL = styleURL
         return map
