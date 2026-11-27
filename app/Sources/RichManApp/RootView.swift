@@ -25,6 +25,7 @@ struct RootView: View {
     @AppStorage("rm.onboarded") private var onboarded = false
     @AppStorage("rm.displayName") private var savedName = ""
     @AppStorage("rm.autoLockSeconds") private var autoLockSeconds = 30
+    @AppStorage("rm.needsRelaunch") private var needsRelaunch = false
     @Environment(\.scenePhase) private var scenePhase
 
     @StateObject private var store = ChatStore(displayName: "自分")
@@ -58,6 +59,8 @@ struct RootView: View {
             Group {
                 if lock.locked {
                     LockScreenView(onWipe: performEmergencyAction)
+                } else if needsRelaunch {
+                    relaunchNotice
                 } else if let gid = debugGroupId, let group = store.group(gid) {
                     NavigationStack { GroupChatView(group: group) }
                 } else if let peer = debugChatPeer, let contact = store.contact(peer) {
@@ -319,6 +322,26 @@ struct RootView: View {
         store.registerPush(token: token)
     }
 
+    /// Shown after a full wipe. A fresh process is required before the app can
+    /// mint the new identity, so the stale in-memory crypto session is not
+    /// exposed to the user.
+    private var relaunchNotice: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "checkmark.shield.fill")
+                .font(.system(size: 54))
+                .foregroundStyle(RM.primary)
+            Text("初期化しました")
+                .font(.title3.weight(.bold))
+            Text("アプリを終了して、もう一度開いてください。\n最初の設定から始まります。")
+                .font(.callout)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(RM.onSurfaceVariant)
+        }
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(RM.background.ignoresSafeArea())
+    }
+
     private func wipeLocalData() {
         store.wipeAllLocal()
         MediaStore.clearAll()
@@ -352,6 +375,7 @@ struct RootView: View {
         center.removeAllDeliveredNotifications()
         center.setBadgeCount(0, withCompletionHandler: nil)
         savedName = ""
+        needsRelaunch = true
     }
 
     /// Emergency passcode: apply the actions toggled in Settings → セキュリティ.
