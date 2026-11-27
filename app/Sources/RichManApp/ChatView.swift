@@ -107,14 +107,9 @@ struct ChatView: View {
                                     .foregroundStyle(RM.primary)
                             }
                         }
-                        Text(store.isTyping(contact.id) ? "入力中…" : "端末間暗号化")
+                        Text("端末間暗号化")
                             .font(.system(size: 10))
-                            .foregroundStyle(
-                                store.isTyping(contact.id)
-                                    ? RM.primary
-                                    : RM.onSurfaceVariant
-                            )
-                            .animation(.easeOut(duration: 0.15), value: store.isTyping(contact.id))
+                            .foregroundStyle(RM.onSurfaceVariant)
                     }
                 }
                 .buttonStyle(.plain)

@@ -162,6 +162,11 @@ jobs:
             *.onion) echo "relay host present" ;;
             *) echo "::error::relay host missing in the signed archive"; exit 1 ;;
           esac
+          DIRECT=$(/usr/libexec/PlistBuddy -c "Print :RMDirectRelayURL" "$APP/Info.plist")
+          case "$DIRECT" in
+            https://*) echo "direct relay URL present" ;;
+            *) echo "::error::direct relay URL missing in the signed archive"; exit 1 ;;
+          esac
 
       - name: Verify signed binary hygiene
         working-directory: app
