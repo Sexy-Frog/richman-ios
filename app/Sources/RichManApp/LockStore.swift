@@ -28,6 +28,10 @@ final class LockStore: ObservableObject {
     private let pbkdf2Iterations: UInt32 = 150_000
 
     init() {
+        // Retry here in case the process launched in the background and the
+        // Keychain was unavailable in App.init; this runs before `locked` is
+        // derived from `hasPIN`.
+        FreshInstall.resetIfNeeded()
         failedAttempts = UserDefaults.standard.integer(forKey: attemptsKey)
         hasDuress = storedHash(account: duressAccount) != nil
         let storedDuressLength = UserDefaults.standard.integer(

@@ -80,6 +80,9 @@ targets:
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         # Empty in the mock build; the real build injects the onion at generation.
         RMRelayHost: $(RM_RELAY_HOST)
+        CFBundleURLTypes:
+          - CFBundleURLName: works.kelvins.richman.invite
+            CFBundleURLSchemes: [richman]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: works.kelvins.richman

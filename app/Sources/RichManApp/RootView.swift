@@ -2,9 +2,15 @@ import SwiftUI
 import UIKit
 import Combine
 import UserNotifications
+import RichManCore
 
 private struct NotificationChat: Identifiable {
     let id: String
+}
+
+private struct PendingInvite: Identifiable {
+    let id = UUID()
+    let raw: String
 }
 
 /// Gate: first launch → onboarding; afterwards → the hub. The single `ChatStore`
@@ -24,6 +30,7 @@ struct RootView: View {
     @State private var privacyCover = false
     @State private var screenCaptured = UIScreen.main.isCaptured
     @State private var notificationChat: NotificationChat?
+    @State private var pendingInvite: PendingInvite?
     @State private var showDebugLocationPrimer = false
     @State private var showDebugPrivacyTutorial = false
     @State private var showDebugDuress = false
@@ -153,6 +160,11 @@ struct RootView: View {
             guard let token = note.object as? String, !token.isEmpty else { return }
             store.registerPush(token: token)
         }
+        .onOpenURL { url in
+            if let raw = InviteLink.normalize(url.absoluteString) {
+                pendingInvite = PendingInvite(raw: raw)
+            }
+        }
         .onChange(of: store.contacts.count) { _, _ in
             registerPushIfPossible()
         }
@@ -164,6 +176,14 @@ struct RootView: View {
                     .environmentObject(location)
                     .environmentObject(tor)
             }
+        }
+        .sheet(item: Binding(
+            get: { (lock.locked || !onboarded) ? nil : pendingInvite },
+            set: { pendingInvite = $0 }
+        )) { invite in
+            AddFriendView(initialCode: invite.raw)
+                .environmentObject(store)
+                .environmentObject(tor)
         }
         .sheet(isPresented: $showDebugLocationPrimer) {
             LocationPrimer().environmentObject(location)

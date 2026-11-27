@@ -103,6 +103,15 @@ final class OnboardingUITests: XCTestCase {
             app.tabBars.buttons["トーク"].waitForExistence(timeout: 10),
             "onboarding never completed"
         )
+
+        // Friends -> add screen renders and generates an invite.
+        app.tabBars.buttons["友だち"].tap()
+        button("友だちを追加").tap()
+        XCTAssertTrue(
+            text("招待リンクを貼り付け").waitForExistence(timeout: 10),
+            "add-friend screen did not open"
+        )
+        button("閉じる").tap()
     }
 
     private func enterPIN() {

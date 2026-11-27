@@ -301,12 +301,20 @@ struct OnboardingView: View {
     // MARK: pin
 
     private var pinStep: some View {
-        screen(
-            title: pinConfirming ? "もう一度入力" : "暗証番号を設定",
-            message: pinConfirming
-                ? "確認のため同じ4桁を入力してください。"
-                : "アプリのロック解除に使います。4桁の数字。"
-        ) {
+        VStack(spacing: 14) {
+            Spacer(minLength: 16)
+
+            VStack(spacing: 8) {
+                Text(pinConfirming ? "もう一度入力" : "暗証番号を設定")
+                    .font(.title2.weight(.bold))
+                Text(pinConfirming
+                     ? "確認のため同じ4桁を入力してください。"
+                     : "アプリのロック解除に使います。4桁の数字。")
+                    .font(.subheadline)
+                    .foregroundStyle(RM.onSurfaceVariant)
+                    .multilineTextAlignment(.center)
+            }
+
             HStack(spacing: 14) {
                 ForEach(0..<4, id: \.self) { index in
                     Circle()
@@ -314,16 +322,20 @@ struct OnboardingView: View {
                         .frame(width: 15, height: 15)
                 }
             }
-            .padding(.top, 18)
-            .padding(.bottom, 6)
+            .padding(.top, 6)
+
+            errorText
+
+            Spacer(minLength: 12)
 
             pinKeypad
-                .padding(.top, 4)
-            errorText
-            Spacer(minLength: 0)
-        } footer: {
-            EmptyView()
+                .padding(.horizontal, 12)
+
+            Spacer(minLength: 24)
         }
+        .padding(.horizontal, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(RM.background)
     }
 
     private var pinKeypad: some View {
@@ -345,7 +357,6 @@ struct OnboardingView: View {
                     .frame(width: 64, height: 64)
             }
         }
-        .padding(.horizontal, 24)
     }
 
     private func pinKey(_ digit: Int) -> some View {

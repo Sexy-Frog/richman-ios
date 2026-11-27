@@ -190,6 +190,7 @@ private struct ContactRow: View {
 
 struct FriendsView: View {
     @EnvironmentObject private var store: ChatStore
+    @EnvironmentObject private var tor: TorSession
     @State private var showAdd = false
     @State private var reportTarget: Contact?
 
@@ -241,10 +242,17 @@ struct FriendsView: View {
             .navigationTitle("友だち")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { showAdd = true } label: { Image(systemName: "person.badge.plus") }
+                    Button { showAdd = true } label: {
+                        Image(systemName: "person.badge.plus")
+                    }
+                    .accessibilityLabel("友だちを追加")
                 }
             }
-            .sheet(isPresented: $showAdd) { AddFriendView().environmentObject(store) }
+            .sheet(isPresented: $showAdd) {
+                AddFriendView()
+                    .environmentObject(store)
+                    .environmentObject(tor)
+            }
             .sheet(item: $reportTarget) { ReportSheet(contact: $0).environmentObject(store) }
         }
     }

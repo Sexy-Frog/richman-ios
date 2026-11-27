@@ -3,76 +3,66 @@ import UIKit
 import VisionKit
 import RichManCore
 
-/// Friend-add: show my invite code, or paste a peer's to add them. The QR render
-/// + camera scan land next; for now the invite is produced via the CryptoProvider
-/// (mock in Simulator) and exchanged as text so the flow is testable.
+/// Friend-add, ported from the Android screen: a large personal QR/link,
+/// copy/share/scan actions, refresh, and a paste field that accepts the invite
+/// link, a bare code, or the legacy raw JSON.
 struct AddFriendView: View {
     @EnvironmentObject private var store: ChatStore
     @EnvironmentObject private var tor: TorSession
     @Environment(\.dismiss) private var dismiss
+
     @State private var myInvite = ""
+    @State private var shareURL: URL?
+    @State private var qr: UIImage?
     @State private var scanned = ""
     @State private var showScanner = false
     @State private var busy = false
+    @State private var generating = true
     @State private var info: String?
     @State private var error: String?
 
+    init(initialCode: String = "") {
+        _scanned = State(initialValue: initialCode)
+    }
+
     var body: some View {
         NavigationStack {
-            Form {
-                Section("自分の招待コード") {
-                    if myInvite.isEmpty {
-                        Button {
-                            Task { await makeInvite() }
-                        } label: {
-                            HStack {
-                                Text(busy ? "作成中…" : "招待コードを作成")
-                                if busy { Spacer(); ProgressView() }
-                            }
-                        }
-                        .disabled(busy)
-                    } else {
-                        if let qr = QRCode.image(from: myInvite) {
-                            Image(uiImage: qr)
-                                .interpolation(.none)
-                                .resizable().scaledToFit()
-                                .frame(maxWidth: 220)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 8)
-                        }
-                        Text("相手にこのQRを見せて読み取ってもらいます。")
-                            .font(.caption).foregroundStyle(RM.onSurfaceVariant)
-                        Text(myInvite).font(.footnote.monospaced()).textSelection(.enabled)
-                        Button("コードをコピー") {
-                            UIPasteboard.general.string = myInvite
-                            info = "招待コードをコピーしました。"
-                        }
-                        .font(.footnote.weight(.semibold))
+            ScrollView {
+                VStack(spacing: 18) {
+                    inviteCard
+                    actions
+                    refreshButton
+                    disclaimer
+                    if let info {
+                        Text(info)
+                            .font(.caption)
+                            .foregroundStyle(RM.primary)
+                            .multilineTextAlignment(.center)
                     }
-                }
-                Section("相手を追加") {
-                    Button {
-                        if DataScannerViewController.isSupported {
-                            showScanner = true
-                        } else {
-                            error = "この端末ではQRスキャンを利用できません。コードを貼り付けてください。"
-                        }
-                    } label: {
-                        Label("QRコードをスキャン", systemImage: "qrcode.viewfinder")
+                    if let error {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundStyle(RM.error)
+                            .multilineTextAlignment(.center)
                     }
-                    TextField("招待コードを貼り付け", text: $scanned, axis: .vertical)
-                    Button(busy ? "追加中…" : "追加") { Task { await add() } }
-                        .disabled(busy || scanned.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    Text("カメラが使えない場合は、コードを貼り付けて追加できます。")
-                        .font(.caption).foregroundStyle(RM.onSurfaceVariant)
+                    Divider()
+                    codeInput
                 }
-                if let info { Text(info).foregroundStyle(RM.primary) }
-                if let error { Text(error).foregroundStyle(RM.error) }
+                .padding(20)
             }
+            .background(RM.background)
             .navigationTitle("友だちを追加")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { Button("閉じる") { dismiss() } }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("閉じる") { dismiss() }
+                }
+            }
+            .task {
+                if myInvite.isEmpty { await makeInvite() }
+                if !scanned.isEmpty {
+                    info = "招待リンクを読み込みました。「追加」を押してください。"
+                }
             }
             .sheet(isPresented: $showScanner) {
                 ZStack(alignment: .topTrailing) {
@@ -93,37 +83,229 @@ struct AddFriendView: View {
         }
     }
 
-    private func makeInvite() async {
-        error = nil
-        busy = true
-        defer { busy = false }
-        // Prefer the real onion-relay invite when Tor is up and real crypto is
-        // linked. The mock bundle fails `PrekeyBundle.decode`, which falls back
-        // to the self-contained Simulator invite.
-        if let transport = tor.readyTransport {
-            if let remote = try? await store.makeRelayInvite(using: transport) {
-                myInvite = remote
-                info = "Tor経由の招待を作成しました（有効期限 15分・1回限り）。"
-                return
+    // MARK: invite card
+
+    private var inviteCard: some View {
+        VStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color.white)
+                if let qr {
+                    Image(uiImage: qr)
+                        .interpolation(.none)
+                        .resizable()
+                        .scaledToFit()
+                        .padding(12)
+                } else if generating {
+                    ProgressView().tint(.black)
+                } else {
+                    VStack(spacing: 8) {
+                        Image(systemName: "qrcode")
+                            .font(.largeTitle)
+                            .foregroundStyle(.black.opacity(0.35))
+                        Text("QRを生成できません")
+                            .font(.caption2)
+                            .foregroundStyle(.black.opacity(0.6))
+                    }
+                }
+            }
+            .frame(width: 240, height: 240)
+
+            Text(store.displayName)
+                .font(.headline)
+
+            if let shareURL {
+                Text(shareURL.absoluteString)
+                    .font(.caption2)
+                    .foregroundStyle(RM.onSurfaceVariant)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                    .padding(.horizontal, 8)
             }
         }
-        do {
-            myInvite = try store.makeInvite()
-            info = tor.supportsTor
-                ? "オフライン用の招待を作成しました。Tor接続後に作り直してください。"
-                : nil
-        } catch {
-            self.error = "招待の作成に失敗しました: \(error)"
+        .frame(maxWidth: .infinity)
+        .padding(20)
+        .background(RM.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    // MARK: actions
+
+    private var actions: some View {
+        HStack(spacing: 22) {
+            Button { copyLink() } label: {
+                actionLabel("コピー", "doc.on.doc")
+            }
+            .buttonStyle(.plain)
+
+            if let shareText {
+                ShareLink(item: shareText) {
+                    actionLabel("共有", "square.and.arrow.up")
+                }
+                .buttonStyle(.plain)
+            } else {
+                actionLabel("共有", "square.and.arrow.up")
+                    .opacity(0.35)
+            }
+
+            Button { startScan() } label: {
+                actionLabel("スキャン", "qrcode.viewfinder")
+            }
+            .buttonStyle(.plain)
+        }
+        .disabled(busy || generating)
+        .opacity(busy || generating ? 0.45 : 1)
+    }
+
+    private var refreshButton: some View {
+        Button {
+            Task { await makeInvite(regenerate: true) }
+        } label: {
+            Label("QRを更新", systemImage: "arrow.clockwise")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(RM.primary)
+        }
+        .buttonStyle(.plain)
+        .disabled(busy || generating)
+        .opacity(busy || generating ? 0.45 : 1)
+    }
+
+    private var disclaimer: some View {
+        Text("QRコードと招待リンクは信頼できる相手とだけ共有してください。リンクは1回限り・15分で失効します。")
+            .font(.caption2)
+            .foregroundStyle(RM.onSurfaceVariant)
+            .multilineTextAlignment(.center)
+    }
+
+    // MARK: paste field
+
+    private var codeInput: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("招待リンクを貼り付け")
+                .font(.subheadline.weight(.semibold))
+
+            HStack(spacing: 10) {
+                TextField("招待リンクまたはコード", text: $scanned, axis: .vertical)
+                    .lineLimit(1...3)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .padding(12)
+                    .background(RM.surface, in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12).stroke(RM.outline, lineWidth: 1)
+                    )
+
+                Button {
+                    Task { await add() }
+                } label: {
+                    Image(systemName: "arrow.right")
+                        .font(.headline)
+                        .foregroundStyle(RM.onPrimary)
+                        .frame(width: 48, height: 48)
+                        .background(RM.primary, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .disabled(busy || scanned.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .opacity(
+                    busy || scanned.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? 0.45 : 1
+                )
+            }
+
+            Text("カメラが使えない場合は、相手から届いた招待リンクを貼り付けて追加できます。")
+                .font(.caption2)
+                .foregroundStyle(RM.onSurfaceVariant)
+        }
+    }
+
+    private func actionLabel(_ title: String, _ icon: String) -> some View {
+        VStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.title3)
+            Text(title)
+                .font(.caption2)
+        }
+        .frame(width: 70, height: 56)
+        .foregroundStyle(RM.primary)
+    }
+
+    private var shareText: String? {
+        if let shareURL { return shareURL.absoluteString }
+        return myInvite.isEmpty ? nil : myInvite
+    }
+
+    // MARK: actions
+
+    private func makeInvite(regenerate: Bool = false) async {
+        if regenerate {
+            myInvite = ""
+            shareURL = nil
+            qr = nil
+        }
+        error = nil
+        info = nil
+        generating = true
+        busy = true
+        defer {
+            generating = false
+            busy = false
+        }
+
+        var raw: String?
+        var relayed = false
+        if let transport = tor.readyTransport,
+           let remote = try? await store.makeRelayInvite(using: transport) {
+            raw = remote
+            relayed = true
+        }
+        if raw == nil {
+            raw = try? store.makeInvite()
+        }
+        guard let raw else {
+            error = "招待コードを作成できませんでした。しばらく待って再試行してください。"
+            return
+        }
+
+        myInvite = raw
+        let url = InviteLink.url(for: raw)
+        shareURL = url
+        qr = QRCode.image(from: url?.absoluteString ?? raw)
+        if relayed {
+            info = "招待リンクを作成しました（有効期限 15分・1回限り）。"
+        } else if tor.supportsTor {
+            info = "オフライン用の招待を作成しました。Tor接続後に作り直してください。"
+        }
+    }
+
+    private func copyLink() {
+        guard let shareText else { return }
+        UIPasteboard.general.string = shareText
+        info = "招待リンクをコピーしました。"
+    }
+
+    private func startScan() {
+        if DataScannerViewController.isSupported {
+            showScanner = true
+        } else {
+            error = "この端末ではQRスキャンを利用できません。リンクを貼り付けてください。"
         }
     }
 
     private func add() async {
-        error = nil; info = nil
+        error = nil
+        info = nil
+        guard let raw = InviteLink.normalize(scanned) else {
+            error = "招待リンクを読み取れませんでした。"
+            return
+        }
         busy = true
         defer { busy = false }
         do {
-            let c = try await store.addFriend(inviteText: scanned, using: tor.readyTransport)
-            info = "\(c.name) を追加しました。"
+            let contact = try await store.addFriend(
+                inviteText: raw,
+                using: tor.readyTransport
+            )
+            info = "\(contact.name) を追加しました。"
             scanned = ""
         } catch let e as InviteError {
             error = message(for: e)
