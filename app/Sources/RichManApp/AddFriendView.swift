@@ -14,6 +14,7 @@ struct AddFriendView: View {
     @State private var myInvite = ""
     @State private var shareURL: URL?
     @State private var qr: UIImage?
+    @State private var expiresAt: Date?
     @State private var scanned = ""
     @State private var showScanner = false
     @State private var busy = false
@@ -60,9 +61,6 @@ struct AddFriendView: View {
             }
             .task {
                 if myInvite.isEmpty { await makeInvite() }
-                if !scanned.isEmpty {
-                    info = "招待リンクを読み込みました。「追加」を押してください。"
-                }
             }
             .sheet(isPresented: $showScanner) {
                 ZStack(alignment: .topTrailing) {
@@ -114,14 +112,13 @@ struct AddFriendView: View {
             Text(store.displayName)
                 .font(.headline)
 
-            if let shareURL {
-                Text(shareURL.absoluteString)
-                    .font(.caption2)
-                    .foregroundStyle(RM.onSurfaceVariant)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .textSelection(.enabled)
-                    .padding(.horizontal, 8)
+            if let expiresAt {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    let remaining = max(0, expiresAt.timeIntervalSince(context.date))
+                    Text(remaining > 0 ? "あと \(mmss(remaining))" : "期限切れ")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(remaining > 0 ? RM.onSurfaceVariant : RM.error)
+                }
             }
         }
         .frame(maxWidth: .infinity)
@@ -171,7 +168,7 @@ struct AddFriendView: View {
     }
 
     private var disclaimer: some View {
-        Text("QRコードと招待リンクは信頼できる相手とだけ共有してください。リンクは1回限り・15分で失効します。")
+        Text("信頼できる相手にだけ共有してください。")
             .font(.caption2)
             .foregroundStyle(RM.onSurfaceVariant)
             .multilineTextAlignment(.center)
@@ -212,7 +209,7 @@ struct AddFriendView: View {
                 )
             }
 
-            Text("カメラが使えない場合は、相手から届いた招待リンクを貼り付けて追加できます。")
+            Text("リンクを貼り付けて追加できます。")
                 .font(.caption2)
                 .foregroundStyle(RM.onSurfaceVariant)
         }
@@ -270,17 +267,13 @@ struct AddFriendView: View {
         let url = InviteLink.url(for: raw)
         shareURL = url
         qr = QRCode.image(from: url?.absoluteString ?? raw)
-        if relayed {
-            info = "招待リンクを作成しました（有効期限 15分・1回限り）。"
-        } else if tor.supportsTor {
-            info = "オフライン用の招待を作成しました。Tor接続後に作り直してください。"
-        }
+        expiresAt = relayed ? Date().addingTimeInterval(15 * 60) : nil
     }
 
     private func copyLink() {
         guard let shareText else { return }
         UIPasteboard.general.string = shareText
-        info = "招待リンクをコピーしました。"
+        info = "コピーしました。"
     }
 
     private func startScan() {
@@ -301,17 +294,22 @@ struct AddFriendView: View {
         busy = true
         defer { busy = false }
         do {
-            let contact = try await store.addFriend(
+            _ = try await store.addFriend(
                 inviteText: raw,
                 using: tor.readyTransport
             )
-            info = "\(contact.name) を追加しました。"
+            info = "追加しました。"
             scanned = ""
         } catch let e as InviteError {
             error = message(for: e)
         } catch {
-            self.error = "追加に失敗しました: \(error)"
+            self.error = "追加できませんでした。"
         }
+    }
+
+    private func mmss(_ seconds: TimeInterval) -> String {
+        let total = Int(seconds.rounded(.up))
+        return String(format: "%d:%02d", total / 60, total % 60)
     }
 
     private func message(for e: InviteError) -> String {

@@ -574,6 +574,31 @@ final class ChatStore: ObservableObject {
               replyTo: String? = nil) {
         let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty, !isBlocked(peerId) else { return }
+
+        // The official account is a local inbox: text only, read immediately,
+        // never sent over the relay and never answered.
+        if contact(peerId)?.official == true {
+            guard kind == .text else { return }
+            let mid = UUID().uuidString
+            messagesByPeer[peerId, default: []].append(
+                ChatMessage(
+                    id: mid,
+                    body: body,
+                    mine: true,
+                    ts: Date(),
+                    kind: .text,
+                    replyTo: replyTo,
+                    delivery: .read
+                )
+            )
+            if let i = contacts.firstIndex(where: { $0.id == peerId }) {
+                contacts[i].lastMessage = body
+            }
+            objectWillChange.send()
+            scheduleSave()
+            return
+        }
+
         let mid = UUID().uuidString
 
         messagesByPeer[peerId, default: []].append(
@@ -1000,27 +1025,41 @@ final class ChatStore: ObservableObject {
 
     // MARK: official account (one-way broadcast, local only)
 
-    private func seedOfficialIfNeeded() {
-        guard !contacts.contains(where: { $0.official }) else { return }
-        let official = Contact(id: "official", name: "Richman", official: true)
-        contacts.insert(official, at: 0)
-        if let index = contacts.firstIndex(where: { $0.official }) {
-            contacts[index].lastMessage = "ようこそ RichMan へ"
-        }
-        messagesByPeer[official.id] = [
-            ChatMessage(
-                id: "official-welcome",
-                body: """
-                RichMan へようこそ。
+    private static let officialWelcome = """
+    RichMan へようこそ。
 
-                ・メッセージ・画像・ファイル・通話は端末間で暗号化されます。
-                ・位置情報は友達とだけ共有され、設定でいつでも停止できます。
-                ・このアカウントは運営からの配信専用です（返信はできません）。
-                """,
-                mine: false,
-                ts: Date().addingTimeInterval(-3600)
-            ),
-        ]
+    ・メッセージ・画像・ファイル・通話は端末間で暗号化されます。
+    ・このアカウントは運営からのお知らせ用です。
+    """
+
+    private func seedOfficialIfNeeded() {
+        if !contacts.contains(where: { $0.official }) {
+            let official = Contact(id: "official", name: "Richman", official: true)
+            contacts.insert(official, at: 0)
+            if let index = contacts.firstIndex(where: { $0.official }) {
+                contacts[index].lastMessage = "ようこそ RichMan へ"
+            }
+        }
+
+        // Keep the welcome text current on existing installs (the old copy
+        // claimed location sharing that the app does not perform).
+        let welcome = Self.officialWelcome
+        if var list = messagesByPeer["official"],
+           let index = list.firstIndex(where: { $0.id == "official-welcome" }) {
+            if list[index].body != welcome {
+                list[index].body = welcome
+                messagesByPeer["official"] = list
+            }
+        } else if contacts.contains(where: { $0.official }) {
+            messagesByPeer["official", default: []].append(
+                ChatMessage(
+                    id: "official-welcome",
+                    body: welcome,
+                    mine: false,
+                    ts: Date().addingTimeInterval(-3600)
+                )
+            )
+        }
     }
 
     // MARK: disappearing messages

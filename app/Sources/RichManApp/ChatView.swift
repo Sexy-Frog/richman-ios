@@ -29,7 +29,7 @@ struct ChatView: View {
     private var isBlocked: Bool { store.isBlocked(contact.id) }
     private var isOfficial: Bool { contact.official }
     private var canSend: Bool {
-        !isBlocked && !isOfficial &&
+        !isBlocked &&
             !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
@@ -93,12 +93,8 @@ struct ChatView: View {
                 .swipeBackToTalks(geometry: bubbleGeometry) { dismiss() }
             }
 
-            if isOfficial {
-                officialFooter
-            } else {
-                if let replyTo { replyBar(replyTo) }
-                composer
-            }
+            if !isOfficial, let replyTo { replyBar(replyTo) }
+            composer
         }
         .background(RM.chatBg)
         .navigationTitle(contact.name)
@@ -240,7 +236,7 @@ struct ChatView: View {
     private var officialBanner: some View {
         HStack(spacing: 8) {
             Image(systemName: "megaphone.fill")
-            Text("公式アカウントからのお知らせです")
+            Text("公式アカウント")
                 .font(.footnote.weight(.semibold))
             Spacer()
         }
@@ -248,15 +244,6 @@ struct ChatView: View {
         .padding(.vertical, 8)
         .background(RM.surfaceVariant)
         .foregroundStyle(RM.onSurfaceVariant)
-    }
-
-    private var officialFooter: some View {
-        Text("配信専用のため返信できません")
-            .font(.caption)
-            .foregroundStyle(RM.onSurfaceVariant)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .background(RM.background)
     }
 
     private var blockedBanner: some View {
@@ -312,14 +299,16 @@ struct ChatView: View {
 
     private var composer: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            Button { showAttach = true } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(isBlocked ? RM.onSurfaceVariant : RM.primary)
-                    .frame(width: 40, height: 40)
-                    .contentShape(Rectangle())
+            if !isOfficial {
+                Button { showAttach = true } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(isBlocked ? RM.onSurfaceVariant : RM.primary)
+                        .frame(width: 40, height: 40)
+                        .contentShape(Rectangle())
+                }
+                .disabled(isBlocked)
             }
-            .disabled(isBlocked)
 
             TextField(isBlocked ? "ブロック中" : "メッセージ", text: $draft, axis: .vertical)
                 .font(.body)

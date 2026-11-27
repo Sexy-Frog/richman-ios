@@ -22,6 +22,7 @@ struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     @StateObject private var store = ChatStore(displayName: "自分")
+    @StateObject private var profile = ProfileStore()
     @StateObject private var calls = CallStore()
     @StateObject private var lock = LockStore()
     @StateObject private var location = LocationProvider()
@@ -67,6 +68,7 @@ struct RootView: View {
             }
         }
         .environmentObject(store)
+        .environmentObject(profile)
         .environmentObject(calls)
         .environmentObject(lock)
         .environmentObject(location)
