@@ -1,9 +1,11 @@
 import SwiftUI
+import PhotosUI
 
 /// Settings hub. Each category lives on its own screen so this list stays a
 /// short, predictable index (profile + five destinations).
 struct SettingsView: View {
     @EnvironmentObject private var store: ChatStore
+    @EnvironmentObject private var profile: ProfileStore
     @AppStorage("rm.privacyTutorialSeen") private var privacyTutorialSeen = false
 
     @State private var showNameEdit = false
@@ -15,7 +17,7 @@ struct SettingsView: View {
             Form {
                 Section {
                     HStack(spacing: 14) {
-                        Avatar(name: store.displayName)
+                        Avatar(name: store.displayName, image: profile.avatar)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(store.displayName).font(.headline)
                             Text("表示名を変更")
@@ -79,7 +81,9 @@ struct SettingsView: View {
             }
             .navigationTitle("設定")
             .sheet(isPresented: $showNameEdit) {
-                NameEditSheet().environmentObject(store)
+                ProfileEditSheet()
+                    .environmentObject(store)
+                    .environmentObject(profile)
             }
             .sheet(isPresented: $showPrivacyTutorial) {
                 PrivacyTutorialSheet()
@@ -446,24 +450,52 @@ private var appVersion: String {
 
 // MARK: - Display name
 
-private struct NameEditSheet: View {
+private struct ProfileEditSheet: View {
     @EnvironmentObject private var store: ChatStore
+    @EnvironmentObject private var profile: ProfileStore
     @AppStorage("rm.displayName") private var savedName = ""
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
+    @State private var item: PhotosPickerItem?
+    @State private var error: String?
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
+                    HStack {
+                        Spacer()
+                        Avatar(name: store.displayName, image: profile.avatar, size: 96)
+                        Spacer()
+                    }
+                    .listRowBackground(Color.clear)
+
+                    PhotosPicker(selection: $item, matching: .images) {
+                        Label(
+                            profile.avatar == nil ? "写真を選ぶ" : "写真を変更",
+                            systemImage: "photo"
+                        )
+                    }
+                    if profile.avatar != nil {
+                        Button("写真を削除", role: .destructive) {
+                            profile.removeAvatar()
+                        }
+                    }
+                }
+
+                Section {
                     TextField("表示名", text: $name)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                 } footer: {
-                    Text("友だちに表示される名前です。")
+                    Text("アイコンと表示名はこの端末にのみ保存されます。")
+                }
+
+                if let error {
+                    Text(error).foregroundStyle(RM.error)
                 }
             }
-            .navigationTitle("表示名を変更")
+            .navigationTitle("プロフィール")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -475,12 +507,27 @@ private struct NameEditSheet: View {
                 }
             }
             .onAppear { name = store.displayName }
+            .onChange(of: item) { _, newItem in
+                guard let newItem else { return }
+                Task {
+                    if let data = try? await newItem.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        error = nil
+                        profile.setAvatar(image)
+                    } else {
+                        error = "写真を読み込めませんでした。"
+                    }
+                }
+            }
         }
     }
 
     private func save() {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else {
+            error = "表示名を入力してください。"
+            return
+        }
         savedName = trimmed
         store.updateDisplayName(trimmed)
         dismiss()

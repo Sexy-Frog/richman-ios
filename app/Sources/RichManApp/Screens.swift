@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // MARK: トーク
 
@@ -314,10 +315,25 @@ struct EmptyState: View {
 
 struct Avatar: View {
     let name: String
+    var image: UIImage? = nil
+    var size: CGFloat = 40
+
     var body: some View {
-        Text(String(name.prefix(1)))
-            .font(.headline).foregroundStyle(.white)
-            .frame(width: 40, height: 40)
-            .background(Brand.signalBlue, in: Circle())
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Text(String(name.prefix(1)))
+                    .font(.system(size: size * 0.4, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Brand.signalBlue)
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .overlay(Circle().stroke(RM.outline, lineWidth: image == nil ? 0 : 1))
     }
 }
