@@ -54,6 +54,7 @@ final class TorSession: ObservableObject {
 
     private var launcher: AnyObject?
     private var pollTask: Task<Void, Never>?
+    private var cachedDirect: DirectTransport?
     /// Chosen per launch so two simulators (or two app instances) never fight
     /// over 127.0.0.1:39050 on the same host.
     private var socksPort: UInt16 = 39050
@@ -96,7 +97,10 @@ final class TorSession: ObservableObject {
 
     private var directTransport: DirectTransport? {
         guard !useTor, let url = Self.directRelayURL else { return nil }
-        return DirectTransport(baseURL: url)
+        if let cachedDirect { return cachedDirect }
+        let transport = DirectTransport(baseURL: url)
+        cachedDirect = transport
+        return transport
     }
 
     /// Transport for relay calls. Direct mode is ready immediately; Tor mode
@@ -111,8 +115,8 @@ final class TorSession: ObservableObject {
     /// mailbox isolates contacts; direct mode shares the HTTPS session.
     var readyTransportFactory: (@Sendable (String) -> RelayTransport)? {
         if !useTor {
-            guard let url = Self.directRelayURL else { return nil }
-            return { _ in DirectTransport(baseURL: url) }
+            guard let transport = directTransport else { return nil }
+            return { _ in transport }
         }
         guard phase == .ready, !Self.relayHost.isEmpty else { return nil }
         let host = Self.relayHost
