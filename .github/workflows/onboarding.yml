@@ -50,20 +50,26 @@ jobs:
         working-directory: app
         run: |
           set -euo pipefail
-          xcodebuild test \
-            -project RichMan.xcodeproj \
-            -scheme RichMan \
-            -destination "platform=iOS Simulator,id=$UDID" \
-            -derivedDataPath build \
-            -only-testing:RichManUITests/OnboardingUITests/testIntroNextAdvancesAndOnboardingCompletes \
-            -resultBundlePath TestResults.xcresult \
-            -parallel-testing-enabled NO
+          for config in Debug Release; do
+            echo "::group::Onboarding UI test ($config)"
+            rm -rf "TestResults-$config.xcresult"
+            xcodebuild test \
+              -project RichMan.xcodeproj \
+              -scheme RichMan \
+              -configuration "$config" \
+              -destination "platform=iOS Simulator,id=$UDID" \
+              -derivedDataPath "build-$config" \
+              -only-testing:RichManUITests/OnboardingUITests/testIntroNextAdvancesAndOnboardingCompletes \
+              -resultBundlePath "TestResults-$config.xcresult" \
+              -parallel-testing-enabled NO
+            echo "::endgroup::"
+          done
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: onboarding-xcresult
-          path: app/TestResults.xcresult
+          path: app/TestResults-*.xcresult
           if-no-files-found: warn
           retention-days: 7
