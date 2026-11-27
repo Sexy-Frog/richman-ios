@@ -112,6 +112,8 @@ struct OnboardingView: View {
             .buttonStyle(.borderedProminent)
             .tint(RM.primary)
             .controlSize(.large)
+            .accessibilityIdentifier("introNext")
+            .accessibilityValue("page \(introPage)")
         }
         .padding(24)
     }

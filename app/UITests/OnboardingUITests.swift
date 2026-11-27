@@ -19,11 +19,17 @@ final class OnboardingUITests: XCTestCase {
         )
 
         // Page 1 -> 2
-        button("次へ").tap()
-        XCTAssertTrue(
-            text("会話は端末間で暗号化").waitForExistence(timeout: 5),
-            "next did not advance to page 2"
-        )
+        app.buttons["introNext"].tap()
+        print("introNext value after tap: \(app.buttons["introNext"].value ?? "nil")")
+        let page2 = text("会話は端末間で暗号化")
+        if !page2.waitForExistence(timeout: 5) {
+            print("=== UI TREE AFTER 次へ ===")
+            print(app.debugDescription)
+            let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            shot.lifetime = .keepAlways
+            add(shot)
+            XCTFail("next did not advance to page 2")
+        }
 
         // Page 2 -> 3
         button("次へ").tap()
