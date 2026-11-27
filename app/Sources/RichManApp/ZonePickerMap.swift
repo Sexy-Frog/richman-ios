@@ -17,11 +17,18 @@ struct ZonePickerMap: UIViewRepresentable {
         map.showsAttributionButton = false
         map.setCenter(center, zoomLevel: 15.0, animated: false)
         context.coordinator.lastRecenter = recenter
+        context.coordinator.lastStyleURL = styleURL
         return map
     }
 
     func updateUIView(_ map: MLNMapView, context: Context) {
         context.coordinator.parent = self
+        // Tor may finish bootstrapping after this view was created. Without
+        // this, an editor opened early stays on the empty style forever.
+        if let styleURL, styleURL != context.coordinator.lastStyleURL {
+            context.coordinator.lastStyleURL = styleURL
+            map.styleURL = styleURL
+        }
         guard recenter != context.coordinator.lastRecenter else { return }
         context.coordinator.lastRecenter = recenter
         map.setCenter(center, zoomLevel: map.zoomLevel, animated: true)
@@ -32,6 +39,7 @@ struct ZonePickerMap: UIViewRepresentable {
     final class Coordinator: NSObject, MLNMapViewDelegate {
         var parent: ZonePickerMap
         var lastRecenter = 0
+        var lastStyleURL: URL?
 
         init(_ parent: ZonePickerMap) {
             self.parent = parent
