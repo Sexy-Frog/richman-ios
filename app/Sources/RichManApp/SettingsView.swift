@@ -230,6 +230,7 @@ struct SettingsView: View {
                 Section {
                     Link("サポートページ", destination: SupportConfig.supportURL)
                     Link("公開プライバシーポリシー", destination: SupportConfig.privacyURL)
+                    Link("利用規約", destination: SupportConfig.termsURL)
                     Link("運営に問い合わせる",
                          destination: URL(string: "mailto:\(SupportConfig.email)")!)
                 } header: {

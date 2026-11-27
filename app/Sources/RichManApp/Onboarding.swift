@@ -32,6 +32,7 @@ struct OnboardingView: View {
     @State private var pinEntry = ""
     @State private var pinFirst = ""
     @State private var pinConfirming = false
+    @State private var acceptedTerms = false
 
     private static let introPages: [(icon: String, title: String, text: String)] = [
         (
@@ -239,6 +240,19 @@ struct OnboardingView: View {
                 .foregroundStyle(RM.onSurfaceVariant)
                 .multilineTextAlignment(.center)
 
+            HStack(alignment: .top, spacing: 8) {
+                Toggle("", isOn: $acceptedTerms)
+                    .labelsHidden()
+                    .tint(RM.primary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("利用規約と禁止事項に同意します")
+                        .font(.caption)
+                    Link("利用規約を読む", destination: SupportConfig.termsURL)
+                        .font(.caption2)
+                }
+            }
+            .padding(.horizontal, 24)
+
             HStack(spacing: 12) {
                 ForEach(0..<4, id: \.self) { index in
                     Circle()
@@ -249,6 +263,8 @@ struct OnboardingView: View {
             .padding(.vertical, 8)
 
             pinKeypad
+                .disabled(!acceptedTerms)
+                .opacity(acceptedTerms ? 1 : 0.35)
         }
     }
 
@@ -331,7 +347,7 @@ struct OnboardingView: View {
     }
 
     private func appendPin(_ digit: Int) {
-        guard pinEntry.count < 4 else { return }
+        guard acceptedTerms, pinEntry.count < 4 else { return }
         pinEntry.append(String(digit))
         guard pinEntry.count == 4 else { return }
 

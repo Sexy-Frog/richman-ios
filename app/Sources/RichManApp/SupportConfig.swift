@@ -8,6 +8,7 @@ enum SupportConfig {
 
     static let supportURL = URL(string: "https://kelvins.works/richman/support.html")!
     static let privacyURL = URL(string: "https://kelvins.works/richman/privacy.html")!
+    static let termsURL = URL(string: "https://kelvins.works/richman/terms.html")!
 
     /// `mailto:` URL with a prefilled reason and the peer's public id.
     static func reportMailURL(reason: String, peerId: String) -> URL? {
