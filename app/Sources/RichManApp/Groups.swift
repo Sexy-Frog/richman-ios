@@ -380,12 +380,12 @@ struct GroupChatView: View {
         return String(tail)
     }
 
-    private var mentionCandidates: [(id: String, name: String)] {
+    private var mentionCandidates: [MentionCandidate] {
         guard let query = mentionQuery else { return [] }
-        var list: [(id: String, name: String)] = [("all", "全員")]
+        var list: [MentionCandidate] = [MentionCandidate(id: "all", name: "全員")]
         for id in group.memberIds {
             if let contact = store.contact(id) {
-                list.append((id, contact.name))
+                list.append(MentionCandidate(id: id, name: contact.name))
             }
         }
         guard !query.isEmpty else { return list }
@@ -439,6 +439,11 @@ struct GroupChatView: View {
         replyTo = nil
         store.send(toGroup: group.id, text: text, replyTo: reply)
     }
+}
+
+private struct MentionCandidate: Identifiable {
+    let id: String
+    let name: String
 }
 
 private struct GroupBubble: View {
