@@ -69,8 +69,19 @@ final class OnboardingUITests: XCTestCase {
             "zone step did not advance to the terms step"
         )
 
-        // Terms page -> PIN step (the button is the consent action)
-        button("同意して続ける").tap()
+        // Terms: the consent button unlocks only after the text is read to
+        // the bottom.
+        let agree = app.buttons["同意して続ける"]
+        XCTAssertTrue(agree.waitForExistence(timeout: 5))
+        XCTAssertFalse(agree.isEnabled, "consent should start disabled")
+        let termsScroll = app.scrollViews.firstMatch
+        XCTAssertTrue(termsScroll.waitForExistence(timeout: 5))
+        for _ in 0..<25 {
+            if agree.isEnabled { break }
+            termsScroll.swipeUp()
+        }
+        XCTAssertTrue(agree.isEnabled, "consent did not unlock after scrolling")
+        agree.tap()
         XCTAssertTrue(
             text("暗証番号を設定").waitForExistence(timeout: 5),
             "terms step did not advance to the PIN step"
