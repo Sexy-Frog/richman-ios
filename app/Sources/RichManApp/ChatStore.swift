@@ -22,7 +22,12 @@ final class ChatStore: ObservableObject {
     /// Blocked contact ids (App Store UGC requirement — blocked peers can't be
     /// messaged and their inbound messages are dropped). Persisted in UserDefaults.
     @Published private(set) var blockedIds: Set<String> = []
+    /// Per-conversation mute and "hidden from Talks" flags (UserDefaults).
+    @Published private(set) var mutedIds: Set<String> = []
+    @Published private(set) var hiddenIds: Set<String> = []
     private let blockedKey = "rm.blocked"
+    private let mutedKey = "rm.muted"
+    private let hiddenKey = "rm.hidden"
 
     let crypto: CryptoProvider
     /// Non-nil only when Tor is up and the app is foreground. Every send/poll
@@ -55,6 +60,12 @@ final class ChatStore: ObservableObject {
         self.crypto = crypto
         if let saved = UserDefaults.standard.stringArray(forKey: blockedKey) {
             self.blockedIds = Set(saved)
+        }
+        if let saved = UserDefaults.standard.stringArray(forKey: mutedKey) {
+            self.mutedIds = Set(saved)
+        }
+        if let saved = UserDefaults.standard.stringArray(forKey: hiddenKey) {
+            self.hiddenIds = Set(saved)
         }
         if persistenceEnabled { loadFromDisk() }
         DemoData.seed(into: self)
@@ -531,6 +542,20 @@ final class ChatStore: ObservableObject {
         scheduleSave()
     }
 
+    func isMuted(_ id: String) -> Bool { mutedIds.contains(id) }
+
+    func setMuted(_ id: String, _ muted: Bool) {
+        if muted { mutedIds.insert(id) } else { mutedIds.remove(id) }
+        UserDefaults.standard.set(Array(mutedIds), forKey: mutedKey)
+    }
+
+    func isHidden(_ id: String) -> Bool { hiddenIds.contains(id) }
+
+    func setHidden(_ id: String, _ hidden: Bool) {
+        if hidden { hiddenIds.insert(id) } else { hiddenIds.remove(id) }
+        UserDefaults.standard.set(Array(hiddenIds), forKey: hiddenKey)
+    }
+
     func messages(for peerId: String) -> [ChatMessage] { messagesByPeer[peerId] ?? [] }
 
     func contact(_ peerId: String) -> Contact? { contacts.first { $0.id == peerId } }
@@ -574,6 +599,8 @@ final class ChatStore: ObservableObject {
               replyTo: String? = nil) {
         let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty, !isBlocked(peerId) else { return }
+
+        if hiddenIds.contains(peerId) { setHidden(peerId, false) }
 
         // The official account is a local inbox: text only, read immediately,
         // never sent over the relay and never answered.
@@ -716,6 +743,9 @@ final class ChatStore: ObservableObject {
     /// copy too (`{"t":"del","ids":[mid]}`).
     func deleteMessage(_ message: ChatMessage, in peerId: String, everyone: Bool) {
         messagesByPeer[peerId]?.removeAll { $0.id == message.id }
+        if let i = contacts.firstIndex(where: { $0.id == peerId }) {
+            contacts[i].lastMessage = Self.previewText(of: messagesByPeer[peerId]?.last)
+        }
         if everyone, message.mine {
             let payload = DeleteMessage(ids: [message.id])
             if let json = try? payload.toPayloadJSON() {
@@ -723,6 +753,16 @@ final class ChatStore: ObservableObject {
             }
         }
         scheduleSave()
+    }
+
+    private static func previewText(of message: ChatMessage?) -> String {
+        guard let message else { return "" }
+        switch message.kind {
+        case .text: return message.body
+        case .image: return "画像"
+        case .file: return "ファイル"
+        case .location: return "位置情報"
+        }
     }
 
     // MARK: group media
@@ -947,6 +987,9 @@ final class ChatStore: ObservableObject {
         sendReceipt: Bool = true
     ) {
         let isOpen = activePeer == peerId
+        if hiddenIds.contains(peerId) {
+            setHidden(peerId, false)
+        }
         if let i = contacts.firstIndex(where: { $0.id == peerId }) {
             contacts[i].lastMessage = preview
             if !isOpen { contacts[i].unread += 1 }
@@ -955,7 +998,7 @@ final class ChatStore: ObservableObject {
         scheduleSave()
         if isOpen, sendReceipt {
             sendReadReceipts(peerId)
-        } else if notify, UIApplication.shared.applicationState != .active {
+        } else if notify, !isMuted(peerId), UIApplication.shared.applicationState != .active {
             NotificationManager.shared.message(
                 from: contact(peerId)?.name ?? "RichMan",
                 preview: preview,
@@ -1105,6 +1148,9 @@ final class ChatStore: ObservableObject {
         let kept = list.filter { $0.ts > cutoff }
         if kept.count != list.count {
             messagesByPeer[peerId] = kept
+            if let i = contacts.firstIndex(where: { $0.id == peerId }) {
+                contacts[i].lastMessage = Self.previewText(of: kept.last)
+            }
             scheduleSave()
         }
     }
@@ -1132,6 +1178,10 @@ final class ChatStore: ObservableObject {
         let cutoff = Date().addingTimeInterval(-Double(days) * 86_400)
         messagesByPeer = messagesByPeer.mapValues { $0.filter { $0.ts > cutoff } }
         groupMessages = groupMessages.mapValues { $0.filter { $0.ts > cutoff } }
+        for i in contacts.indices {
+            contacts[i].lastMessage = Self.previewText(of: messagesByPeer[contacts[i].id]?.last)
+        }
+        scheduleSave()
     }
 
     // MARK: media
@@ -1355,6 +1405,7 @@ final class ChatStore: ObservableObject {
     func send(toGroup id: String, text: String, replyTo: ChatMessage? = nil) {
         let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty, let group = self.group(id) else { return }
+        if hiddenIds.contains(id) { setHidden(id, false) }
         let mid = UUID().uuidString
         let mentioned = mentionedIds(in: body, group: group)
 
@@ -1594,6 +1645,9 @@ final class ChatStore: ObservableObject {
     }
 
     private func appendGroupMessage(_ groupId: String, message: ChatMessage) {
+        if !message.mine, hiddenIds.contains(groupId) {
+            setHidden(groupId, false)
+        }
         groupMessages[groupId, default: []].append(message)
         let isOpen = activeGroup == groupId
         if !message.mine, !isOpen,
@@ -1612,10 +1666,12 @@ final class ChatStore: ObservableObject {
             case .text: preview = message.body
             }
             let mentioned = message.mentions?.contains(crypto.myId) == true
-            NotificationManager.shared.message(
-                from: message.senderName ?? group(groupId)?.name ?? "グループ",
-                preview: mentioned ? "あなた宛て: \(preview)" : preview
-            )
+            if !isMuted(groupId) {
+                NotificationManager.shared.message(
+                    from: message.senderName ?? group(groupId)?.name ?? "グループ",
+                    preview: mentioned ? "あなた宛て: \(preview)" : preview
+                )
+            }
         }
     }
 

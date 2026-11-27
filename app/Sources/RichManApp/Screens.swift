@@ -5,13 +5,22 @@ import UIKit
 
 struct TalksView: View {
     @EnvironmentObject private var store: ChatStore
+    @State private var path = NavigationPath()
     @State private var showCreateGroup = false
     @State private var peek: Contact?
 
+    private var visibleGroups: [ChatGroup] {
+        store.groups.filter { !store.isHidden($0.id) }
+    }
+
+    private var visibleContacts: [Contact] {
+        store.contacts.filter { !store.isHidden($0.id) }
+    }
+
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Group {
-                if store.contacts.isEmpty && store.groups.isEmpty {
+                if visibleContacts.isEmpty && visibleGroups.isEmpty {
                     EmptyState(
                         icon: "bubble.left.and.bubble.right",
                         title: "まだトークがありません",
@@ -19,28 +28,65 @@ struct TalksView: View {
                     )
                 } else {
                     List {
-                        if !store.groups.isEmpty {
+                        if !visibleGroups.isEmpty {
                             Section("グループ") {
-                                ForEach(store.groups) { group in
-                                    NavigationLink(value: group) { GroupRow(group: group) }
+                                ForEach(visibleGroups) { group in
+                                    GroupRow(group: group)
+                                        .contentShape(Rectangle())
+                                        .onTapGesture { path.append(group) }
+                                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                            Button {
+                                                store.setHidden(group.id, true)
+                                            } label: {
+                                                Label("非表示", systemImage: "eye.slash")
+                                            }
+                                            .tint(.gray)
+
+                                            Button(role: .destructive) {
+                                                if group.ownerId == store.myId {
+                                                    store.deleteGroup(group.id)
+                                                } else {
+                                                    store.leaveGroup(group.id)
+                                                }
+                                            } label: {
+                                                Label("削除", systemImage: "trash")
+                                            }
+                                        }
                                 }
                             }
                         }
-                        if !store.contacts.isEmpty {
+                        if !visibleContacts.isEmpty {
                             Section("友だち") {
-                                ForEach(store.contacts) { contact in
-                                    NavigationLink(value: contact) {
-                                        ContactRow(contact: contact)
-                                    }
-                                    .simultaneousGesture(
-                                        LongPressGesture(minimumDuration: 0.5)
-                                            .onEnded { _ in peek = contact }
-                                    )
+                                ForEach(visibleContacts) { contact in
+                                    ContactRow(contact: contact)
+                                        .contentShape(Rectangle())
+                                        .onTapGesture { path.append(contact) }
+                                        .onLongPressGesture(minimumDuration: 0.45) {
+                                            peek = contact
+                                        }
+                                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                            if !contact.official {
+                                                Button {
+                                                    store.setHidden(contact.id, true)
+                                                } label: {
+                                                    Label("非表示", systemImage: "eye.slash")
+                                                }
+                                                .tint(.gray)
+
+                                                Button(role: .destructive) {
+                                                    store.clearChat(contact.id)
+                                                    store.setHidden(contact.id, true)
+                                                } label: {
+                                                    Label("削除", systemImage: "trash")
+                                                }
+                                            }
+                                        }
                                 }
                             }
                         }
                     }
                     .listStyle(.plain)
+                    .contentMargins(.bottom, 88, for: .scrollContent)
                     .navigationDestination(for: Contact.self) { ChatView(contact: $0) }
                     .navigationDestination(for: ChatGroup.self) { GroupChatView(group: $0) }
                 }
@@ -228,6 +274,7 @@ struct FriendsView: View {
                         }
                     }
                     .listStyle(.plain)
+                    .contentMargins(.bottom, 88, for: .scrollContent)
                     .navigationDestination(for: Contact.self) { ChatView(contact: $0) }
                 }
             }

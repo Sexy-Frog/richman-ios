@@ -16,6 +16,8 @@ struct ChatView: View {
     @FocusState private var composerFocused: Bool
     @State private var showReport = false
     @State private var showTTL = false
+    @State private var showProfile = false
+    @State private var confirmRemove = false
     @State private var showAttach = false
     @State private var showPhotos = false
     @State private var showFiles = false
@@ -47,37 +49,7 @@ struct ChatView: View {
                 ScrollView {
                     LazyVStack(spacing: 6) {
                         ForEach(Array(messages.enumerated()), id: \.element.id) { pair in
-                            let index = pair.offset
-                            let message = pair.element
-                            if index == 0 ||
-                                !Calendar.current.isDate(messages[index - 1].ts, inSameDayAs: message.ts) {
-                                DateDivider(date: message.ts)
-                            }
-                            MessageBubble(
-                                message: message,
-                                replyPreview: replyPreview(for: message),
-                                onReply: {
-                                    withAnimation(.easeOut(duration: 0.15)) {
-                                        replyTo = $0
-                                    }
-                                    composerFocused = true
-                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                },
-                                onDelete: {
-                                    store.deleteMessage(
-                                        $0, in: contact.id, everyone: false
-                                    )
-                                },
-                                onDeleteEveryone: {
-                                    store.deleteMessage(
-                                        $0, in: contact.id, everyone: true
-                                    )
-                                },
-                                onOpenImage: {
-                                    imagePreview = ImagePreview(image: $0)
-                                }
-                            )
-                            .id(message.id)
+                            chatRow(pair.element, index: pair.offset)
                         }
                     }
                     .padding(.horizontal, 12)
@@ -103,6 +75,11 @@ struct ChatView: View {
             composer
         }
         .background(RM.chatBg)
+        .overlay {
+            if showProfile {
+                profilePopup
+            }
+        }
         .navigationTitle(contact.name)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
@@ -115,21 +92,26 @@ struct ChatView: View {
         }
         .toolbar {
             ToolbarItem(placement: .principal) {
-                VStack(spacing: 1) {
-                    HStack(spacing: 4) {
-                        Text(contact.name)
-                            .font(.headline)
-                            .lineLimit(1)
-                        if isOfficial {
-                            Image(systemName: "checkmark.seal.fill")
-                                .font(.caption)
-                                .foregroundStyle(RM.primary)
+                Button {
+                    withAnimation(.easeOut(duration: 0.15)) { showProfile = true }
+                } label: {
+                    VStack(spacing: 1) {
+                        HStack(spacing: 4) {
+                            Text(contact.name)
+                                .font(.headline)
+                                .lineLimit(1)
+                            if isOfficial {
+                                Image(systemName: "checkmark.seal.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(RM.primary)
+                            }
                         }
+                        Text("端末間暗号化")
+                            .font(.system(size: 10))
+                            .foregroundStyle(RM.onSurfaceVariant)
                     }
-                    Text("端末間暗号化")
-                        .font(.system(size: 10))
-                        .foregroundStyle(RM.onSurfaceVariant)
                 }
+                .buttonStyle(.plain)
             }
             if !isOfficial {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -184,6 +166,19 @@ struct ChatView: View {
             Button("キャンセル", role: .cancel) {}
         } message: {
             Text("この端末からメッセージ履歴を削除します。友だちは残ります。")
+        }
+        .confirmationDialog(
+            "友だちを削除しますか？",
+            isPresented: $confirmRemove,
+            titleVisibility: .visible
+        ) {
+            Button("削除", role: .destructive) {
+                store.removeContact(contact.id)
+                dismiss()
+            }
+            Button("キャンセル", role: .cancel) {}
+        } message: {
+            Text("この端末から友だちとトーク履歴を削除します。")
         }
         .sheet(isPresented: $showTTL, onDismiss: {
             store.setTTL(ttlSeconds, for: contact.id)
@@ -244,6 +239,108 @@ struct ChatView: View {
     }
 
     // MARK: pieces
+
+    @ViewBuilder
+    private func chatRow(_ message: ChatMessage, index: Int) -> some View {
+        if index == 0 ||
+            !Calendar.current.isDate(
+                messages[index - 1].ts,
+                inSameDayAs: message.ts
+            ) {
+            DateDivider(date: message.ts)
+        }
+        MessageBubble(
+            message: message,
+            replyPreview: replyPreview(for: message),
+            onReply: handleReply,
+            onDelete: { store.deleteMessage($0, in: contact.id, everyone: false) },
+            onDeleteEveryone: { store.deleteMessage($0, in: contact.id, everyone: true) },
+            onOpenImage: { imagePreview = ImagePreview(image: $0) }
+        )
+        .id(message.id)
+    }
+
+    private func handleReply(_ target: ChatMessage) {
+        withAnimation(.easeOut(duration: 0.15)) {
+            replyTo = target
+        }
+        composerFocused = true
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
+    private var profilePopup: some View {
+        ZStack {
+            Color.black.opacity(0.28)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    withAnimation(.easeOut(duration: 0.15)) { showProfile = false }
+                }
+
+            VStack(spacing: 18) {
+                Avatar(name: contact.name, size: 76)
+                Text(contact.name)
+                    .font(.title3.weight(.bold))
+                    .lineLimit(1)
+
+                HStack(spacing: 22) {
+                    popupAction(
+                        icon: store.isMuted(contact.id) ? "bell.slash.fill" : "bell.fill",
+                        title: store.isMuted(contact.id) ? "ミュート解除" : "ミュート"
+                    ) {
+                        store.setMuted(contact.id, !store.isMuted(contact.id))
+                    }
+                    if !isOfficial {
+                        popupAction(icon: "flag", title: "通報") {
+                            withAnimation { showProfile = false }
+                            showReport = true
+                        }
+                        popupAction(
+                            icon: "person.badge.minus",
+                            title: "削除",
+                            tint: RM.error
+                        ) {
+                            withAnimation { showProfile = false }
+                            confirmRemove = true
+                        }
+                    }
+                }
+
+                Button("閉じる") {
+                    withAnimation(.easeOut(duration: 0.15)) { showProfile = false }
+                }
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(RM.onSurfaceVariant)
+            }
+            .padding(24)
+            .frame(maxWidth: 320)
+            .background(RM.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .shadow(color: .black.opacity(0.18), radius: 22, y: 8)
+            .padding(30)
+            .transition(.opacity.combined(with: .scale(scale: 0.96)))
+        }
+    }
+
+    private func popupAction(
+        icon: String,
+        title: String,
+        tint: Color = RM.primary,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            VStack(spacing: 7) {
+                Image(systemName: icon)
+                    .font(.title3.weight(.semibold))
+                    .frame(width: 48, height: 48)
+                    .background(tint.opacity(0.12), in: Circle())
+                Text(title)
+                    .font(.caption2)
+                    .lineLimit(1)
+            }
+            .foregroundStyle(tint)
+            .frame(width: 72)
+        }
+        .buttonStyle(.plain)
+    }
 
     private var officialBanner: some View {
         HStack(spacing: 8) {

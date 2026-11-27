@@ -134,36 +134,7 @@ struct GroupChatView: View {
                 ScrollView {
                     LazyVStack(spacing: 6) {
                         ForEach(Array(messages.enumerated()), id: \.element.id) { pair in
-                            let index = pair.offset
-                            let message = pair.element
-                            if index == 0 ||
-                                !Calendar.current.isDate(
-                                    messages[index - 1].ts,
-                                    inSameDayAs: message.ts
-                                ) {
-                                DateDivider(date: message.ts)
-                            }
-                            GroupBubble(
-                                message: message,
-                                mentioned: message.mentions?
-                                    .contains(store.myId) == true,
-                                onReply: {
-                                    withAnimation(.easeOut(duration: 0.15)) {
-                                        replyTo = $0
-                                    }
-                                    composerFocused = true
-                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                },
-                                onDelete: {
-                                    store.deleteGroupMessage($0, in: group.id)
-                                },
-                                onDeleteEveryone: {
-                                    store.deleteGroupMessage(
-                                        $0, in: group.id, everyone: true
-                                    )
-                                }
-                            )
-                            .id(message.id)
+                            chatRow(pair.element, index: pair.offset)
                         }
                     }
                     .padding(.horizontal, 12)
@@ -310,6 +281,33 @@ struct GroupChatView: View {
             .padding(.vertical, 8)
         }
         .background(RM.background)
+    }
+
+    @ViewBuilder
+    private func chatRow(_ message: ChatMessage, index: Int) -> some View {
+        if index == 0 ||
+            !Calendar.current.isDate(
+                messages[index - 1].ts,
+                inSameDayAs: message.ts
+            ) {
+            DateDivider(date: message.ts)
+        }
+        GroupBubble(
+            message: message,
+            mentioned: message.mentions?.contains(store.myId) == true,
+            onReply: handleReply,
+            onDelete: { store.deleteGroupMessage($0, in: group.id) },
+            onDeleteEveryone: { store.deleteGroupMessage($0, in: group.id, everyone: true) }
+        )
+        .id(message.id)
+    }
+
+    private func handleReply(_ target: ChatMessage) {
+        withAnimation(.easeOut(duration: 0.15)) {
+            replyTo = target
+        }
+        composerFocused = true
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
 
     private var ttlBanner: some View {
