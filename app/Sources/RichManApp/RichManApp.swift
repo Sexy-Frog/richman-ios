@@ -10,6 +10,9 @@ struct RichManApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
+        // A reinstall keeps Keychain items (PIN, zone/store keys); clear them
+        // when UserDefaults shows this is a fresh install.
+        FreshInstall.resetIfNeeded()
         // Exclude Application Support from backups as early as possible; new
         // files inherit the excluded directory.
         PrivacyStorage.prepare()

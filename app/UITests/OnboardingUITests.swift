@@ -69,8 +69,18 @@ final class OnboardingUITests: XCTestCase {
             "zone step did not advance to the terms step"
         )
 
-        // Terms page -> PIN step (the button is the consent action)
-        button("同意して続ける").tap()
+        // Terms: the consent button unlocks only after the text is read to
+        // the bottom.
+        let agree = app.buttons["同意して続ける"]
+        XCTAssertTrue(agree.waitForExistence(timeout: 5))
+        let termsScroll = app.scrollViews.firstMatch
+        XCTAssertTrue(termsScroll.waitForExistence(timeout: 5))
+        for _ in 0..<25 {
+            if agree.isEnabled { break }
+            termsScroll.swipeUp()
+        }
+        XCTAssertTrue(agree.isEnabled, "consent did not unlock after scrolling")
+        agree.tap()
         XCTAssertTrue(
             text("暗証番号を設定").waitForExistence(timeout: 5),
             "terms step did not advance to the PIN step"
@@ -92,6 +102,15 @@ final class OnboardingUITests: XCTestCase {
             app.tabBars.buttons["トーク"].waitForExistence(timeout: 10),
             "onboarding never completed"
         )
+
+        // Friends -> add screen renders and generates an invite.
+        app.tabBars.buttons["友だち"].tap()
+        button("友だちを追加").tap()
+        XCTAssertTrue(
+            text("招待リンクを貼り付け").waitForExistence(timeout: 10),
+            "add-friend screen did not open"
+        )
+        button("閉じる").tap()
     }
 
     private func enterPIN() {

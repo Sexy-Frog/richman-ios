@@ -82,6 +82,9 @@ targets:
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         # Onion relay address is injected by CI (never committed).
         RMRelayHost: $(RM_RELAY_HOST)
+        CFBundleURLTypes:
+          - CFBundleURLName: works.kelvins.richman.invite
+            CFBundleURLSchemes: [richman]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: works.kelvins.richman.crypto

@@ -50,6 +50,7 @@ struct LockScreenView: View {
                 Spacer()
             }
             .padding(.horizontal, 28)
+            .padding(.top, 12)
         }
     }
 

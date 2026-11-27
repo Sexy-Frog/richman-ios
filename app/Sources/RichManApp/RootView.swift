@@ -2,9 +2,15 @@ import SwiftUI
 import UIKit
 import Combine
 import UserNotifications
+import RichManCore
 
 private struct NotificationChat: Identifiable {
     let id: String
+}
+
+private struct PendingInvite: Identifiable {
+    let id = UUID()
+    let raw: String
 }
 
 /// Gate: first launch → onboarding; afterwards → the hub. The single `ChatStore`
@@ -24,9 +30,11 @@ struct RootView: View {
     @State private var privacyCover = false
     @State private var screenCaptured = UIScreen.main.isCaptured
     @State private var notificationChat: NotificationChat?
+    @State private var pendingInvite: PendingInvite?
     @State private var showDebugLocationPrimer = false
     @State private var showDebugPrivacyTutorial = false
     @State private var showDebugDuress = false
+    @State private var showDebugAddFriend = false
 
     /// Screenshot/CI hook: launch with `-rm.skipOnboarding 1` to bypass setup.
     /// DEBUG only, so release builds always start at onboarding.
@@ -104,6 +112,12 @@ struct RootView: View {
                     showDebugDuress = true
                 }
             }
+            if UserDefaults.standard.bool(forKey: "rm.addFriend") {
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 400_000_000)
+                    showDebugAddFriend = true
+                }
+            }
             #endif
         }
         .onChange(of: scenePhase) { _, phase in
@@ -153,6 +167,11 @@ struct RootView: View {
             guard let token = note.object as? String, !token.isEmpty else { return }
             store.registerPush(token: token)
         }
+        .onOpenURL { url in
+            if let raw = InviteLink.normalize(url.absoluteString) {
+                pendingInvite = PendingInvite(raw: raw)
+            }
+        }
         .onChange(of: store.contacts.count) { _, _ in
             registerPushIfPossible()
         }
@@ -165,6 +184,14 @@ struct RootView: View {
                     .environmentObject(tor)
             }
         }
+        .sheet(item: Binding(
+            get: { (lock.locked || !onboarded) ? nil : pendingInvite },
+            set: { pendingInvite = $0 }
+        )) { invite in
+            AddFriendView(initialCode: invite.raw)
+                .environmentObject(store)
+                .environmentObject(tor)
+        }
         .sheet(isPresented: $showDebugLocationPrimer) {
             LocationPrimer().environmentObject(location)
         }
@@ -173,6 +200,11 @@ struct RootView: View {
         }
         .sheet(isPresented: $showDebugDuress) {
             DuressView().environmentObject(lock)
+        }
+        .sheet(isPresented: $showDebugAddFriend) {
+            AddFriendView()
+                .environmentObject(store)
+                .environmentObject(tor)
         }
         .onChange(of: location.location?.timestamp) { _, _ in
             if scenePhase == .active { applySecurityZoneIfNeeded() }

@@ -1,6 +1,13 @@
 import SwiftUI
 import CoreLocation
 
+private struct TermsBottomKey: PreferenceKey {
+    static let defaultValue: CGFloat = .greatestFiniteMagnitude
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = min(value, nextValue())
+    }
+}
+
 /// First launch: one idea per screen, Signal-style. Every screen keeps its
 /// primary action pinned to the bottom as a full-width button; secondary
 /// choices and policy links sit just above it.
@@ -35,6 +42,9 @@ struct OnboardingView: View {
     @State private var pinEntry = ""
     @State private var pinFirst = ""
     @State private var pinConfirming = false
+    @State private var termsViewportHeight: CGFloat = 0
+    @State private var termsFooterHeight: CGFloat = 0
+    @State private var readTerms = false
 
     private static let introPages: [(icon: String, title: String, text: String)] = [
         (
@@ -79,7 +89,7 @@ struct OnboardingView: View {
     private var introStep: some View {
         let page = Self.introPages[min(introPage, Self.introPages.count - 1)]
         return screen(title: page.title, message: page.text) {
-            art(page.icon, height: 280)
+            art(page.icon, height: 340)
                 .padding(.top, 6)
             Spacer(minLength: 0)
         } footer: {
@@ -184,51 +194,128 @@ struct OnboardingView: View {
     // MARK: terms
 
     private var termsStep: some View {
-        screen(
-            title: "利用規約への同意",
-            message: "RichMan を安心して使うために、次の内容を確認してください。"
-        ) {
-            VStack(alignment: .leading, spacing: 14) {
-                example(
-                    "nosign",
-                    "禁止事項",
-                    "嫌がらせ、詐欺、違法な取引、他人の権利を侵害する行為は禁止です。"
-                )
-                example(
-                    "clock.badge.exclamationmark",
-                    "通報への対応",
-                    "通報は24時間以内に確認し、必要に応じて利用停止や削除を行います。"
-                )
-                example(
-                    "lock.shield.fill",
-                    "データの扱い",
-                    "会話は端末間で暗号化され、運営が内容を読むことはありません。"
+        VStack(spacing: 0) {
+            VStack(spacing: 8) {
+                Text("利用規約への同意")
+                    .font(.title2.weight(.bold))
+                    .multilineTextAlignment(.center)
+                Text("内容を最後まで確認すると同意できます。")
+                    .font(.subheadline)
+                    .foregroundStyle(RM.onSurfaceVariant)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.top, 20)
+            .padding(.horizontal, 24)
+            .padding(.bottom, 10)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("RichMan 利用規約")
+                        .font(.headline)
+                    Text(TermsText.updated)
+                        .font(.caption2)
+                        .foregroundStyle(RM.onSurfaceVariant)
+
+                    ForEach(TermsText.sections) { section in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(section.heading)
+                                .font(.subheadline.weight(.semibold))
+                            ForEach(section.paragraphs, id: \.self) { paragraph in
+                                Text(paragraph)
+                                    .font(.subheadline)
+                                    .foregroundStyle(RM.onSurfaceVariant)
+                                    .lineSpacing(3)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+
+                    Text("「同意して続ける」を押すと、利用規約とプライバシーポリシーに同意したものとみなされます。")
+                        .font(.caption2)
+                        .foregroundStyle(RM.onSurfaceVariant)
+                        .padding(.top, 4)
+
+                    Color.clear
+                        .frame(height: 1)
+                        .background(
+                            GeometryReader { proxy in
+                                Color.clear.preference(
+                                    key: TermsBottomKey.self,
+                                    value: proxy.frame(in: .named("termsScroll")).maxY
+                                )
+                            }
+                        )
+                }
+                .padding(20)
+                .background(RM.surface, in: RoundedRectangle(cornerRadius: 16))
+                .padding(.horizontal, 20)
+                .padding(.bottom, 10)
+            }
+            .coordinateSpace(name: "termsScroll")
+            .background(
+                GeometryReader { proxy in
+                    Color.clear
+                        .onAppear { termsViewportHeight = proxy.size.height }
+                        .onChange(of: proxy.size.height) { _, height in
+                            termsViewportHeight = height
+                        }
+                }
+            )
+            .onPreferenceChange(TermsBottomKey.self) { bottom in
+                guard termsViewportHeight > 0 else { return }
+                let visibleBottom = max(0, termsViewportHeight - termsFooterHeight)
+                if bottom <= visibleBottom + 16 {
+                    readTerms = true
+                }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                VStack(spacing: 8) {
+                    if !readTerms {
+                        Text("最後までスクロールすると同意できます")
+                            .font(.caption2)
+                            .foregroundStyle(RM.onSurfaceVariant)
+                    }
+                    primaryButton("同意して続ける") { step = .pin }
+                        .disabled(!readTerms)
+                        .opacity(readTerms ? 1 : 0.45)
+                    Link("プライバシーポリシー", destination: SupportConfig.privacyURL)
+                        .font(.caption2)
+                        .tint(RM.onSurfaceVariant)
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 8)
+                .padding(.bottom, 6)
+                .background(RM.background)
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear
+                            .onAppear { termsFooterHeight = proxy.size.height }
+                            .onChange(of: proxy.size.height) { _, height in
+                                termsFooterHeight = height
+                            }
+                    }
                 )
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(16)
-            .background(RM.surface, in: RoundedRectangle(cornerRadius: 14))
-            .padding(.top, 6)
-
-            Text("「同意して続ける」を押すと、利用規約とプライバシーポリシーに同意したものとみなされます。")
-                .font(.caption2)
-                .foregroundStyle(RM.onSurfaceVariant)
-                .multilineTextAlignment(.center)
-        } footer: {
-            policyLinks
-            primaryButton("同意して続ける") { step = .pin }
         }
     }
 
     // MARK: pin
 
     private var pinStep: some View {
-        screen(
-            title: pinConfirming ? "もう一度入力" : "暗証番号を設定",
-            message: pinConfirming
-                ? "確認のため同じ4桁を入力してください。"
-                : "アプリのロック解除に使います。4桁の数字。"
-        ) {
+        VStack(spacing: 14) {
+            Spacer(minLength: 16)
+
+            VStack(spacing: 8) {
+                Text(pinConfirming ? "もう一度入力" : "暗証番号を設定")
+                    .font(.title2.weight(.bold))
+                Text(pinConfirming
+                     ? "確認のため同じ4桁を入力してください。"
+                     : "アプリのロック解除に使います。4桁の数字。")
+                    .font(.subheadline)
+                    .foregroundStyle(RM.onSurfaceVariant)
+                    .multilineTextAlignment(.center)
+            }
+
             HStack(spacing: 14) {
                 ForEach(0..<4, id: \.self) { index in
                     Circle()
@@ -236,16 +323,20 @@ struct OnboardingView: View {
                         .frame(width: 15, height: 15)
                 }
             }
-            .padding(.top, 18)
-            .padding(.bottom, 6)
+            .padding(.top, 6)
+
+            errorText
+
+            Spacer(minLength: 12)
 
             pinKeypad
-                .padding(.top, 4)
-            errorText
-            Spacer(minLength: 0)
-        } footer: {
-            EmptyView()
+                .padding(.horizontal, 12)
+
+            Spacer(minLength: 24)
         }
+        .padding(.horizontal, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(RM.background)
     }
 
     private var pinKeypad: some View {
@@ -267,7 +358,6 @@ struct OnboardingView: View {
                     .frame(width: 64, height: 64)
             }
         }
-        .padding(.horizontal, 24)
     }
 
     private func pinKey(_ digit: Int) -> some View {
@@ -289,7 +379,7 @@ struct OnboardingView: View {
             title: "メッセージの取得",
             message: "通知権限は、メッセージの着信や会話の更新をお知らせします。"
         ) {
-            art("bell.badge.fill", height: 280)
+            art("bell.badge.fill", height: 340)
                 .padding(.top, 10)
             Text("通知の内容は端末内で決まり、リレーや Apple にメッセージ本文は送られません。")
                 .font(.caption)
