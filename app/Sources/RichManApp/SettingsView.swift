@@ -407,19 +407,7 @@ private struct NetworkSettingsView: View {
                         .foregroundStyle(RM.onSurfaceVariant)
                 }
             } footer: {
-                Text("メッセージと招待は .onion リレーへ Tor 経由でのみ送信されます。直接のインターネット接続は行いません。")
-            }
-
-            if ProcessInfo.processInfo.isLockedDown {
-                Section {
-                    Label("ロックダウンモードが有効です", systemImage: "lock.shield.fill")
-                        .foregroundStyle(RM.primary)
-                    Text("Tor通信・通知・QR読み取りは通常どおり動作します。Webページの表示やリンクプレビューは iOS の制限を受けます。")
-                        .font(.caption)
-                        .foregroundStyle(RM.onSurfaceVariant)
-                } header: {
-                    Text("システム")
-                }
+                Text("メッセージと招待は .onion リレーへ Tor 経由でのみ送信されます。直接のインターネット接続は行いません。\nロックダウンモードでも Tor 通信・通知・QR 読み取りは動作し、Web ページの表示のみ iOS の制限を受けます。")
             }
         }
         .navigationTitle("ネットワーク")
