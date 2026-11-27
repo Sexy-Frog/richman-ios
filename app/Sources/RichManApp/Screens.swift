@@ -134,7 +134,7 @@ private struct ChatPeekPopup: View {
     @EnvironmentObject private var store: ChatStore
 
     private var recent: [ChatMessage] {
-        Array(store.messages(for: contact.id).suffix(4))
+        Array(store.messages(for: contact.id).suffix(6))
     }
     private var muted: Bool { store.isMuted(contact.id) }
 
@@ -148,27 +148,30 @@ private struct ChatPeekPopup: View {
                 header
                 if !recent.isEmpty {
                     Divider()
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(recent) { message in
-                            HStack(alignment: .top, spacing: 8) {
-                                if message.mine { Spacer(minLength: 30) }
-                                Text(previewText(message))
-                                    .font(.system(size: 13))
-                                    .lineLimit(2)
-                                    .foregroundStyle(RM.onSurface)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 6)
-                                    .background(
-                                        message.mine
-                                            ? RM.primary.opacity(0.16)
-                                            : RM.surfaceVariant,
-                                        in: RoundedRectangle(cornerRadius: 10)
-                                    )
-                                if !message.mine { Spacer(minLength: 30) }
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(recent) { message in
+                                HStack(alignment: .top, spacing: 8) {
+                                    if message.mine { Spacer(minLength: 30) }
+                                    Text(previewText(message))
+                                        .font(.system(size: 13))
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .foregroundStyle(RM.onSurface)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 7)
+                                        .background(
+                                            message.mine
+                                                ? RM.primary.opacity(0.16)
+                                                : RM.surfaceVariant,
+                                            in: RoundedRectangle(cornerRadius: 10)
+                                        )
+                                    if !message.mine { Spacer(minLength: 30) }
+                                }
                             }
                         }
+                        .padding(12)
                     }
-                    .padding(12)
+                    .frame(maxHeight: 280)
                 }
                 Divider()
                 actionRow("開く", "bubble.left", tint: RM.primary) { onOpen() }
@@ -195,10 +198,11 @@ private struct ChatPeekPopup: View {
                     }
                 }
             }
-            .frame(maxWidth: 320)
+            .frame(maxWidth: 352)
             .background(RM.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             .shadow(color: .black.opacity(0.25), radius: 30, y: 12)
-            .padding(28)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 24)
             .transition(.scale(scale: 0.94).combined(with: .opacity))
         }
     }
