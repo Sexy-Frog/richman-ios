@@ -45,6 +45,16 @@ struct ZoneEditorView: View {
                 .foregroundStyle(RM.primary)
                 .shadow(color: .black.opacity(0.25), radius: 4)
 
+            Text("© OpenStreetMap contributors")
+                .font(.system(size: 8))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(.ultraThinMaterial, in: Capsule())
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding(.top, 60)
+                .padding(.leading, 12)
+
             VStack(spacing: 0) {
                 topBar
                 Spacer()
