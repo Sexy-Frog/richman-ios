@@ -169,6 +169,9 @@ struct RootView: View {
                     store.attachRelayFactory(tor.readyTransportFactory)
                 startEventChannelIfDirect()
                 }
+                // The relay keeps push mappings in memory; a relay restart
+                // (or a missed launch) must not leave lock-screen calls dead.
+                registerPushIfPossible()
                 applySecurityZoneIfNeeded()
             case .background:
                 privacyCover = true

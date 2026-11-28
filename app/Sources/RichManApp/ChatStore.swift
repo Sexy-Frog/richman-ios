@@ -38,6 +38,7 @@ final class ChatStore: ObservableObject {
     private var pushToken: String?
     private var voipToken: String?
     private var lastRegisteredBoxes: Set<String> = []
+    private var lastPushRegisterAt = Date.distantPast
     /// Per-conversation mute and "hidden from Talks" flags (UserDefaults).
     @Published private(set) var mutedIds: Set<String> = []
     @Published private(set) var hiddenIds: Set<String> = []
@@ -319,7 +320,10 @@ final class ChatStore: ObservableObject {
             contacts.filter { !$0.official }.compactMap(\.recvBox)
         ).union(pendingBoxes)
         if boxes.isEmpty && !force { return }
-        if !force, boxes == lastRegisteredBoxes { return }
+        if !force, boxes == lastRegisteredBoxes,
+           Date().timeIntervalSince(lastPushRegisterAt) < 600 {
+            return
+        }
         Task {
             var ok = true
             if let token = pushToken {
@@ -340,6 +344,7 @@ final class ChatStore: ObservableObject {
             }
             pushRegistered = ok
             lastRegisteredBoxes = ok ? boxes : []
+            lastPushRegisterAt = ok ? Date() : .distantPast
         }
     }
 
@@ -1971,7 +1976,15 @@ final class ChatStore: ObservableObject {
             ownerId: crypto.myId
         )
         groups.append(group)
-        groupMessages[group.id] = []
+        groupMessages[group.id] = [
+            ChatMessage(
+                id: UUID().uuidString,
+                body: "グループを作成しました",
+                mine: false,
+                ts: Date(),
+                system: true
+            )
+        ]
         scheduleSave()
         sendInvites(for: group, to: group.memberIds)
         return group
@@ -2229,7 +2242,15 @@ final class ChatStore: ObservableObject {
                     memberIds: members.filter { $0 != crypto.myId }
                 )
             )
-            groupMessages[gid] = groupMessages[gid] ?? []
+            groupMessages[gid] = [
+                ChatMessage(
+                    id: UUID().uuidString,
+                    body: "グループに参加しました",
+                    mine: false,
+                    ts: Date(),
+                    system: true
+                )
+            ]
         }
         scheduleSave()
     }

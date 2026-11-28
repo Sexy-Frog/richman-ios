@@ -114,7 +114,11 @@ jobs:
           shoot peek -rm.tab 0 -rm.peek demo-alice
           shoot friends -rm.tab 1
           shoot settings -rm.tab 2 -rm.privacyTutorialSeen 1
+          xcrun simctl privacy "$UDID" grant location works.kelvins.richman || true
+          xcrun simctl location "$UDID" set 35.6812,139.7671 || true
           shoot zone -rm.zone 1 -rm.tab 2 -rm.privacyTutorialSeen 1
+          sleep 8
+          snap shots/zone.png
           shoot addfriend -rm.addFriend 1
           shoot chat -rm.chat demo-alice
           shoot official -rm.chat official
