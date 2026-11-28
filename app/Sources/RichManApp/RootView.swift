@@ -147,6 +147,9 @@ struct RootView: View {
                     showDebugZone = true
                 }
             }
+            if UserDefaults.standard.string(forKey: "rm.call") == "active" {
+                calls.debugActivate()
+            }
             #endif
         }
         .onChange(of: scenePhase) { _, phase in

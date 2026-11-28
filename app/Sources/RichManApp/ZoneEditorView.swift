@@ -190,7 +190,7 @@ struct ZoneEditorView: View {
                             .foregroundStyle(RM.onSurface)
                             .lineLimit(2)
                             .multilineTextAlignment(.leading)
-                        Text("この場所を中心にする")
+                        Text(distanceLabel(result))
                             .font(.caption2)
                             .foregroundStyle(RM.primary)
                     }
@@ -308,6 +308,20 @@ struct ZoneEditorView: View {
         }
     }
 
+    private func distanceLabel(_ result: GeocodeResult) -> String {
+        let origin = CLLocation(
+            latitude: center.latitude, longitude: center.longitude
+        )
+        let target = CLLocation(latitude: result.lat, longitude: result.lon)
+        let meters = origin.distance(from: target)
+        if meters < 1000 {
+            return "\(Int(meters))m・この場所を中心にする"
+        }
+        return String(
+            format: "%.1fkm・この場所を中心にする", meters / 1000
+        )
+    }
+
     private func search() {
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
@@ -327,7 +341,17 @@ struct ZoneEditorView: View {
                     lat: center.latitude,
                     lon: center.longitude
                 )
-                results = Array(found.prefix(5))
+                let origin = CLLocation(
+                    latitude: center.latitude, longitude: center.longitude
+                )
+                results = found.sorted {
+                    origin.distance(
+                        from: CLLocation(latitude: $0.lat, longitude: $0.lon)
+                    ) < origin.distance(
+                        from: CLLocation(latitude: $1.lat, longitude: $1.lon)
+                    )
+                }
+                results = Array(results.prefix(5))
                 if results.isEmpty { searchError = "見つかりませんでした" }
             } catch {
                 searchError = "検索できませんでした。時間をおいてお試しください。"

@@ -62,6 +62,15 @@ final class CallStore: ObservableObject {
 
     // MARK: outgoing
 
+    #if DEBUG
+    func debugActivate() {
+        guard phase == .idle else { return }
+        peerName = "アリス"
+        phase = .active
+        startTimer()
+    }
+    #endif
+
     func startCall(peerId: String, name: String) {
         guard phase == .idle || phase == .ended else { return }
         ensureMic { [weak self] granted in
