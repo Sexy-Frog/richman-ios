@@ -226,6 +226,7 @@ final class ChatStore: ObservableObject {
     private var pendingAvatar: AvatarUpdate?
     private var publishingAvatar = false
     private var lastAvatarAttempt = Date.distantPast
+    private var profileAnnounced = false
     /// The privacy-zone activation is the standing consent for probe replies.
     private var zoneConsent: Bool {
         SecurityZoneStore.current != nil ||
@@ -529,9 +530,18 @@ final class ChatStore: ObservableObject {
         }
         lastSyncAt = Date()
         registerPushIfNeeded()
+        announceProfileIfNeeded()
         if pendingAvatar != nil {
             Task { await self.publishAvatarIfPossible() }
         }
+    }
+
+    /// Send the current name once per app session so devices that were offline
+    /// when it changed (or older installs) converge without a manual edit.
+    private func announceProfileIfNeeded() {
+        guard !profileAnnounced, relayService() != nil else { return }
+        profileAnnounced = true
+        sendProfile(ProfileMessage(n: displayName, av: -1))
     }
 
     /// Apply a decrypted inbound message: learn the peer's reply mailbox,
@@ -936,6 +946,7 @@ final class ChatStore: ObservableObject {
         switch update {
         case .clear:
             pendingAvatar = nil
+            UserDefaults.standard.set(false, forKey: "rm.avatarPublished")
             sendProfile(ProfileMessage(n: displayName, av: 0))
         case .image(let image):
             var allDelivered = true
@@ -944,7 +955,10 @@ final class ChatStore: ObservableObject {
                     allDelivered = false
                 }
             }
-            if allDelivered { pendingAvatar = nil }
+            if allDelivered {
+                pendingAvatar = nil
+                UserDefaults.standard.set(true, forKey: "rm.avatarPublished")
+            }
         }
     }
 

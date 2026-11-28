@@ -108,6 +108,10 @@ struct RootView: View {
                 store.prewarmInvite(using: tor.readyTransport)
             }
             wireCalls()
+            if let avatar = profile.avatar,
+               !UserDefaults.standard.bool(forKey: "rm.avatarPublished") {
+                store.updateAvatar(avatar)
+            }
             AppServices.shared.register(tor: tor, lock: lock)
             registerPushIfPossible()
             #if DEBUG
