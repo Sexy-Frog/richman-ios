@@ -24,6 +24,7 @@ final class CallKitManager: NSObject {
     private var started = false
     private var pendingBox: String?
     private var answeredFromSystem = false
+    private var handoffFromApp = false
 
     var isRinging: Bool { activeSystemCall }
 
@@ -65,12 +66,16 @@ final class CallKitManager: NSObject {
         guard !answeredFromSystem, activeSystemCall else { return }
         activeSystemCall = false
         pendingBox = nil
+        handoffFromApp = true
         AppServices.shared.calls?.setUsesSystemUI(false)
         provider?.reportCall(
             with: callUUID,
             endedAt: Date(),
             reason: .answeredElsewhere
         )
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            [weak self] in self?.handoffFromApp = false
+        }
     }
 
     /// Called by CallStore after the call is torn down.
@@ -195,6 +200,7 @@ extension CallKitManager: PKPushRegistryDelegate {
 
 extension CallKitManager: CXProviderDelegate {
     func providerDidReset(_ provider: CXProvider) {
+        if handoffFromApp { handoffFromApp = false; return }
         activeSystemCall = false
         AppServices.shared.calls?.setUsesSystemUI(false)
         AppServices.shared.calls?.endFromSystem()
@@ -220,6 +226,10 @@ extension CallKitManager: CXProviderDelegate {
 
     func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
         action.fulfill()
+        if handoffFromApp {
+            handoffFromApp = false
+            return
+        }
         if AppServices.shared.calls?.phase == .idle {
             AppServices.shared.rejectUnfetchedCall(box: pendingBox)
         }
