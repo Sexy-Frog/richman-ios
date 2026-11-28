@@ -103,8 +103,10 @@ final class CallKitManager: NSObject {
         update.supportsUngrouping = false
         update.supportsDTMF = false
 
+        let alreadyHandling = AppServices.shared.calls?.phase == .incoming
+            || AppServices.shared.calls?.phase == .active
         activeSystemCall = true
-        calls.setUsesSystemUI(true)
+        calls.setUsesSystemUI(!alreadyHandling)
 
         provider.reportNewIncomingCall(with: callUUID, update: update) {
             [weak self] error in

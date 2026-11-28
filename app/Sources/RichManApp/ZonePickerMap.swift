@@ -34,6 +34,9 @@ struct ZonePickerMap: UIViewRepresentable {
         if let styleURL, styleURL != context.coordinator.lastStyleURL {
             context.coordinator.lastStyleURL = styleURL
             map.styleURL = styleURL
+            context.coordinator.updateCircle(
+                on: map, center: map.centerCoordinate, radius: radius
+            )
         }
         if radius != context.coordinator.lastRadius {
             context.coordinator.lastRadius = radius
