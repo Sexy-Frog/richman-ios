@@ -71,6 +71,10 @@ targets:
         # from the clearnet. Everything else stays HTTPS.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+          NSExceptionDomains:
+            localhost:
+              NSExceptionAllowsInsecureHTTPLoads: true
+              NSIncludesSubdomains: false
         UILaunchScreen: {}
         UIBackgroundModes: [fetch, remote-notification, voip, audio]
         BGTaskSchedulerPermittedIdentifiers:

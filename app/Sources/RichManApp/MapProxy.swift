@@ -177,6 +177,9 @@ final class MapProxy: @unchecked Sendable {
         }
 
         if path == "/style.json" {
+            #if DEBUG
+            NSLog("RichManMap style requested")
+            #endif
             guard let style = resolvedStyle else {
                 respond(client, status: 503, type: "text/plain", body: Data())
                 return
@@ -197,6 +200,9 @@ final class MapProxy: @unchecked Sendable {
                 respond(client, status: 404, type: "text/plain", body: Data())
                 return
             }
+            #if DEBUG
+            NSLog("RichManMap tile requested %d/%d/%d", z, x, y)
+            #endif
             let key = "raster/\(z)/\(x)/\(y)"
             if let hit = cached(key) {
                 respond(client, status: 200, type: "image/png", body: hit)
