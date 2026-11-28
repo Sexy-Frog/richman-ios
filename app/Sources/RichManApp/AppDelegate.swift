@@ -10,6 +10,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     ) -> Bool {
         PrivacyStorage.prepare()
         MediaStore.clearExports()
+        AppServices.shared.bootstrap()
+        MainActor.assumeIsolated {
+            CallKitManager.shared.start()
+        }
         UNUserNotificationCenter.current().delegate = self
         NotificationManager.shared.registerIfAuthorized()
         return true

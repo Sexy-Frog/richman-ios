@@ -27,7 +27,9 @@ final class CallAudioEngine {
             channels: 1,
             interleaved: true
         )!
-        self.chunkSamples = rate * 300 / 1000
+        // 100 ms frames keep end-to-end latency close to Signal's while still
+        // fitting comfortably in one encrypted relay envelope.
+        self.chunkSamples = max(1, rate * 100 / 1000)
     }
 
     func start(speaker: Bool) throws {
@@ -96,7 +98,7 @@ final class CallAudioEngine {
         lock.lock()
         let backlog = queuedBuffers
         lock.unlock()
-        guard backlog < 12 else { return }
+        guard backlog < 6 else { return }
         guard let buffer = AVAudioPCMBuffer(
             pcmFormat: format,
             frameCapacity: AVAudioFrameCount(pcm.count)

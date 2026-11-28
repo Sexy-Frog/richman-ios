@@ -27,9 +27,9 @@ struct RootView: View {
     @AppStorage("rm.autoLockSeconds") private var autoLockSeconds = 30
     @Environment(\.scenePhase) private var scenePhase
 
-    @StateObject private var store = ChatStore(displayName: "自分")
+    @StateObject private var store = AppServices.shared.store!
     @StateObject private var profile = ProfileStore()
-    @StateObject private var calls = CallStore()
+    @StateObject private var calls = AppServices.shared.calls!
     @StateObject private var lock = LockStore()
     @StateObject private var location = LocationProvider()
     @StateObject private var tor = TorSession()
@@ -106,7 +106,7 @@ struct RootView: View {
                 store.prewarmInvite(using: tor.readyTransport)
             }
             wireCalls()
-            AppServices.shared.register(store: store, tor: tor, lock: lock)
+            AppServices.shared.register(tor: tor, lock: lock)
             registerPushIfPossible()
             #if DEBUG
             if UserDefaults.standard.bool(forKey: "rm.locationPrimer") {
@@ -183,6 +183,12 @@ struct RootView: View {
             guard let token = note.object as? String, !token.isEmpty else { return }
             store.registerPush(token: token)
         }
+        .onReceive(
+            NotificationCenter.default.publisher(for: .rmVoIPToken)
+        ) { note in
+            guard let token = note.object as? String, !token.isEmpty else { return }
+            store.registerVoIPPush(token: token)
+        }
         .onOpenURL { url in
             if let raw = InviteLink.normalize(url.absoluteString) {
                 pendingInvite = PendingInvite(raw: raw)
@@ -258,8 +264,14 @@ struct RootView: View {
         }
         .fullScreenCover(
             isPresented: Binding(
-                get: { calls.phase != .idle },
-                set: { if !$0 { calls.end() } }
+                get: { calls.phase != .idle && !calls.usesSystemUI },
+                set: { presented in
+                    // Do not tear the call down when the cover is hidden only
+                    // because CallKit took over the UI.
+                    if !presented, !calls.usesSystemUI, calls.phase != .idle {
+                        calls.end()
+                    }
+                }
             )
         ) {
             CallOverlay().environmentObject(calls)
@@ -291,34 +303,10 @@ struct RootView: View {
     }
 
     /// Local wipe after repeated wrong PINs. Remote copies are unaffected.
-    /// Call signaling and ADPCM audio ride the same encrypted 1:1 path as
-    /// messages; the call layer only gets the store's transport hooks.
+    /// Call signalling/audio are wired once in AppServices so a PushKit launch
+    /// works before this view exists; only the location probe hook is UI-local.
     private func wireCalls() {
-        store.onCallSignal = { [weak calls] peer, signal in
-            calls?.handleSignal(from: peer, signal: signal)
-        }
-        store.onCallAudio = { [weak calls] peer, packet in
-            calls?.handleAudio(from: peer, packet: packet)
-        }
-        calls.sendPayload = { [weak store] peer, data, silent, done in
-            store?.sendCallPayload(
-                data, to: peer, silent: silent, completion: done
-            )
-        }
-        calls.onFastPolling = { [weak store] on, peer in
-            store?.setFastPolling(on, peerId: peer)
-        }
-        calls.onCallEnded = { [weak store] peer, seconds, outgoing, missed in
-            store?.appendCallRecord(
-                peerId: peer,
-                seconds: seconds,
-                outgoing: outgoing,
-                missed: missed
-            )
-        }
-        calls.nameResolver = { [weak store] peer in
-            store?.contact(peer)?.name
-        }
+        AppServices.shared.bootstrap()
         store.probeProvider = { [weak location] in
             guard let fix = location?.location else { return nil }
             return (
@@ -338,9 +326,14 @@ struct RootView: View {
     }
 
     private func registerPushIfPossible() {
-        guard let token = UserDefaults.standard.string(forKey: "rm.pushToken"),
-              !token.isEmpty else { return }
-        store.registerPush(token: token)
+        if let token = UserDefaults.standard.string(forKey: "rm.pushToken"),
+           !token.isEmpty {
+            store.registerPush(token: token)
+        }
+        if let voip = UserDefaults.standard.string(forKey: "rm.voipToken"),
+           !voip.isEmpty {
+            store.registerVoIPPush(token: voip)
+        }
     }
 
     private func wipeLocalData() {

@@ -40,21 +40,34 @@ public final class RelayClient {
 
     // MARK: Messages
 
-    public func send(to box: Data, envelope: Data, silent: Bool = false) async throws {
+    public func send(
+        to box: Data,
+        envelope: Data,
+        silent: Bool = false,
+        voip: Bool = false
+    ) async throws {
         precondition(box.count == 32)
         var payload: [String: Any] = [
             "to": Base64URL.encode(box),
             "env": Base64URL.encode(envelope),
         ]
         if silent { payload["silent"] = true }
+        if voip { payload["voip"] = true }
         let body = try jsonBody(payload)
         _ = try await postRaw("v1/send", body: body, contentType: Self.jsonType)
     }
 
     /// Register this device's APNs token for one or more receive mailboxes.
     /// The token is sent over Tor; the relay stores it in memory only.
-    public func registerPush(token: String, boxes: [String]) async throws {
-        let body = try jsonBody(["token": token, "boxes": boxes])
+    /// `kind` is "alert" (normal notifications) or "voip" (PushKit ringing).
+    public func registerPush(
+        token: String,
+        boxes: [String],
+        kind: String = "alert"
+    ) async throws {
+        var payload: [String: Any] = ["token": token, "boxes": boxes]
+        if kind != "alert" { payload["kind"] = kind }
+        let body = try jsonBody(payload)
         _ = try await postRaw("v1/push/register", body: body, contentType: Self.jsonType)
     }
 

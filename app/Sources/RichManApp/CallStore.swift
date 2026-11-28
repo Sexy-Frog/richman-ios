@@ -18,7 +18,9 @@ final class CallStore: ObservableObject {
     @Published private(set) var muted = false
     @Published private(set) var speaker = false
     @Published private(set) var error: String?
-
+    /// True while the system CallKit UI owns the call (app was backgrounded
+    /// when the offer arrived). The in-app overlay stays hidden in that case.
+    @Published private(set) var usesSystemUI = false
     private(set) var peerId = ""
     private var callId = ""
     private var timer: Timer?
@@ -31,13 +33,16 @@ final class CallStore: ObservableObject {
     private var audioInFlight = 0
 
     /// Wired by RootView.
-    var sendPayload: ((String, Data, Bool, (() -> Void)?) -> Void)?
+    var sendPayload: ((String, Data, Bool, Bool, (() -> Void)?) -> Void)?
     var onFastPolling: ((Bool, String?) -> Void)?
     var nameResolver: ((String) -> String?)?
     /// (peerId, active seconds, outgoing, missed) after a call ends.
     var onCallEnded: ((String, Int, Bool, Bool) -> Void)?
+    /// Called after the call is fully torn down (reports the end to CallKit).
+    var onCallFinished: (() -> Void)?
     private var isOutgoing = false
     private var wasActive = false
+    private var acceptWhenOffered = false
 
     init() {
         #if DEBUG
@@ -72,6 +77,8 @@ final class CallStore: ObservableObject {
             self.phase = .calling
             self.isOutgoing = true
             self.wasActive = false
+            self.acceptWhenOffered = false
+            self.usesSystemUI = false
             self.negotiatedRate = 16_000
             self.send(CallSignal(t: MessageType.callOffer.rawValue,
                                  id: self.callId, sr: 16_000))
@@ -99,6 +106,37 @@ final class CallStore: ObservableObject {
             send(CallSignal(t: MessageType.callEnd.rawValue, id: callId))
         }
         finish()
+    }
+
+    /// CallKit answer. If the encrypted offer has not arrived yet (network is
+    /// still fetching), connect as soon as it does.
+    func acceptFromSystem() {
+        if phase == .incoming {
+            accept()
+        } else if phase == .idle || phase == .ended {
+            acceptWhenOffered = true
+        }
+    }
+
+    /// CallKit decline/end. Works even if the offer has not been fetched.
+    func endFromSystem() {
+        if phase == .incoming {
+            decline()
+        } else if phase == .calling || phase == .active {
+            end()
+        } else {
+            finish()
+        }
+    }
+
+    func setMutedFromSystem(_ value: Bool) {
+        guard phase == .active else { return }
+        muted = value
+        audio?.setMuted(value)
+    }
+
+    func setUsesSystemUI(_ value: Bool) {
+        usesSystemUI = value
     }
 
     func toggleMute() {
@@ -132,10 +170,14 @@ final class CallStore: ObservableObject {
             negotiatedRate = min(16_000, signal.sr ?? 8_000)
             error = nil
             phase = .incoming
-            if UIApplication.shared.applicationState != .active {
-                NotificationManager.shared.incomingCall(from: peerName)
-            }
+            // The VoIP push already put the native call screen on the lock
+            // screen; update its caller name once the offer is decrypted.
+            CallKitManager.shared.updateCaller(name: peerName)
             armTimeout("応答がありません")
+            if acceptWhenOffered {
+                acceptWhenOffered = false
+                accept()
+            }
 
         case MessageType.callAnswer.rawValue:
             guard phase == .calling, signal.id == callId else { return }
@@ -206,24 +248,26 @@ final class CallStore: ObservableObject {
 
     private func sendAudio(_ data: Data) {
         guard phase == .active, !callId.isEmpty else { return }
-        // Two packets in flight (~600 ms of audio) is the ceiling; beyond that,
+        // Three 100 ms packets in flight (~300 ms) is the ceiling; beyond that,
         // stale frames would only add delay.
-        guard audioInFlight < 2, let send = sendPayload else { return }
+        guard audioInFlight < 3, let send = sendPayload else { return }
         let packet = CallAudio(
             id: callId, peer: peerId, seq: seq, d: Base64URL.encode(data)
         )
         seq += 1
         guard let json = try? packet.toPayloadJSON() else { return }
         audioInFlight += 1
-        sendPayload?(peerId, json, true) { [weak self] in
+        sendPayload?(peerId, json, true, false) { [weak self] in
             self?.audioInFlight = max(0, (self?.audioInFlight ?? 1) - 1)
         }
     }
 
     private func send(_ signal: CallSignal, to peerId: String? = nil) {
         guard let json = try? signal.toPayloadJSON() else { return }
-        let silent = signal.t != MessageType.callOffer.rawValue
-        sendPayload?(peerId ?? self.peerId, json, silent, nil)
+        let voip = signal.t == MessageType.callOffer.rawValue
+        // A call offer is delivered by a PushKit VoIP push (CallKit screen);
+        // every other signal stays silent and never produces a notification.
+        sendPayload?(peerId ?? self.peerId, json, !voip, voip, nil)
     }
 
     private func finish(error: String? = nil) {
@@ -244,11 +288,13 @@ final class CallStore: ObservableObject {
         seconds = 0
         muted = false
         speaker = false
+        acceptWhenOffered = false
         self.error = error
         phase = .idle
         if hadCall {
             onCallEnded?(endedPeer, duration, outgoing, missed)
         }
+        onCallFinished?()
     }
 
     private func armTimeout(_ message: String) {

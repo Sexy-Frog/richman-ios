@@ -36,6 +36,7 @@ final class ChatStore: ObservableObject {
     private var lastTypingSent: [String: Date] = [:]
     /// APNs token + the receive-mailbox set last registered with the relay.
     private var pushToken: String?
+    private var voipToken: String?
     private var lastRegisteredBoxes: Set<String> = []
     /// Per-conversation mute and "hidden from Talks" flags (UserDefaults).
     @Published private(set) var mutedIds: Set<String> = []
@@ -244,18 +245,31 @@ final class ChatStore: ObservableObject {
         registerPushIfNeeded(force: true)
     }
 
-    /// Remove this token from all relay mailboxes (account reset). An empty
+    /// PushKit VoIP token (CallKit ringing). Registered separately from the
+    /// alert token so calls ring even when the app was terminated, while normal
+    /// messages still use the content-free alert.
+    func registerVoIPPush(token: String) {
+        voipToken = token
+        registerPushIfNeeded(force: true)
+    }
+
+    /// Remove both tokens from all relay mailboxes (account reset). An empty
     /// box set is a valid registration request.
     private func unregisterPush() {
-        guard let token = pushToken, let service = relayService() else { return }
+        let alert = pushToken
+        let voip = voipToken
+        guard alert != nil || voip != nil, let service = relayService() else { return }
         Task {
-            do {
-                try await service.registerPush(token: token, boxes: [])
-                pushRegistered = false
-                lastRegisteredBoxes = []
-            } catch {
-                pushRegistered = false
+            if let alert {
+                try? await service.registerPush(token: alert, boxes: [])
             }
+            if let voip {
+                try? await service.registerPush(
+                    token: voip, boxes: [], kind: "voip"
+                )
+            }
+            pushRegistered = false
+            lastRegisteredBoxes = []
         }
     }
 
@@ -265,21 +279,33 @@ final class ChatStore: ObservableObject {
     /// closed.
     private func registerPushIfNeeded(force: Bool = false) {
         refreshEventBoxes()
-        guard let token = pushToken, let service = relayService() else { return }
+        guard pushToken != nil || voipToken != nil,
+              let service = relayService() else { return }
         let boxes = Set(
             contacts.filter { !$0.official }.compactMap(\.recvBox)
         ).union(pendingBoxes)
         if boxes.isEmpty && !force { return }
         if !force, boxes == lastRegisteredBoxes { return }
         Task {
-            do {
-                try await service.registerPush(token: token, boxes: Array(boxes))
-                pushRegistered = true
-                lastRegisteredBoxes = boxes
-            } catch {
-                pushRegistered = false
-                lastRegisteredBoxes = []
+            var ok = true
+            if let token = pushToken {
+                do {
+                    try await service.registerPush(token: token, boxes: Array(boxes))
+                } catch {
+                    ok = false
+                }
             }
+            if let token = voipToken {
+                do {
+                    try await service.registerPush(
+                        token: token, boxes: Array(boxes), kind: "voip"
+                    )
+                } catch {
+                    ok = false
+                }
+            }
+            pushRegistered = ok
+            lastRegisteredBoxes = ok ? boxes : []
         }
     }
 
@@ -314,17 +340,47 @@ final class ChatStore: ObservableObject {
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
+                // During a call the peer's mailbox is long-polled continuously,
+                // so audio packets are delivered the moment they arrive instead
+                // of waiting for the next short-poll tick.
+                if let peer = self.fastPeer {
+                    await self.pollFast(peer)
+                    continue
+                }
                 await self.pollOnce()
                 let delay: UInt64
-                if self.fastPeer != nil {
-                    delay = 250_000_000
-                } else if self.activePeer != nil {
+                if self.activePeer != nil {
                     delay = self.eventSocket != nil ? 1_000_000_000 : 500_000_000
                 } else {
                     delay = self.eventSocket != nil ? 3_000_000_000 : 1_000_000_000
                 }
                 try? await Task.sleep(nanoseconds: delay)
             }
+        }
+    }
+
+    /// Dedicated low-latency receive loop for the peer on an active call.
+    private func pollFast(_ peerId: String) async {
+        guard !polling,
+              let peer = contacts.first(where: { $0.id == peerId }),
+              let text = peer.recvBox,
+              let box = try? Base64URL.decode(text), box.count == 32,
+              let service = relayService() else {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            return
+        }
+        polling = true
+        defer { polling = false }
+        do {
+            let opened = try await service.poll(
+                box: box, knownSender: peer.id, wait: 1
+            )
+            for message in opened { await apply(message) }
+            lastSyncAt = Date()
+            lastSyncError = nil
+        } catch {
+            lastSyncError = error.localizedDescription
+            try? await Task.sleep(nanoseconds: 300_000_000)
         }
     }
 
@@ -342,12 +398,30 @@ final class ChatStore: ObservableObject {
         _ payload: Data,
         to peerId: String,
         silent: Bool = false,
+        voip: Bool = false,
         completion: (() -> Void)? = nil
     ) {
         transmit(
             payload, to: peerId, markMid: "",
-            silent: silent, completion: completion
+            silent: silent, voip: voip, completion: completion
         )
+    }
+
+    /// Poll exactly one receive mailbox (used by PushKit when the app was
+    /// woken for a call and no UI poll loop is running).
+    func pollBox(_ boxText: String) async {
+        guard !polling, let service = relayService(),
+              let box = try? Base64URL.decode(boxText), box.count == 32 else {
+            return
+        }
+        polling = true
+        defer { polling = false }
+        let sender = contacts.first(where: { $0.recvBox == boxText })?.id
+        guard let opened = try? await service.poll(
+            box: box, knownSender: sender, wait: 0
+        ) else { return }
+        for message in opened { await apply(message) }
+        lastSyncAt = Date()
     }
 
     /// One pass over every mailbox we own: per-contact receive boxes plus
@@ -858,6 +932,7 @@ final class ChatStore: ObservableObject {
         to peerId: String,
         markMid: String,
         silent: Bool = false,
+        voip: Bool = false,
         completion: (() -> Void)? = nil
     ) {
         guard let peer = contact(peerId),
@@ -875,7 +950,7 @@ final class ChatStore: ObservableObject {
                 do {
                     try await service.send(
                         payload: payload, to: peerId, box: box,
-                        replyBox: replyBox, silent: silent
+                        replyBox: replyBox, silent: silent, voip: voip
                     )
                     self?.markMessage(peerId, mid: markMid, delivery: .delivered)
                     if !markMid.isEmpty { self?.lastSyncError = nil }

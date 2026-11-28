@@ -51,13 +51,31 @@ struct ChatView: View {
                         ForEach(Array(messages.enumerated()), id: \.element.id) { pair in
                             chatRow(pair.element, index: pair.offset)
                         }
+                        if store.isTyping(contact.id) {
+                            typingBubble
+                                .id("typing")
+                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        }
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
+                    .animation(
+                        .easeOut(duration: 0.18),
+                        value: store.isTyping(contact.id)
+                    )
                 }
                 .onChange(of: messages.count) {
                     if let last = messages.last {
                         withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+                    }
+                }
+                .onChange(of: store.isTyping(contact.id)) { _, typing in
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        if typing {
+                            proxy.scrollTo("typing", anchor: .bottom)
+                        } else if let last = messages.last {
+                            proxy.scrollTo(last.id, anchor: .bottom)
+                        }
                     }
                 }
                 .onAppear {
@@ -246,6 +264,28 @@ struct ChatView: View {
     }
 
     // MARK: pieces
+
+    /// Instagram-style typing bubble at the bottom of the conversation, in
+    /// addition to the small indicator in the navigation bar.
+    private var typingBubble: some View {
+        HStack {
+            HStack(spacing: 8) {
+                Text("入力中")
+                    .font(.system(size: 12))
+                    .foregroundStyle(RM.onSurfaceVariant)
+                TypingDots()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(
+                RM.surface,
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            )
+            Spacer(minLength: 40)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityLabel("相手が入力中です")
+    }
 
     @ViewBuilder
     private func chatRow(_ message: ChatMessage, index: Int) -> some View {
@@ -819,5 +859,29 @@ struct TTLSheet: View {
                 }
             }
         }
+    }
+}
+
+/// Three softly pulsing dots in the typing bubble.
+private struct TypingDots: View {
+    @State private var pulse = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(0..<3, id: \.self) { index in
+                Circle()
+                    .fill(RM.onSurfaceVariant)
+                    .frame(width: 6, height: 6)
+                    .scaleEffect(pulse ? 1.0 : 0.6)
+                    .opacity(pulse ? 1.0 : 0.4)
+                    .animation(
+                        .easeInOut(duration: 0.55)
+                        .repeatForever(autoreverses: true)
+                        .delay(Double(index) * 0.16),
+                        value: pulse
+                    )
+            }
+        }
+        .onAppear { pulse = true }
     }
 }

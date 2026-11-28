@@ -18,6 +18,9 @@ struct RichManApp: App {
         // Exclude Application Support from backups as early as possible; new
         // files inherit the excluded directory.
         PrivacyStorage.prepare()
+        // Create the shared stores before any view, so a PushKit launch can
+        // decrypt the call offer without a visible scene.
+        AppServices.shared.bootstrap()
     }
 
     var body: some Scene {

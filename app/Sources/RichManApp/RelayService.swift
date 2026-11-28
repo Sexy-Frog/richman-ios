@@ -43,7 +43,8 @@ actor RelayService {
         to peerId: String,
         box: Data,
         replyBox: String,
-        silent: Bool = false
+        silent: Bool = false,
+        voip: Bool = false
     ) async throws {
         let envelope = try OutgoingSealer.seal(
             payload: payload,
@@ -52,15 +53,21 @@ actor RelayService {
             crypto: crypto
         )
         try await client(isolation(for: box)).send(
-            to: box, envelope: envelope, silent: silent
+            to: box, envelope: envelope, silent: silent, voip: voip
         )
     }
 
-    /// Register the APNs token for all receive mailboxes in one request.
-    /// An empty list is valid and unregisters every mailbox for this token.
-    func registerPush(token: String, boxes: [String]) async throws {
+    /// Register the APNs or PushKit token for all receive mailboxes in one
+    /// request. An empty list is valid and unregisters every mailbox.
+    func registerPush(
+        token: String,
+        boxes: [String],
+        kind: String = "alert"
+    ) async throws {
         guard !token.isEmpty else { return }
-        try await client("push").registerPush(token: token, boxes: boxes)
+        try await client("push").registerPush(
+            token: token, boxes: boxes, kind: kind
+        )
     }
 
     /// Poll one mailbox once, open what's there, and ack it. `knownSender` is the

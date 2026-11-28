@@ -357,64 +357,13 @@ private struct DataSettingsView: View {
 
 private struct NetworkSettingsView: View {
     @EnvironmentObject private var tor: TorSession
-    @EnvironmentObject private var store: ChatStore
     @AppStorage("rm.useTor") private var useTor = false
-    @AppStorage("rm.pushToken") private var pushToken = ""
-    @AppStorage("rm.pushError") private var pushError = ""
-
-    private static let timeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm:ss"
-        return formatter
-    }()
 
     var body: some View {
         Form {
             Section {
                 Toggle("高匿名モード（Tor）", isOn: $useTor)
                 LabeledContent("接続", value: tor.statusText)
-                LabeledContent("リレー", value: tor.reachable ? "接続OK" : "未接続")
-                LabeledContent(
-                    "APNsトークン",
-                    value: pushToken.isEmpty ? "未取得" : "取得済み"
-                )
-                LabeledContent(
-                    "通知登録",
-                    value: store.pushRegistered ? "済み" : "未登録"
-                )
-                LabeledContent(
-                    "最終同期",
-                    value: store.lastSyncAt.map {
-                        Self.timeFormatter.string(from: $0)
-                    } ?? "未同期"
-                )
-                if let syncError = store.lastSyncError {
-                    Text("同期エラー: \(syncError)")
-                        .font(.caption)
-                        .foregroundStyle(RM.error)
-                        .lineLimit(3)
-                }
-                if let lastError = tor.lastError {
-                    Text(lastError)
-                        .font(.caption)
-                        .foregroundStyle(RM.onSurfaceVariant)
-                        .lineLimit(3)
-                }
-                Button("接続を確認") { tor.checkNow() }
-                if pushToken.isEmpty {
-                    Text("通知が許可されていないとトークンを取得できません。iOSの設定 → 通知 → RichMan を確認してください。")
-                        .font(.caption)
-                        .foregroundStyle(RM.onSurfaceVariant)
-                }
-                if !pushError.isEmpty {
-                    Text(pushError)
-                        .font(.caption)
-                        .foregroundStyle(RM.error)
-                }
-                Button("通知を再登録") {
-                    UserDefaults.standard.removeObject(forKey: "rm.pushError")
-                    UIApplication.shared.registerForRemoteNotifications()
-                }
                 if useTor && !tor.supportsTor {
                     Text("このビルドではTorを利用できません。次回起動時に直接接続へ戻してください。")
                         .font(.caption)

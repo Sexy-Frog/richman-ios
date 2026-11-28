@@ -72,7 +72,7 @@ targets:
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         UILaunchScreen: {}
-        UIBackgroundModes: [fetch, remote-notification]
+        UIBackgroundModes: [fetch, remote-notification, voip, audio]
         BGTaskSchedulerPermittedIdentifiers:
           - works.kelvins.richman.refresh
         UIApplicationSceneManifest:
