@@ -325,35 +325,8 @@ final class ChatStore: ObservableObject {
         let priority = fastPeer ?? activePeer
         let peers = contacts.filter { !$0.official }
 
-        // Quick-poll every non-active chat first so friend requests and other
-        // chats are not starved by the long-poll below.
-        for peer in peers where peer.id != priority {
-            if Task.isCancelled { return }
-            guard let text = peer.recvBox,
-                  let box = try? Base64URL.decode(text), box.count == 32 else { continue }
-            guard let opened = try? await service.poll(
-                box: box, knownSender: peer.id, wait: 0
-            ) else { continue }
-            for message in opened { await apply(message) }
-        }
-
-        for text in pendingBoxes {
-            if Task.isCancelled { return }
-            guard let box = try? Base64URL.decode(text), box.count == 32 else {
-                pendingBoxes.remove(text)
-                continue
-            }
-            guard let opened = try? await service.poll(box: box, knownSender: nil) else {
-                continue
-            }
-            if !opened.isEmpty {
-                pendingBoxes.remove(text)
-                for message in opened { await apply(message) }
-            }
-        }
-
-        // Check the open chat (or the call peer) as well. Short polls are used
-        // everywhere because CDN proxies may terminate long-held requests.
+        // The open chat (or call peer) is checked first so its message never
+        // waits behind other mailboxes.
         if let priority,
            let peer = peers.first(where: { $0.id == priority }),
            let text = peer.recvBox,
@@ -366,6 +339,33 @@ final class ChatStore: ObservableObject {
                 lastSyncError = nil
             } catch {
                 lastSyncError = error.localizedDescription
+            }
+        }
+
+        // Then every other chat.
+        for peer in peers where peer.id != priority {
+            if Task.isCancelled { return }
+            guard let text = peer.recvBox,
+                  let box = try? Base64URL.decode(text), box.count == 32 else { continue }
+            guard let opened = try? await service.poll(
+                box: box, knownSender: peer.id, wait: 0
+            ) else { continue }
+            for message in opened { await apply(message) }
+        }
+
+        // Friend requests / newly claimed invite boxes.
+        for text in pendingBoxes {
+            if Task.isCancelled { return }
+            guard let box = try? Base64URL.decode(text), box.count == 32 else {
+                pendingBoxes.remove(text)
+                continue
+            }
+            guard let opened = try? await service.poll(box: box, knownSender: nil) else {
+                continue
+            }
+            if !opened.isEmpty {
+                pendingBoxes.remove(text)
+                for message in opened { await apply(message) }
             }
         }
         lastSyncAt = Date()
