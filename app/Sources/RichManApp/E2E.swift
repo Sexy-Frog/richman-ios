@@ -64,6 +64,7 @@ enum E2E {
         var imageSeen = false
         var groupSeen = false
         var groupSentAt: Date?
+        var groupId: String?
 
         while Date() < deadline {
             if peer == nil,
@@ -83,10 +84,14 @@ enum E2E {
 
                 if !groupSeen, imageSeen {
                     let group = store.createGroup(name: "E2E", memberIds: [peer])
-                    store.send(toGroup: group.id, text: "group-hello")
+                    groupId = group.id
                     groupSeen = true
                     groupSentAt = Date()
                     report(["phase": "group", "group": group.id])
+                }
+                if let groupId, let sentAt = groupSentAt,
+                   Date().timeIntervalSince(sentAt) > 5 {
+                    store.send(toGroup: groupId, text: "group-hello")
                 }
             }
 
@@ -182,6 +187,13 @@ enum E2E {
             }
             if messages.contains(where: { !$0.mine && $0.kind == .image }) {
                 imageSeen = true
+            }
+            if let invite = store.pendingGroupInvites.first {
+                if let group = store.acceptGroupInvite(
+                    invite.message, in: invite.peerId
+                ) {
+                    report(["phase": "group-joined", "group": group.id])
+                }
             }
             if let group = store.groups.first(where: { $0.name == "E2E" }) {
                 if store.messages(forGroup: group.id).contains(where: { !$0.mine }) {

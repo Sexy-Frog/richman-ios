@@ -18,6 +18,8 @@ struct ZonePickerMap: UIViewRepresentable {
         map.delegate = context.coordinator
         map.showsLogoView = false
         map.showsAttributionButton = false
+        map.backgroundColor = .systemBackground
+        map.tintColor = .systemBlue
         map.maximumZoomLevel = 18
         map.setCenter(center, zoomLevel: 17.0, animated: false)
         context.coordinator.lastRecenter = recenter

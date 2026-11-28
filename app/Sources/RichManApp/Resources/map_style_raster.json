@@ -17,6 +17,13 @@
   },
   "layers": [
     {
+      "id": "background",
+      "type": "background",
+      "paint": {
+        "background-color": "#EEF1F4"
+      }
+    },
+    {
       "id": "osm",
       "type": "raster",
       "source": "osm",

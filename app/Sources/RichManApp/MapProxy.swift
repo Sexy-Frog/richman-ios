@@ -401,10 +401,17 @@ final class MapProxy: @unchecked Sendable {
     }
 
     private static func loadTemplate() -> Data? {
-        guard let url = Bundle.main.url(
+        if let url = Bundle.main.url(
             forResource: "map_style_raster", withExtension: "json"
-        ) else { return nil }
-        return try? Data(contentsOf: url)
+        ), let data = try? Data(contentsOf: url) {
+            return data
+        }
+        // Never leave the privacy-zone map blank just because the resource was
+        // not copied into a build. The raster style is small enough to embed.
+        let fallback = """
+        {"version":8,"name":"RichMan","sources":{"osm":{"type":"raster","tiles":["__MAP_BASE__/v1/tile/{z}/{x}/{y}.png"],"tileSize":256,"minzoom":0,"maxzoom":18,"attribution":"© OpenStreetMap contributors"}},"layers":[{"id":"background","type":"background","paint":{"background-color":"#EEF1F4"}},{"id":"osm","type":"raster","source":"osm","minzoom":0,"maxzoom":22}]}
+        """
+        return Data(fallback.utf8)
     }
 
     private static func resolve(_ template: Data, base: String) -> Data? {
