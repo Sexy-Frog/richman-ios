@@ -26,6 +26,9 @@ final class ChatStore: ObservableObject {
     @Published private(set) var typingPeers: Set<String> = []
     /// True after the relay accepted the APNs token/mailbox registration.
     @Published private(set) var pushRegistered = false
+    /// Signal-style persistent receive channel (direct mode only).
+    private var eventSocket: EventSocket?
+    private var polling = false
     /// Last successful poll / last transport error (Settings diagnostics).
     @Published private(set) var lastSyncAt: Date?
     @Published private(set) var lastSyncError: String?
@@ -215,6 +218,7 @@ final class ChatStore: ObservableObject {
         _ factory: (@Sendable (String) -> RelayTransport)?,
         startPolling shouldStartPolling: Bool = true
     ) {
+        if factory == nil { stopEventChannel() }
         if factory == nil && relayFactory == nil && relayServiceInstance == nil {
             return
         }
@@ -260,6 +264,7 @@ final class ChatStore: ObservableObject {
     /// in memory, so a stale mapping means no notification while the app is
     /// closed.
     private func registerPushIfNeeded(force: Bool = false) {
+        refreshEventBoxes()
         guard let token = pushToken, let service = relayService() else { return }
         let boxes = Set(
             contacts.filter { !$0.official }.compactMap(\.recvBox)
@@ -278,22 +283,45 @@ final class ChatStore: ObservableObject {
         }
     }
 
+    // MARK: event channel
+
+    /// Start the persistent receive channel. Only called in direct mode; the
+    /// relay sends a tiny wake when any of these mailboxes changes.
+    func startEventChannel(url: URL) {
+        guard eventSocket == nil else { return }
+        eventSocket = EventSocket(url: url, boxes: currentBoxList()) {
+            [weak self] in
+            Task { await self?.pollOnce() }
+        }
+    }
+
+    func stopEventChannel() {
+        eventSocket?.stop()
+        eventSocket = nil
+    }
+
+    private func currentBoxList() -> [String] {
+        let recv = contacts.filter { !$0.official }.compactMap(\.recvBox)
+        return Array(Set(recv).union(pendingBoxes))
+    }
+
+    private func refreshEventBoxes() {
+        eventSocket?.update(boxes: currentBoxList())
+    }
+
     private func startPolling() {
         pollTask?.cancel()
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
                 await self.pollOnce()
-                // Short polls are reliable through the CDN; long-held requests
-                // were being dropped on some networks. Keep them snappy for the
-                // open chat / calls and calm when idle.
                 let delay: UInt64
                 if self.fastPeer != nil {
                     delay = 250_000_000
                 } else if self.activePeer != nil {
-                    delay = 500_000_000
+                    delay = self.eventSocket != nil ? 1_000_000_000 : 500_000_000
                 } else {
-                    delay = 1_000_000_000
+                    delay = self.eventSocket != nil ? 3_000_000_000 : 1_000_000_000
                 }
                 try? await Task.sleep(nanoseconds: delay)
             }
@@ -325,6 +353,9 @@ final class ChatStore: ObservableObject {
     /// One pass over every mailbox we own: per-contact receive boxes plus
     /// invite boxes that no scanner has claimed yet.
     func pollOnce() async {
+        guard !polling else { return }
+        polling = true
+        defer { polling = false }
         guard let service = relayService() else { return }
         let priority = fastPeer ?? activePeer
         let peers = contacts.filter { !$0.official }
@@ -1250,6 +1281,7 @@ final class ChatStore: ObservableObject {
 
     /// Full local wipe (duress / repeated wrong PIN). Includes the official feed.
     func wipeAllLocal() {
+        stopEventChannel()
         contacts.removeAll()
         groups.removeAll()
         messagesByPeer.removeAll()

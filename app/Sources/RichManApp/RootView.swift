@@ -102,6 +102,7 @@ struct RootView: View {
                 store.attachRelayFactory(nil)
             } else {
                 store.attachRelayFactory(tor.readyTransportFactory)
+                startEventChannelIfDirect()
                 store.prewarmInvite(using: tor.readyTransport)
             }
             wireCalls()
@@ -148,6 +149,7 @@ struct RootView: View {
                     store.attachRelayFactory(nil)
                 } else {
                     store.attachRelayFactory(tor.readyTransportFactory)
+                startEventChannelIfDirect()
                 }
                 applySecurityZoneIfNeeded()
             case .background:
@@ -232,6 +234,7 @@ struct RootView: View {
             } else {
                 store.restoreSensitiveState()
                 store.attachRelayFactory(tor.readyTransportFactory)
+                startEventChannelIfDirect()
                 registerPushIfPossible()
             }
         }
@@ -243,6 +246,7 @@ struct RootView: View {
                 store.attachRelayFactory(nil)
             } else {
                 store.attachRelayFactory(tor.readyTransportFactory)
+                startEventChannelIfDirect()
                 store.prewarmInvite(using: tor.readyTransport)
                 registerPushIfPossible()
             }
@@ -317,6 +321,14 @@ struct RootView: View {
         }
     }
 
+    private func startEventChannelIfDirect() {
+        if !tor.useTor, let url = TorSession.directEventURL {
+            store.startEventChannel(url: url)
+        } else {
+            store.stopEventChannel()
+        }
+    }
+
     private func registerPushIfPossible() {
         guard let token = UserDefaults.standard.string(forKey: "rm.pushToken"),
               !token.isEmpty else { return }
@@ -386,6 +398,7 @@ struct RootView: View {
             savedName = name
             onboarded = true
             store.attachRelayFactory(tor.readyTransportFactory)
+                startEventChannelIfDirect()
             return
         }
         if friends {
@@ -413,6 +426,7 @@ struct RootView: View {
             savedName = name
             onboarded = true
             store.attachRelayFactory(tor.readyTransportFactory)
+                startEventChannelIfDirect()
         }
     }
 

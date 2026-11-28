@@ -27,6 +27,16 @@ final class TorSession: ObservableObject {
         return URL(string: raw.isEmpty ? fallback : raw)
     }
 
+    /// Persistent receive channel (Signal-style WebSocket wake).
+    static var directEventURL: URL? {
+        guard let base = directRelayURL else { return nil }
+        var text = base.absoluteString
+        if text.hasSuffix("/") { text.removeLast() }
+        guard text.hasPrefix("https://") else { return nil }
+        let hostAndPath = text.replacingOccurrences(of: "https://", with: "")
+        return URL(string: "wss://\(hostAndPath)/ws")
+    }
+
     /// Emergency wipe: remove Tor's data directory, cached descriptors and the
     /// debug log. This also makes the next launch bootstrap from scratch.
     static func wipeStorage() {
