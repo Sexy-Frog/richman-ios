@@ -104,7 +104,10 @@ final class MapProxy: @unchecked Sendable {
         port = UInt16(bigEndian: boundAddress.sin_port)
         listenFD = fd
         self.transport = transport
-        resolvedStyle = Self.resolve(template, base: "http://127.0.0.1:\(port)")
+        resolvedStyle = Self.resolve(template, base: "http://localhost:\(port)")
+        #if DEBUG
+        NSLog("RichManMap style ready port %d", port)
+        #endif
         let url = urlLocked()
 
         let thread = Thread { [weak self] in self?.acceptLoop(fd) }
@@ -140,7 +143,7 @@ final class MapProxy: @unchecked Sendable {
 
     private func urlLocked() -> URL? {
         guard port > 0 else { return nil }
-        return URL(string: "http://127.0.0.1:\(port)/style.json")
+        return URL(string: "http://localhost:\(port)/style.json")
     }
 
     // MARK: accept / request
@@ -323,6 +326,11 @@ final class MapProxy: @unchecked Sendable {
             semaphore.signal()
         }
         _ = semaphore.wait(timeout: .now() + 45)
+        #if DEBUG
+        if box.value == nil {
+            NSLog("RichManMap tile %d/%d/%d failed", z, x, y)
+        }
+        #endif
         return box.value
     }
 

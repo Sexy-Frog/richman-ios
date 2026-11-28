@@ -119,6 +119,9 @@ jobs:
           shoot zone -rm.zone 1 -rm.tab 2 -rm.privacyTutorialSeen 1
           sleep 8
           snap shots/zone.png
+          xcrun simctl spawn "$UDID" log show --last 3m \
+            --predicate 'eventMessage CONTAINS "RichManMap"' \
+            > shots/zone-log.txt 2>&1 || true
           shoot addfriend -rm.addFriend 1
           shoot chat -rm.chat demo-alice
           shoot official -rm.chat official
