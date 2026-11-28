@@ -217,6 +217,7 @@ jobs:
         working-directory: app
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          DIST_PROFILE_UUID: ${{ secrets.DIST_PROFILE_UUID }}
         run: |
           set -euo pipefail
           cat > ExportOptions.plist <<EOF
@@ -255,6 +256,42 @@ jobs:
           rm -rf build/ipa && mkdir -p build/ipa
           unzip -q "$IPA" -d build/ipa
           ENTITLED_APP="build/ipa/Payload/RichManCryptoApp.app"
+          # Which profile did Xcode actually embed?
+          security cms -D -i "$ENTITLED_APP/embedded.mobileprovision" > /tmp/embedded.plist
+          /usr/libexec/PlistBuddy -c "Print :Name" /tmp/embedded.plist
+          /usr/libexec/PlistBuddy -c "Print :UUID" /tmp/embedded.plist
+          # Use the push-enabled profile and re-sign with explicit entitlements.
+          IDENTITY=$(security find-identity -v -p codesigning build.keychain \
+            | awk -F'"' '/Apple Distribution/ {print $2; exit}')
+          test -n "$IDENTITY"
+          cp "$HOME/Library/MobileDevice/Provisioning Profiles/$DIST_PROFILE_UUID.mobileprovision" \
+            "$ENTITLED_APP/embedded.mobileprovision"
+          cat > /tmp/richman-full.entitlements <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>application-identifier</key>
+            <string>${APPLE_TEAM_ID}.works.kelvins.richman</string>
+            <key>com.apple.developer.team-identifier</key>
+            <string>${APPLE_TEAM_ID}</string>
+            <key>aps-environment</key>
+            <string>production</string>
+            <key>beta-reports-active</key>
+            <true/>
+            <key>get-task-allow</key>
+            <false/>
+          </dict>
+          </plist>
+          EOF
+          codesign --force --sign "$IDENTITY" \
+            --entitlements /tmp/richman-full.entitlements \
+            --preserve-metadata=identifier,requirements,flags,runtime \
+            --keychain build.keychain "$ENTITLED_APP"
+          IPA_NAME=$(basename "$IPA")
+          rm -f "$IPA"
+          (cd build/ipa && zip -qry "../export/$IPA_NAME" Payload)
+          IPA="build/export/$IPA_NAME"
           ENTITLEMENTS=$(codesign -d --entitlements :- "$ENTITLED_APP" 2>/dev/null || true)
           echo "$ENTITLEMENTS"
           echo "$ENTITLEMENTS" | grep -q 'aps-environment' \
