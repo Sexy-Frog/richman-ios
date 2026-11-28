@@ -1549,6 +1549,9 @@ final class ChatStore: ObservableObject {
         pendingBoxes.removeAll()
         callContacts.removeAll()
         pendingCallRecords.removeAll()
+        pendingAvatar = nil
+        publishingAvatar = false
+        profileAnnounced = false
         saveTask?.cancel()
         lastRegisteredBoxes = []
         pushRegistered = false
