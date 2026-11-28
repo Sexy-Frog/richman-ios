@@ -110,6 +110,12 @@ final class ChatStore: ObservableObject {
         blockedIds = Set(state.blocked)
     }
 
+    /// Snapshot kept while the app is PIN-locked so an incoming CallKit call
+    /// can still resolve the caller, decrypt its offer and send the answer.
+    /// Messages are never kept.
+    private var callContacts: [Contact] = []
+    private var pendingCallRecords: [(peerId: String, body: String, ts: Date)] = []
+
     /// Drop decrypted chat state from memory when the app locks. The sealed
     /// files stay on disk; `restoreSensitiveState()` reloads them after a
     /// successful PIN entry. This does not unload libsignal keys (see
@@ -121,6 +127,7 @@ final class ChatStore: ObservableObject {
         // Flush before clearing: a message sent in the last 300 ms must not be
         // lost just because the app locked.
         persistNow()
+        callContacts = contacts
         loaded = false
         contacts.removeAll()
         groups.removeAll()
@@ -139,6 +146,22 @@ final class ChatStore: ObservableObject {
         }
         seedOfficialIfNeeded()
         loaded = true
+        callContacts.removeAll()
+        if !pendingCallRecords.isEmpty {
+            for record in pendingCallRecords {
+                messagesByPeer[record.peerId, default: []].append(
+                    ChatMessage(
+                        id: UUID().uuidString,
+                        body: record.body,
+                        mine: false,
+                        ts: record.ts,
+                        system: true
+                    )
+                )
+            }
+            pendingCallRecords.removeAll()
+            persistNow()
+        }
     }
 
     private func scheduleSave() {
@@ -362,7 +385,7 @@ final class ChatStore: ObservableObject {
     /// Dedicated low-latency receive loop for the peer on an active call.
     private func pollFast(_ peerId: String) async {
         guard !polling,
-              let peer = contacts.first(where: { $0.id == peerId }),
+              let peer = contact(peerId),
               let text = peer.recvBox,
               let box = try? Base64URL.decode(text), box.count == 32,
               let service = relayService() else {
@@ -417,6 +440,7 @@ final class ChatStore: ObservableObject {
         polling = true
         defer { polling = false }
         let sender = contacts.first(where: { $0.recvBox == boxText })?.id
+            ?? callContacts.first(where: { $0.recvBox == boxText })?.id
         guard let opened = try? await service.poll(
             box: box, knownSender: sender, wait: 0
         ) else { return }
@@ -807,7 +831,10 @@ final class ChatStore: ObservableObject {
 
     func messages(for peerId: String) -> [ChatMessage] { messagesByPeer[peerId] ?? [] }
 
-    func contact(_ peerId: String) -> Contact? { contacts.first { $0.id == peerId } }
+    func contact(_ peerId: String) -> Contact? {
+        contacts.first { $0.id == peerId }
+            ?? callContacts.first { $0.id == peerId }
+    }
 
     var blockedContacts: [Contact] {
         contacts.filter { blockedIds.contains($0.id) }
@@ -986,6 +1013,9 @@ final class ChatStore: ObservableObject {
     /// My receive mailbox for this peer (32 random bytes, base64url). The peer
     /// learns it from the `rb` stamped on my messages.
     private func ensureRecvBox(_ peerId: String) -> String? {
+        if let existing = callContacts.first(where: { $0.id == peerId })?.recvBox {
+            return existing
+        }
         guard let index = contacts.firstIndex(where: { $0.id == peerId }) else {
             return nil
         }
@@ -1302,10 +1332,12 @@ final class ChatStore: ObservableObject {
                 state.contacts[i].unread = 0
             }
             LocalStore.save(state)
+            pendingCallRecords.removeAll()
             return
         }
         let keep = contacts.first { $0.official }?.id
         messagesByPeer = messagesByPeer.filter { $0.key == keep }
+        pendingCallRecords.removeAll()
         groupMessages.removeAll()
         for i in contacts.indices {
             contacts[i].lastMessage = ""
@@ -1332,10 +1364,14 @@ final class ChatStore: ObservableObject {
             state.pendingBoxes.removeAll()
             state.blocked.removeAll()
             LocalStore.save(state)
+            callContacts.removeAll()
+            pendingCallRecords.removeAll()
             return
         }
         let keep = contacts.first { $0.official }?.id
         contacts.removeAll { !$0.official }
+        callContacts.removeAll()
+        pendingCallRecords.removeAll()
         messagesByPeer = messagesByPeer.filter { $0.key == keep }
         groups.removeAll()
         groupMessages.removeAll()
@@ -1350,6 +1386,8 @@ final class ChatStore: ObservableObject {
     func removeContact(_ peerId: String) {
         guard !(contacts.first { $0.id == peerId }?.official ?? false) else { return }
         contacts.removeAll { $0.id == peerId }
+        callContacts.removeAll { $0.id == peerId }
+        pendingCallRecords.removeAll { $0.peerId == peerId }
         messagesByPeer.removeValue(forKey: peerId)
         scheduleSave()
     }
@@ -1369,6 +1407,8 @@ final class ChatStore: ObservableObject {
         typingClearTasks.removeAll()
         lastTypingSent.removeAll()
         pendingBoxes.removeAll()
+        callContacts.removeAll()
+        pendingCallRecords.removeAll()
         saveTask?.cancel()
         lastRegisteredBoxes = []
         pushRegistered = false
@@ -1499,6 +1539,12 @@ final class ChatStore: ObservableObject {
             let minutes = seconds / 60
             let secs = seconds % 60
             body = "通話（\(outgoing ? "発信" : "着信")） \(minutes):\(String(format: "%02d", secs))"
+        }
+        // While the app is PIN-locked the chat state is not loaded; queue the
+        // row and merge it after unlock instead of touching the sealed store.
+        guard loaded else {
+            pendingCallRecords.append((peerId, body, Date()))
+            return
         }
         messagesByPeer[peerId, default: []].append(
             ChatMessage(
