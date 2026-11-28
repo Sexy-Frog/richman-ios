@@ -31,7 +31,7 @@ final class CallStore: ObservableObject {
     private var audioInFlight = 0
 
     /// Wired by RootView.
-    var sendPayload: ((String, Data, (() -> Void)?) -> Void)?
+    var sendPayload: ((String, Data, Bool, (() -> Void)?) -> Void)?
     var onFastPolling: ((Bool, String?) -> Void)?
     var nameResolver: ((String) -> String?)?
 
@@ -206,14 +206,15 @@ final class CallStore: ObservableObject {
         seq += 1
         guard let json = try? packet.toPayloadJSON() else { return }
         audioInFlight += 1
-        send(peerId, json) { [weak self] in
+        sendPayload?(peerId, json, true) { [weak self] in
             self?.audioInFlight = max(0, (self?.audioInFlight ?? 1) - 1)
         }
     }
 
     private func send(_ signal: CallSignal, to peerId: String? = nil) {
         guard let json = try? signal.toPayloadJSON() else { return }
-        sendPayload?(peerId ?? self.peerId, json, nil)
+        let silent = signal.t != MessageType.callOffer.rawValue
+        sendPayload?(peerId ?? self.peerId, json, silent, nil)
     }
 
     private func finish(error: String? = nil) {

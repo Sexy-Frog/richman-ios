@@ -313,9 +313,13 @@ final class ChatStore: ObservableObject {
     func sendCallPayload(
         _ payload: Data,
         to peerId: String,
+        silent: Bool = false,
         completion: (() -> Void)? = nil
     ) {
-        transmit(payload, to: peerId, markMid: "", completion: completion)
+        transmit(
+            payload, to: peerId, markMid: "",
+            silent: silent, completion: completion
+        )
     }
 
     /// One pass over every mailbox we own: per-contact receive boxes plus
@@ -693,7 +697,7 @@ final class ChatStore: ObservableObject {
             ts: Int64(Date().timeIntervalSince1970 * 1000)
         )
         guard let json = try? message.toPayloadJSON() else { return }
-        transmit(json, to: peerId, markMid: "")
+        transmit(json, to: peerId, markMid: "", silent: true)
     }
 
     func messages(for peerId: String) -> [ChatMessage] { messagesByPeer[peerId] ?? [] }
@@ -714,7 +718,7 @@ final class ChatStore: ObservableObject {
         let profile = ProfileMessage(n: trimmed, av: 0)
         if let json = try? profile.toPayloadJSON() {
             for peer in contacts where !peer.official && peer.box != nil {
-                transmit(json, to: peer.id, markMid: "")
+                transmit(json, to: peer.id, markMid: "", silent: true)
             }
         }
         scheduleSave()
@@ -822,6 +826,7 @@ final class ChatStore: ObservableObject {
         _ payload: Data,
         to peerId: String,
         markMid: String,
+        silent: Bool = false,
         completion: (() -> Void)? = nil
     ) {
         guard let peer = contact(peerId),
@@ -838,7 +843,8 @@ final class ChatStore: ObservableObject {
             while true {
                 do {
                     try await service.send(
-                        payload: payload, to: peerId, box: box, replyBox: replyBox
+                        payload: payload, to: peerId, box: box,
+                        replyBox: replyBox, silent: silent
                     )
                     self?.markMessage(peerId, mid: markMid, delivery: .delivered)
                     if !markMid.isEmpty { self?.lastSyncError = nil }
@@ -915,7 +921,7 @@ final class ChatStore: ObservableObject {
         if everyone, message.mine {
             let payload = DeleteMessage(ids: [message.id])
             if let json = try? payload.toPayloadJSON() {
-                transmit(json, to: peerId, markMid: "")
+                transmit(json, to: peerId, markMid: "", silent: true)
             }
         }
         scheduleSave()
@@ -1136,7 +1142,7 @@ final class ChatStore: ObservableObject {
         guard !mids.isEmpty else { return }
         sentReceipts.formUnion(mids)
         guard let json = try? ReadReceipt(ids: mids).toPayloadJSON() else { return }
-        transmit(json, to: peerId, markMid: "")
+        transmit(json, to: peerId, markMid: "", silent: true)
     }
 
     func markGroupRead(_ groupId: String) {
@@ -1354,7 +1360,7 @@ final class ChatStore: ObservableObject {
         scheduleSave()
         // Keep both ends' expiry in step (Android sends `{"t":"ttl","ms":N}`).
         if let json = try? TtlMessage(ms: Int64(seconds) * 1000).toPayloadJSON() {
-            transmit(json, to: peerId, markMid: "")
+            transmit(json, to: peerId, markMid: "", silent: true)
         }
     }
 
@@ -2154,7 +2160,7 @@ final class ChatStore: ObservableObject {
         // Announce ourselves immediately so the inviter's app creates the
         // contact without waiting for the first chat message.
         if let profile = try? ProfileMessage(n: displayName, av: 0).toPayloadJSON() {
-            transmit(profile, to: c.id, markMid: "")
+            transmit(profile, to: c.id, markMid: "", silent: true)
         }
         registerPushIfNeeded()
         return c

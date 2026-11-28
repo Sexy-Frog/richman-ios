@@ -40,9 +40,14 @@ public final class RelayClient {
 
     // MARK: Messages
 
-    public func send(to box: Data, envelope: Data) async throws {
+    public func send(to box: Data, envelope: Data, silent: Bool = false) async throws {
         precondition(box.count == 32)
-        let body = try jsonBody(["to": Base64URL.encode(box), "env": Base64URL.encode(envelope)])
+        var payload: [String: Any] = [
+            "to": Base64URL.encode(box),
+            "env": Base64URL.encode(envelope),
+        ]
+        if silent { payload["silent"] = true }
+        let body = try jsonBody(payload)
         _ = try await postRaw("v1/send", body: body, contentType: Self.jsonType)
     }
 

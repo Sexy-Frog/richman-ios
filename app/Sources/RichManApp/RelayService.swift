@@ -38,19 +38,28 @@ actor RelayService {
     }
 
     /// Seal a payload (stamping my reply mailbox) and send it to a peer's mailbox.
-    func send(payload: Data, to peerId: String, box: Data, replyBox: String) async throws {
+    func send(
+        payload: Data,
+        to peerId: String,
+        box: Data,
+        replyBox: String,
+        silent: Bool = false
+    ) async throws {
         let envelope = try OutgoingSealer.seal(
             payload: payload,
             replyBox: replyBox,
             to: peerId,
             crypto: crypto
         )
-        try await client(isolation(for: box)).send(to: box, envelope: envelope)
+        try await client(isolation(for: box)).send(
+            to: box, envelope: envelope, silent: silent
+        )
     }
 
-    /// Register the APNs token for all receive mailboxes in one Tor request.
+    /// Register the APNs token for all receive mailboxes in one request.
+    /// An empty list is valid and unregisters every mailbox for this token.
     func registerPush(token: String, boxes: [String]) async throws {
-        guard !token.isEmpty, !boxes.isEmpty else { return }
+        guard !token.isEmpty else { return }
         try await client("push").registerPush(token: token, boxes: boxes)
     }
 
