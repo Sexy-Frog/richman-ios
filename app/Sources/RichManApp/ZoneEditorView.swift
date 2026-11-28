@@ -92,21 +92,21 @@ struct ZoneEditorView: View {
             MapProxy.shared.prefetch(
                 latitude: center.latitude,
                 longitude: center.longitude,
-                zoom: 17
+                zoom: 16
             )
         }
         .onChange(of: recenterToken) { _, _ in
             MapProxy.shared.prefetch(
                 latitude: center.latitude,
                 longitude: center.longitude,
-                zoom: 17
+                zoom: 16
             )
         }
         .onChange(of: tor.mapStyleURL) { _, _ in
             MapProxy.shared.prefetch(
                 latitude: center.latitude,
                 longitude: center.longitude,
-                zoom: 17
+                zoom: 16
             )
         }
         .onChange(of: location.location?.timestamp) { _, _ in
@@ -345,7 +345,7 @@ struct ZoneEditorView: View {
         searchError = nil
         searchFocused = false
         MapProxy.shared.prefetch(
-            latitude: result.lat, longitude: result.lon, zoom: 17
+            latitude: result.lat, longitude: result.lon, zoom: 16
         )
     }
 

@@ -4,9 +4,8 @@ import CoreLocation
 import UIKit
 
 /// Map used to pick a privacy-zone center. The crosshair stays at the map
-/// center; panning updates the bound coordinate. A geodesic circle shows the
-/// exact zone radius, and bumping `recenter` moves the map to the bound
-/// coordinate (e.g. "use current location").
+/// center; panning updates the bound coordinate. A geodesic circle is drawn as
+/// a vector fill/line layer so the map stays visible through it.
 struct ZonePickerMap: UIViewRepresentable {
     @Binding var center: CLLocationCoordinate2D
     @Binding var radius: Double
@@ -21,11 +20,11 @@ struct ZonePickerMap: UIViewRepresentable {
         map.backgroundColor = .systemBackground
         map.tintColor = .systemBlue
         map.maximumZoomLevel = 18
-        map.setCenter(center, zoomLevel: 17.0, animated: false)
+        map.setCenter(center, zoomLevel: 16.0, animated: false)
         context.coordinator.lastRecenter = recenter
         context.coordinator.lastStyleURL = styleURL
         context.coordinator.lastRadius = radius
-        context.coordinator.updateCircle(
+        context.coordinator.installCircle(
             on: map, center: center, radius: radius
         )
         return map
@@ -36,20 +35,18 @@ struct ZonePickerMap: UIViewRepresentable {
         if let styleURL, styleURL != context.coordinator.lastStyleURL {
             context.coordinator.lastStyleURL = styleURL
             map.styleURL = styleURL
-            context.coordinator.updateCircle(
-                on: map, center: map.centerCoordinate, radius: radius
-            )
+            context.coordinator.circleSource = nil
         }
         if radius != context.coordinator.lastRadius {
             context.coordinator.lastRadius = radius
-            context.coordinator.updateCircle(
+            context.coordinator.installCircle(
                 on: map, center: map.centerCoordinate, radius: radius
             )
         }
         guard recenter != context.coordinator.lastRecenter else { return }
         context.coordinator.lastRecenter = recenter
         map.setCenter(center, zoomLevel: map.zoomLevel, animated: true)
-        context.coordinator.updateCircle(
+        context.coordinator.installCircle(
             on: map, center: center, radius: radius
         )
     }
@@ -61,7 +58,7 @@ struct ZonePickerMap: UIViewRepresentable {
         var lastRecenter = 0
         var lastStyleURL: URL?
         var lastRadius: Double = 0
-        private var circle: MLNPolygon?
+        var circleSource: MLNShapeSource?
 
         init(_ parent: ZonePickerMap) {
             self.parent = parent
@@ -69,21 +66,28 @@ struct ZonePickerMap: UIViewRepresentable {
 
         func mapView(_ mapView: MLNMapView, regionDidChangeAnimated animated: Bool) {
             parent.center = mapView.centerCoordinate
-            updateCircle(
+            installCircle(
                 on: mapView,
                 center: mapView.centerCoordinate,
                 radius: parent.radius
             )
         }
 
-        func updateCircle(
+        func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
+            circleSource = nil
+            installCircle(
+                on: mapView,
+                center: mapView.centerCoordinate,
+                radius: parent.radius
+            )
+        }
+
+        func installCircle(
             on mapView: MLNMapView,
             center: CLLocationCoordinate2D,
             radius: Double
         ) {
-            if let circle {
-                mapView.removeAnnotation(circle)
-            }
+            guard let style = mapView.style else { return }
             var coordinates = Self.circle(
                 center: center, radius: max(10, radius)
             )
@@ -93,29 +97,35 @@ struct ZonePickerMap: UIViewRepresentable {
                     count: UInt(buffer.count)
                 )
             }
-            mapView.addAnnotation(polygon)
-            circle = polygon
-        }
+            if let source = circleSource {
+                source.shape = polygon
+                return
+            }
+            let source = MLNShapeSource(
+                identifier: "rm-zone-circle",
+                shape: polygon,
+                options: nil
+            )
+            circleSource = source
+            style.addSource(source)
 
-        func mapView(
-            _ mapView: MLNMapView,
-            fillColorForShapeAnnotation annotation: MLNShape
-        ) -> UIColor {
-            UIColor.systemBlue.withAlphaComponent(0.14)
-        }
+            let fill = MLNFillStyleLayer(
+                identifier: "rm-zone-fill", source: source
+            )
+            fill.fillColor = NSExpression(
+                forConstantValue: UIColor.systemBlue.withAlphaComponent(0.14)
+            )
+            fill.fillOpacity = NSExpression(forConstantValue: 1.0)
+            style.addLayer(fill)
 
-        func mapView(
-            _ mapView: MLNMapView,
-            strokeColorForShapeAnnotation annotation: MLNShape
-        ) -> UIColor {
-            UIColor.systemBlue.withAlphaComponent(0.92)
-        }
-
-        func mapView(
-            _ mapView: MLNMapView,
-            lineWidthForPolygon polygon: MLNPolygon
-        ) -> CGFloat {
-            2
+            let line = MLNLineStyleLayer(
+                identifier: "rm-zone-line", source: source
+            )
+            line.lineColor = NSExpression(
+                forConstantValue: UIColor.systemBlue.withAlphaComponent(0.92)
+            )
+            line.lineWidth = NSExpression(forConstantValue: 2.0)
+            style.addLayer(line)
         }
 
         private static func circle(
