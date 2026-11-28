@@ -26,6 +26,9 @@ final class ChatStore: ObservableObject {
     @Published private(set) var typingPeers: Set<String> = []
     /// True after the relay accepted the APNs token/mailbox registration.
     @Published private(set) var pushRegistered = false
+    /// Last successful poll / last transport error (Settings diagnostics).
+    @Published private(set) var lastSyncAt: Date?
+    @Published private(set) var lastSyncError: String?
     private var typingClearTasks: [String: Task<Void, Never>] = [:]
     private var lastTypingSent: [String: Date] = [:]
     /// APNs token + the receive-mailbox set last registered with the relay.
@@ -266,12 +269,18 @@ final class ChatStore: ObservableObject {
             while !Task.isCancelled {
                 guard let self else { return }
                 await self.pollOnce()
-                // With an open chat (or a call) the priority poll is a 20 s
-                // long-poll that returns on the first message, so loop again
-                // immediately. Otherwise check every 2 s.
-                if self.fastPeer == nil && self.activePeer == nil {
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                // Short polls are reliable through the CDN; long-held requests
+                // were being dropped on some networks. Keep them snappy for the
+                // open chat / calls and calm when idle.
+                let delay: UInt64
+                if self.fastPeer != nil {
+                    delay = 250_000_000
+                } else if self.activePeer != nil {
+                    delay = 500_000_000
+                } else {
+                    delay = 1_000_000_000
                 }
+                try? await Task.sleep(nanoseconds: delay)
             }
         }
     }
@@ -328,18 +337,23 @@ final class ChatStore: ObservableObject {
             }
         }
 
-        // The open chat (or the call peer) long-polls, so an incoming message
-        // wakes this loop immediately instead of waiting for the next cycle.
+        // Check the open chat (or the call peer) as well. Short polls are used
+        // everywhere because CDN proxies may terminate long-held requests.
         if let priority,
            let peer = peers.first(where: { $0.id == priority }),
            let text = peer.recvBox,
            let box = try? Base64URL.decode(text), box.count == 32 {
-            if let opened = try? await service.poll(
-                box: box, knownSender: peer.id, wait: 20
-            ) {
+            do {
+                let opened = try await service.poll(
+                    box: box, knownSender: peer.id, wait: 0
+                )
                 for message in opened { await apply(message) }
+                lastSyncError = nil
+            } catch {
+                lastSyncError = error.localizedDescription
             }
         }
+        lastSyncAt = Date()
         registerPushIfNeeded()
     }
 
@@ -805,13 +819,29 @@ final class ChatStore: ObservableObject {
         }
         Task { [weak self] in
             defer { completion?() }
-            do {
-                try await service.send(
-                    payload: payload, to: peerId, box: box, replyBox: replyBox
-                )
-                self?.markMessage(peerId, mid: markMid, delivery: .delivered)
-            } catch {
-                self?.markMessage(peerId, mid: markMid, delivery: .sent)
+            var attempt = 0
+            while true {
+                do {
+                    try await service.send(
+                        payload: payload, to: peerId, box: box, replyBox: replyBox
+                    )
+                    self?.markMessage(peerId, mid: markMid, delivery: .delivered)
+                    if !markMid.isEmpty { self?.lastSyncError = nil }
+                    return
+                } catch {
+                    attempt += 1
+                    if !markMid.isEmpty {
+                        self?.lastSyncError = error.localizedDescription
+                    }
+                    let retry = !markMid.isEmpty && attempt < 3
+                    guard retry else {
+                        self?.markMessage(peerId, mid: markMid, delivery: .sent)
+                        return
+                    }
+                    try? await Task.sleep(
+                        nanoseconds: UInt64(attempt) * 1_000_000_000
+                    )
+                }
             }
         }
     }

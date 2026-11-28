@@ -362,6 +362,12 @@ private struct NetworkSettingsView: View {
     @AppStorage("rm.pushToken") private var pushToken = ""
     @AppStorage("rm.pushError") private var pushError = ""
 
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter
+    }()
+
     var body: some View {
         Form {
             Section {
@@ -376,6 +382,18 @@ private struct NetworkSettingsView: View {
                     "通知登録",
                     value: store.pushRegistered ? "済み" : "未登録"
                 )
+                LabeledContent(
+                    "最終同期",
+                    value: store.lastSyncAt.map {
+                        Self.timeFormatter.string(from: $0)
+                    } ?? "未同期"
+                )
+                if let syncError = store.lastSyncError {
+                    Text("同期エラー: \(syncError)")
+                        .font(.caption)
+                        .foregroundStyle(RM.error)
+                        .lineLimit(3)
+                }
                 if let lastError = tor.lastError {
                     Text(lastError)
                         .font(.caption)
