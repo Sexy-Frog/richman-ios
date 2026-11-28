@@ -322,7 +322,11 @@ struct ZoneEditorView: View {
             }
             do {
                 let client = RelayClient(transport: transport)
-                let found = try await client.geocode(query: text)
+                let found = try await client.geocode(
+                    query: text,
+                    lat: center.latitude,
+                    lon: center.longitude
+                )
                 results = Array(found.prefix(5))
                 if results.isEmpty { searchError = "見つかりませんでした" }
             } catch {

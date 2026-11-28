@@ -186,7 +186,9 @@ final class MapProxy: @unchecked Sendable {
             let parts = path.dropFirst("/v1/tile/".count).split(separator: "/")
             guard parts.count == 3,
                   let z = Int(parts[0]), let x = Int(parts[1]),
-                  let y = Int(parts[2]),
+                  let y = Int(
+                      parts[2].replacingOccurrences(of: ".png", with: "")
+                  ),
                   (0...19).contains(z), x >= 0, y >= 0,
                   x < (1 << z), y < (1 << z) else {
                 respond(client, status: 404, type: "text/plain", body: Data())

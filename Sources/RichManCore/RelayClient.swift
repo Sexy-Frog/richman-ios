@@ -60,8 +60,17 @@ public final class RelayClient {
     /// Geocode an address through the relay (Nominatim). The query goes to the
     /// relay, never directly to the geocoder; in Tor mode the relay's circuit
     /// hides the client IP.
-    public func geocode(query: String) async throws -> [GeocodeResult] {
-        let body = try jsonBody(["q": query])
+    public func geocode(
+        query: String,
+        lat: Double? = nil,
+        lon: Double? = nil
+    ) async throws -> [GeocodeResult] {
+        var payload: [String: Any] = ["q": query]
+        if let lat, let lon {
+            payload["lat"] = lat
+            payload["lon"] = lon
+        }
+        let body = try jsonBody(payload)
         let resp = try await postRaw(
             "v1/geocode", body: body, contentType: Self.jsonType
         )

@@ -58,7 +58,7 @@ struct RootView: View {
     var body: some View {
         ZStack {
             Group {
-                if lock.locked && calls.phase != .idle {
+                if calls.phase != .idle {
                     CallOverlay()
                 } else if lock.locked {
                     LockScreenView(onWipe: performEmergencyAction)
@@ -295,26 +295,6 @@ struct RootView: View {
             await E2E.runIfRequested(store: store, tor: tor)
             #endif
         }
-        .fullScreenCover(
-            isPresented: Binding(
-                get: { showCallCover },
-                set: { presented in
-                    // Do not tear the call down when the cover is hidden only
-                    // because CallKit took over the UI.
-                    if !presented, !calls.usesSystemUI, calls.phase != .idle {
-                        calls.end()
-                    }
-                }
-            )
-        ) {
-            CallOverlay().environmentObject(calls)
-        }
-    }
-
-    private var showCallCover: Bool {
-        if lock.locked { return false }
-        if calls.phase == .active { return true }
-        return calls.phase != .idle && !calls.usesSystemUI
     }
 
     /// Hides content in the app switcher and while the screen is being recorded.

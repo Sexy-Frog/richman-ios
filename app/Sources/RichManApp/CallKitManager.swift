@@ -23,6 +23,7 @@ final class CallKitManager: NSObject {
     private var generation = 0
     private var started = false
     private var pendingBox: String?
+    private var answeredFromSystem = false
 
     var isRinging: Bool { activeSystemCall }
 
@@ -55,6 +56,21 @@ final class CallKitManager: NSObject {
         update.localizedCallerName = trimmed
         update.hasVideo = false
         provider.reportCall(with: callUUID, updated: update)
+    }
+
+    /// The user answered from the in-app call screen while CallKit was also
+    /// ringing. Dismiss the system ringing call; the app's audio engine owns
+    /// the call from here.
+    func answerFromApp() {
+        guard !answeredFromSystem, activeSystemCall else { return }
+        activeSystemCall = false
+        pendingBox = nil
+        AppServices.shared.calls?.setUsesSystemUI(false)
+        provider?.reportCall(
+            with: callUUID,
+            endedAt: Date(),
+            reason: .answeredElsewhere
+        )
     }
 
     /// Called by CallStore after the call is torn down.
@@ -187,11 +203,13 @@ extension CallKitManager: CXProviderDelegate {
     func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
         action.fulfill()
         let answeredGeneration = generation
+        answeredFromSystem = true
         AppServices.shared.calls?.acceptFromSystem()
+        answeredFromSystem = false
         // If the encrypted offer never arrives (offline / terminated before the
         // fetch), do not leave the caller ringing forever.
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            try? await Task.sleep(nanoseconds: 30_000_000_000)
             guard self.generation == answeredGeneration,
                   self.activeSystemCall,
                   AppServices.shared.calls?.phase == .idle else { return }

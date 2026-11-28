@@ -740,15 +740,9 @@ final class ChatStore: ObservableObject {
                 guard group.memberIds.contains(opened.senderId)
                         || group.ownerId == opened.senderId else { return }
             } else {
-                // Never bypass the invite card: if one is waiting (or was
-                // declined), drop group traffic until the user joins.
-                if hasInviteCard(for: groupMessage.gid) { return }
-                guard contact(opened.senderId) != nil else { return }
-                ensureGroup(
-                    groupMessage.gid,
-                    name: nil,
-                    members: [opened.senderId]
-                )
+                // A group only exists after the user accepts its invitation
+                // card. Never auto-join from group traffic.
+                return
             }
             if (groupMessage.kind == "img" || groupMessage.kind == "file"),
                let encoded = groupMessage.m,
@@ -1938,8 +1932,25 @@ final class ChatStore: ObservableObject {
 
     func messages(forGroup id: String) -> [ChatMessage] { groupMessages[id] ?? [] }
 
+    /// Pending group invitations shown at the top of the Talks list so the
+    /// invitee can choose 参加/拒否 without opening the 1:1 chat first.
+    var pendingGroupInvites: [PendingGroupInvite] {
+        var out: [PendingGroupInvite] = []
+        for (peerId, list) in messagesByPeer {
+            for message in list
+            where message.kind == .invite && message.inviteAccepted == nil {
+                out.append(
+                    PendingGroupInvite(
+                        id: message.id, peerId: peerId, message: message
+                    )
+                )
+            }
+        }
+        return out.sorted { $0.message.ts > $1.message.ts }
+    }
+
     /// True when a 1:1 chat holds an invitation card (pending or answered) for
-    /// this group id, so group traffic must not auto-create the group.
+    /// this group id. Kept for the invite-only group flow.
     private func hasInviteCard(for gid: String) -> Bool {
         messagesByPeer.values.contains { list in
             list.contains { $0.kind == .invite && $0.inviteGid == gid }
@@ -2503,6 +2514,13 @@ final class ChatStore: ObservableObject {
 }
 
 // MARK: shared models (single source of truth for the screens)
+
+/// A pending group invite row in the Talks list.
+struct PendingGroupInvite: Identifiable {
+    let id: String
+    let peerId: String
+    let message: ChatMessage
+}
 
 struct Contact: Identifiable, Hashable, Codable {
     let id: String          // base64url identity

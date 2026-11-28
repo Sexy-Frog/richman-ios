@@ -17,10 +17,34 @@ struct TalksView: View {
         store.contacts.filter { !store.isHidden($0.id) }
     }
 
+    private var sortedTalks: [TalkItem] {
+        var items: [TalkItem] = []
+        for group in visibleGroups {
+            items.append(
+                TalkItem(
+                    id: "g:" + group.id,
+                    date: store.messages(forGroup: group.id).last?.ts ?? .distantPast,
+                    kind: .group(group)
+                )
+            )
+        }
+        for contact in visibleContacts {
+            items.append(
+                TalkItem(
+                    id: "c:" + contact.id,
+                    date: store.messages(for: contact.id).last?.ts ?? .distantPast,
+                    kind: .contact(contact)
+                )
+            )
+        }
+        return items.sorted { $0.date > $1.date }
+    }
+
     var body: some View {
         NavigationStack(path: $path) {
             Group {
-                if visibleContacts.isEmpty && visibleGroups.isEmpty {
+                if visibleContacts.isEmpty && visibleGroups.isEmpty
+                    && store.pendingGroupInvites.isEmpty {
                     EmptyState(
                         icon: "bubble.left.and.bubble.right",
                         title: "まだトークがありません",
@@ -28,62 +52,17 @@ struct TalksView: View {
                     )
                 } else {
                     List {
-                        if !visibleGroups.isEmpty {
-                            Section("グループ") {
-                                ForEach(visibleGroups) { group in
-                                    GroupRow(group: group)
-                                        .contentShape(Rectangle())
-                                        .onTapGesture { path.append(group) }
-                                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                            Button {
-                                                store.setHidden(group.id, true)
-                                            } label: {
-                                                Label("非表示", systemImage: "eye.slash")
-                                            }
-                                            .tint(.gray)
-
-                                            Button(role: .destructive) {
-                                                if group.ownerId == store.myId {
-                                                    store.deleteGroup(group.id)
-                                                } else {
-                                                    store.leaveGroup(group.id)
-                                                }
-                                            } label: {
-                                                Label("削除", systemImage: "trash")
-                                            }
-                                        }
+                        if !store.pendingGroupInvites.isEmpty {
+                            Section("グループへの招待") {
+                                ForEach(store.pendingGroupInvites) { invite in
+                                    inviteRow(invite)
                                 }
                             }
                         }
-                        if !visibleContacts.isEmpty {
-                            Section("友だち") {
-                                ForEach(visibleContacts) { contact in
-                                    ContactRow(
-                                        contact: contact,
-                                        typing: store.isTyping(contact.id)
-                                    )
-                                        .contentShape(Rectangle())
-                                        .onTapGesture { path.append(contact) }
-                                        .onLongPressGesture(minimumDuration: 0.45) {
-                                            peek = contact
-                                        }
-                                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                            if !contact.official {
-                                                Button {
-                                                    store.setHidden(contact.id, true)
-                                                } label: {
-                                                    Label("非表示", systemImage: "eye.slash")
-                                                }
-                                                .tint(.gray)
-
-                                                Button(role: .destructive) {
-                                                    store.clearChat(contact.id)
-                                                    store.setHidden(contact.id, true)
-                                                } label: {
-                                                    Label("削除", systemImage: "trash")
-                                                }
-                                            }
-                                        }
+                        if !sortedTalks.isEmpty {
+                            Section("トーク") {
+                                ForEach(sortedTalks) { item in
+                                    talkRow(item)
                                 }
                             }
                         }
@@ -126,6 +105,115 @@ struct TalksView: View {
             }
         }
     }
+
+    @ViewBuilder
+    private func talkRow(_ item: TalkItem) -> some View {
+        switch item.kind {
+        case .group(let group):
+            GroupRow(group: group)
+                .contentShape(Rectangle())
+                .onTapGesture { path.append(group) }
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    Button {
+                        store.setHidden(group.id, true)
+                    } label: {
+                        Label("非表示", systemImage: "eye.slash")
+                    }
+                    .tint(.gray)
+
+                    Button(role: .destructive) {
+                        if group.ownerId == store.myId {
+                            store.deleteGroup(group.id)
+                        } else {
+                            store.leaveGroup(group.id)
+                        }
+                    } label: {
+                        Label("削除", systemImage: "trash")
+                    }
+                }
+        case .contact(let contact):
+            ContactRow(
+                contact: contact,
+                typing: store.isTyping(contact.id)
+            )
+            .contentShape(Rectangle())
+            .onTapGesture { path.append(contact) }
+            .onLongPressGesture(minimumDuration: 0.45) {
+                peek = contact
+            }
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                if !contact.official {
+                    Button {
+                        store.setHidden(contact.id, true)
+                    } label: {
+                        Label("非表示", systemImage: "eye.slash")
+                    }
+                    .tint(.gray)
+
+                    Button(role: .destructive) {
+                        store.clearChat(contact.id)
+                        store.setHidden(contact.id, true)
+                    } label: {
+                        Label("削除", systemImage: "trash")
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func inviteRow(_ invite: PendingGroupInvite) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: "person.3.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 38, height: 38)
+                    .background(RM.primary, in: Circle())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(invite.message.inviteName ?? "グループ")
+                        .font(.body.weight(.semibold))
+                        .lineLimit(1)
+                    Text("\(store.contact(invite.peerId)?.name ?? "友だち") からの招待")
+                        .font(.caption)
+                        .foregroundStyle(RM.onSurfaceVariant)
+                }
+                Spacer()
+            }
+            HStack(spacing: 10) {
+                Button("参加") {
+                    if let group = store.acceptGroupInvite(
+                        invite.message, in: invite.peerId
+                    ) {
+                        path.append(group)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(RM.primary)
+                .controlSize(.small)
+
+                Button("拒否") {
+                    store.declineGroupInvite(
+                        invite.message, in: invite.peerId
+                    )
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+private struct TalkItem: Identifiable {
+    enum Kind {
+        case group(ChatGroup)
+        case contact(Contact)
+    }
+
+    let id: String
+    let date: Date
+    let kind: Kind
 }
 
 /// LINE-style long-press popup for a talk: recent messages plus quick actions.

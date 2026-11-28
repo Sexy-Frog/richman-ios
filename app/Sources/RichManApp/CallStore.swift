@@ -89,6 +89,8 @@ final class CallStore: ObservableObject {
 
     func accept() {
         guard phase == .incoming else { return }
+        // If CallKit was ringing (system UI), the in-app answer takes over.
+        CallKitManager.shared.answerFromApp()
         send(CallSignal(t: MessageType.callAnswer.rawValue,
                         id: callId, sr: negotiatedRate))
         activate()
