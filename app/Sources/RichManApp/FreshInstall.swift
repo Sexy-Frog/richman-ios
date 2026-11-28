@@ -7,6 +7,9 @@ import Security
 /// reads it. This is what makes a reinstall start at onboarding again.
 enum FreshInstall {
     private static let marker = "rm.installPrepared"
+    private static let deviceKey = "rm.installID"
+    private static let deviceService = "works.kelvins.richman.device"
+    private static let deviceAccount = "install"
 
     /// Returns true when the state is clean (either already prepared or just
     /// cleared). A locked device can make the Keychain query fail; in that case
@@ -22,6 +25,79 @@ enum FreshInstall {
         }
         defaults.set(true, forKey: marker)
         return true
+    }
+
+    /// The sealed stores and Keychain keys can be cloned by a backup or a
+    /// device-to-device transfer. A ThisDeviceOnly marker survives a normal
+    /// reinstall on the same phone but not a migration; if the marker is
+    /// missing while UserDefaults says this install existed, reset the local
+    /// identity so two phones never share mailboxes.
+    static func bindDeviceIfNeeded() {
+        let defaults = UserDefaults.standard
+        let stored = defaults.string(forKey: deviceKey)
+        let result = readDeviceID()
+        // Keychain locked/unavailable: never treat that as a clone.
+        if result.status != errSecSuccess && result.status != errSecItemNotFound {
+            return
+        }
+        let current = result.value
+
+        if stored == nil && current == nil {
+            let id = UUID().uuidString
+            defaults.set(id, forKey: deviceKey)
+            _ = saveDeviceID(id)
+            return
+        }
+        if let stored, let current, stored == current { return }
+
+        _ = deleteAllGenericPasswords()
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("rm.") {
+            defaults.removeObject(forKey: key)
+        }
+        LocalStore.wipe()
+        MediaStore.clearAll()
+        PrivacyStorage.wipeCaches()
+        let base = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        )[0]
+        try? FileManager.default.removeItem(
+            at: base.appendingPathComponent("signal.store")
+        )
+        defaults.set(true, forKey: marker)
+        let id = UUID().uuidString
+        defaults.set(id, forKey: deviceKey)
+        _ = saveDeviceID(id)
+    }
+
+    private static func readDeviceID() -> (value: String?, status: OSStatus) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: deviceService,
+            kSecAttrAccount as String: deviceAccount,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        guard status == errSecSuccess, let data = item as? Data else {
+            return (nil, status)
+        }
+        return (String(data: data, encoding: .utf8), status)
+    }
+
+    private static func saveDeviceID(_ id: String) -> Bool {
+        let base: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: deviceService,
+            kSecAttrAccount as String: deviceAccount,
+        ]
+        SecItemDelete(base as CFDictionary)
+        var add = base
+        add[kSecValueData as String] = Data(id.utf8)
+        add[kSecAttrAccessible as String] =
+            kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
     }
 
     private static func deleteAllGenericPasswords() -> Bool {

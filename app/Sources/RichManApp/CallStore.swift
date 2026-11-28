@@ -34,6 +34,10 @@ final class CallStore: ObservableObject {
     var sendPayload: ((String, Data, Bool, (() -> Void)?) -> Void)?
     var onFastPolling: ((Bool, String?) -> Void)?
     var nameResolver: ((String) -> String?)?
+    /// (peerId, active seconds, outgoing, missed) after a call ends.
+    var onCallEnded: ((String, Int, Bool, Bool) -> Void)?
+    private var isOutgoing = false
+    private var wasActive = false
 
     init() {
         #if DEBUG
@@ -66,6 +70,8 @@ final class CallStore: ObservableObject {
             self.peerName = name
             self.error = nil
             self.phase = .calling
+            self.isOutgoing = true
+            self.wasActive = false
             self.negotiatedRate = 16_000
             self.send(CallSignal(t: MessageType.callOffer.rawValue,
                                  id: self.callId, sr: 16_000))
@@ -119,6 +125,8 @@ final class CallStore: ObservableObject {
             }
             callId = signal.id
             self.peerId = peerId
+            isOutgoing = false
+            wasActive = false
             let fallback = signal.n?.isEmpty == false ? signal.n! : "着信"
             peerName = nameResolver?(peerId) ?? fallback
             negotiatedRate = min(16_000, signal.sr ?? 8_000)
@@ -168,6 +176,7 @@ final class CallStore: ObservableObject {
         seconds = 0
         seq = 0
         audioInFlight = 0
+        wasActive = true
         startTimer()
         onFastPolling?(true, peerId)
         ensureMic { [weak self] granted in
@@ -218,6 +227,11 @@ final class CallStore: ObservableObject {
     }
 
     private func finish(error: String? = nil) {
+        let endedPeer = peerId
+        let duration = seconds
+        let outgoing = isOutgoing
+        let missed = !wasActive
+        let hadCall = !callId.isEmpty && !endedPeer.isEmpty
         timeoutTask?.cancel()
         timeoutTask = nil
         timer?.invalidate()
@@ -232,6 +246,9 @@ final class CallStore: ObservableObject {
         speaker = false
         self.error = error
         phase = .idle
+        if hadCall {
+            onCallEnded?(endedPeer, duration, outgoing, missed)
+        }
     }
 
     private func armTimeout(_ message: String) {

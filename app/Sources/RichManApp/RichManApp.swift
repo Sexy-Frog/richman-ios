@@ -12,7 +12,9 @@ struct RichManApp: App {
     init() {
         // A reinstall keeps Keychain items (PIN, zone/store keys); clear them
         // when UserDefaults shows this is a fresh install.
-        FreshInstall.resetIfNeeded()
+        if FreshInstall.resetIfNeeded() {
+            FreshInstall.bindDeviceIfNeeded()
+        }
         // Exclude Application Support from backups as early as possible; new
         // files inherit the excluded directory.
         PrivacyStorage.prepare()

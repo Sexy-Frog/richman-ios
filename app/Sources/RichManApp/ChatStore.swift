@@ -1409,6 +1409,34 @@ final class ChatStore: ObservableObject {
         scheduleSave()
     }
 
+    /// Local call history row shown in the chat after a call ends.
+    func appendCallRecord(
+        peerId: String,
+        seconds: Int,
+        outgoing: Bool,
+        missed: Bool
+    ) {
+        guard contact(peerId) != nil else { return }
+        let body: String
+        if missed {
+            body = outgoing ? "発信（応答なし）" : "不在着信"
+        } else {
+            let minutes = seconds / 60
+            let secs = seconds % 60
+            body = "通話（\(outgoing ? "発信" : "着信")） \(minutes):\(String(format: "%02d", secs))"
+        }
+        messagesByPeer[peerId, default: []].append(
+            ChatMessage(
+                id: UUID().uuidString,
+                body: body,
+                mine: false,
+                ts: Date(),
+                system: true
+            )
+        )
+        scheduleSave()
+    }
+
     private func ttlSystemLabel(_ seconds: Int) -> String {
         switch seconds {
         case 0: return "消えるメッセージをオフにしました"

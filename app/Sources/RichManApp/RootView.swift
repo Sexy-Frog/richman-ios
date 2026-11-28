@@ -308,6 +308,14 @@ struct RootView: View {
         calls.onFastPolling = { [weak store] on, peer in
             store?.setFastPolling(on, peerId: peer)
         }
+        calls.onCallEnded = { [weak store] peer, seconds, outgoing, missed in
+            store?.appendCallRecord(
+                peerId: peer,
+                seconds: seconds,
+                outgoing: outgoing,
+                missed: missed
+            )
+        }
         calls.nameResolver = { [weak store] peer in
             store?.contact(peer)?.name
         }
