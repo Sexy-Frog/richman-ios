@@ -266,11 +266,7 @@ struct RootView: View {
         }
         .fullScreenCover(
             isPresented: Binding(
-                get: {
-                    if lock.locked { return false }
-                    return calls.phase == .active
-                        || (calls.phase != .idle && !calls.usesSystemUI)
-                },
+                get: { showCallCover },
                 set: { presented in
                     // Do not tear the call down when the cover is hidden only
                     // because CallKit took over the UI.
@@ -282,6 +278,12 @@ struct RootView: View {
         ) {
             CallOverlay().environmentObject(calls)
         }
+    }
+
+    private var showCallCover: Bool {
+        if lock.locked { return false }
+        if calls.phase == .active { return true }
+        return calls.phase != .idle && !calls.usesSystemUI
     }
 
     /// Hides content in the app switcher and while the screen is being recorded.
