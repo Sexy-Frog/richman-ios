@@ -36,6 +36,7 @@ struct RootView: View {
     @State private var backgroundedAt: Date?
     @State private var privacyCover = false
     @State private var screenCaptured = UIScreen.main.isCaptured
+    @State private var lockAfterCall = false
     @State private var notificationChat: NotificationChat?
     @State private var pendingInvite: PendingInvite?
     @State private var showDebugLocationPrimer = false
@@ -147,7 +148,11 @@ struct RootView: View {
                 privacyCover = false
                 if let at = backgroundedAt, autoLockSeconds > 0,
                    Date().timeIntervalSince(at) >= Double(autoLockSeconds) {
-                    lock.lock()
+                    if calls.phase == .idle {
+                        lock.lock()
+                    } else {
+                        lockAfterCall = true
+                    }
                 }
                 backgroundedAt = nil
                 location.startIfAuthorized()
@@ -248,6 +253,16 @@ struct RootView: View {
                 store.attachRelayFactory(tor.readyTransportFactory)
                 startEventChannelIfDirect()
                 registerPushIfPossible()
+                if let avatar = profile.avatar,
+                   !UserDefaults.standard.bool(forKey: "rm.avatarPublished") {
+                    store.updateAvatar(avatar)
+                }
+            }
+        }
+        .onChange(of: calls.phase) { _, phase in
+            if phase == .idle, lockAfterCall {
+                lockAfterCall = false
+                if !lock.locked { lock.lock() }
             }
         }
         .onChange(of: tor.phase) { _, _ in
