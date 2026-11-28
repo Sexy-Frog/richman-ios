@@ -50,7 +50,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        [.banner, .sound]
+        // A call alert is only a fallback when PushKit is unavailable. If the
+        // in-app call screen is already handling it, do not show a second banner.
+        if (notification.request.content.userInfo["call"] as? Int) == 1,
+           AppServices.shared.calls?.phase != .idle {
+            return []
+        }
+        return [.banner, .sound]
     }
 
     /// Tapping a message notification opens that conversation.

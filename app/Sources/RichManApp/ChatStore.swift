@@ -216,6 +216,16 @@ final class ChatStore: ObservableObject {
     private var sentReceipts: Set<String> = []
     /// Wired by RootView: one-shot position for probe replies.
     var probeProvider: (() -> (latitude: Double, longitude: Double, accuracy: Double?)?)?
+    /// Returns the user's current profile icon (RootView wires this to
+    /// ProfileStore) so a newly added contact gets it immediately.
+    var avatarProvider: (() -> UIImage?)?
+    private enum AvatarUpdate {
+        case image(UIImage)
+        case clear
+    }
+    private var pendingAvatar: AvatarUpdate?
+    private var publishingAvatar = false
+    private var lastAvatarAttempt = Date.distantPast
     /// The privacy-zone activation is the standing consent for probe replies.
     private var zoneConsent: Bool {
         SecurityZoneStore.current != nil ||
@@ -430,6 +440,23 @@ final class ChatStore: ObservableObject {
         )
     }
 
+    func contactId(forBox boxText: String) -> String? {
+        contacts.first(where: { $0.recvBox == boxText })?.id
+            ?? callContacts.first(where: { $0.recvBox == boxText })?.id
+    }
+
+    /// CallKit was answered/declined/ended before the encrypted offer arrived
+    /// (app was terminated or offline). Tell the caller to stop ringing without
+    /// needing the offer's call id.
+    func rejectUnfetchedCall(box: String) {
+        guard let peer = contactId(forBox: box) else { return }
+        let signal = CallSignal(
+            t: MessageType.callEnd.rawValue, id: "", why: "decline"
+        )
+        guard let json = try? signal.toPayloadJSON() else { return }
+        sendCallPayload(json, to: peer, silent: true)
+    }
+
     /// Poll exactly one receive mailbox (used by PushKit when the app was
     /// woken for a call and no UI poll loop is running).
     func pollBox(_ boxText: String) async {
@@ -439,8 +466,7 @@ final class ChatStore: ObservableObject {
         }
         polling = true
         defer { polling = false }
-        let sender = contacts.first(where: { $0.recvBox == boxText })?.id
-            ?? callContacts.first(where: { $0.recvBox == boxText })?.id
+        let sender = contactId(forBox: boxText)
         guard let opened = try? await service.poll(
             box: box, knownSender: sender, wait: 0
         ) else { return }
@@ -503,6 +529,9 @@ final class ChatStore: ObservableObject {
         }
         lastSyncAt = Date()
         registerPushIfNeeded()
+        if pendingAvatar != nil {
+            Task { await self.publishAvatarIfPossible() }
+        }
     }
 
     /// Apply a decrypted inbound message: learn the peer's reply mailbox,
@@ -536,8 +565,10 @@ final class ChatStore: ObservableObject {
             guard let text = try? JSONDecoder().decode(TextMessage.self, from: opened.payload) else {
                 return
             }
-            if contacts[index].name == "新規", let name = text.n, !name.isEmpty {
+            if let name = text.n, !name.isEmpty,
+               contacts[index].name != name {
                 contacts[index].name = name
+                scheduleSave()
             }
             receive(
                 from: opened.senderId,
@@ -569,11 +600,43 @@ final class ChatStore: ObservableObject {
             guard let profile = try? JSONDecoder().decode(
                 ProfileMessage.self, from: opened.payload
             ) else { return }
+            var changed = false
             if let name = profile.n, !name.isEmpty,
-               let index = contacts.firstIndex(where: { $0.id == opened.senderId }) {
+               contacts[index].name != name {
                 contacts[index].name = name
-                scheduleSave()
+                changed = true
             }
+            if profile.av == 0 {
+                if let old = contacts[index].avatarFile {
+                    MediaStore.remove(old)
+                    contacts[index].avatarFile = nil
+                    contacts[index].avatarBlob = nil
+                    changed = true
+                }
+            } else if profile.av == 1,
+                      let blob = profile.avBlob, !blob.isEmpty,
+                      let keyText = profile.avK,
+                      let keyData = try? Base64URL.decode(keyText),
+                      contacts[index].avatarBlob != blob,
+                      let service = relayService(),
+                      let sealed = try? await service.getBlob(
+                          id: blob, isolation: "avatar"
+                      ),
+                      let box = try? AES.GCM.SealedBox(combined: sealed),
+                      let plain = try? AES.GCM.open(
+                          box, using: SymmetricKey(data: keyData)
+                      ),
+                      let saved = MediaStore.saveFileData(
+                          plain, name: "avatar-\(opened.senderId).jpg"
+                      ) {
+                if let old = contacts[index].avatarFile {
+                    MediaStore.remove(old)
+                }
+                contacts[index].avatarFile = saved.name
+                contacts[index].avatarBlob = blob
+                changed = true
+            }
+            if changed { scheduleSave() }
         case .typing?:
             guard let typing = try? JSONDecoder().decode(
                 TypingMessage.self, from: opened.payload
@@ -842,18 +905,81 @@ final class ChatStore: ObservableObject {
 
     /// Change the display name and propagate it to existing contacts
     /// (`{"t":"profile","n":...}`). The official feed never gets a profile.
+    /// `av: -1` means "leave the avatar unchanged".
     func updateDisplayName(_ name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         displayName = trimmed
         UserDefaults.standard.set(trimmed, forKey: "rm.displayName")
-        let profile = ProfileMessage(n: trimmed, av: 0)
-        if let json = try? profile.toPayloadJSON() {
+        sendProfile(ProfileMessage(n: trimmed, av: -1))
+        scheduleSave()
+    }
+
+    /// Set or clear the profile icon. The image is sealed with a random AES-GCM
+    /// key and uploaded as an encrypted relay blob; the encrypted profile
+    /// message carries only the blob id and key. One blob is uploaded per
+    /// contact because the relay deletes a blob after its first fetch.
+    func updateAvatar(_ image: UIImage?) {
+        pendingAvatar = image.map { .image($0) } ?? .clear
+        lastAvatarAttempt = .distantPast
+        Task { await publishAvatarIfPossible() }
+    }
+
+    private func publishAvatarIfPossible() async {
+        guard !publishingAvatar, let update = pendingAvatar,
+              relayService() != nil else { return }
+        guard Date().timeIntervalSince(lastAvatarAttempt) > 20 else { return }
+        publishingAvatar = true
+        lastAvatarAttempt = Date()
+        defer { publishingAvatar = false }
+
+        switch update {
+        case .clear:
+            pendingAvatar = nil
+            sendProfile(ProfileMessage(n: displayName, av: 0))
+        case .image(let image):
+            var allDelivered = true
+            for peer in contacts where !peer.official && peer.box != nil {
+                if !(await uploadAvatar(image, to: peer.id)) {
+                    allDelivered = false
+                }
+            }
+            if allDelivered { pendingAvatar = nil }
+        }
+    }
+
+    @discardableResult
+    private func uploadAvatar(_ image: UIImage, to peerId: String) async -> Bool {
+        guard let service = relayService(),
+              let data = image.jpegData(compressionQuality: 0.82),
+              data.count <= 300_000 else { return false }
+        let key = SymmetricKey(size: .bits256)
+        guard let sealed = try? AES.GCM.seal(data, using: key),
+              let combined = sealed.combined else { return false }
+        let keyData = key.withUnsafeBytes { Data($0) }
+        guard let blob = try? await service.putBlob(
+            combined, isolation: "avatar"
+        ) else { return false }
+        let profile = ProfileMessage(
+            n: displayName,
+            av: 1,
+            avBlob: blob,
+            avK: Base64URL.encode(keyData),
+            avN: Base64URL.encode(Data(sealed.nonce))
+        )
+        sendProfile(profile, to: peerId)
+        return true
+    }
+
+    private func sendProfile(_ profile: ProfileMessage, to peerId: String? = nil) {
+        guard let json = try? profile.toPayloadJSON() else { return }
+        if let peerId {
+            transmit(json, to: peerId, markMid: "", silent: true)
+        } else {
             for peer in contacts where !peer.official && peer.box != nil {
                 transmit(json, to: peer.id, markMid: "", silent: true)
             }
         }
-        scheduleSave()
     }
 
     /// Delete the conversation but keep the contact (Android "トークを削除").
@@ -2342,8 +2468,9 @@ final class ChatStore: ObservableObject {
         scheduleSave()
         // Announce ourselves immediately so the inviter's app creates the
         // contact without waiting for the first chat message.
-        if let profile = try? ProfileMessage(n: displayName, av: 0).toPayloadJSON() {
-            transmit(profile, to: c.id, markMid: "", silent: true)
+        sendProfile(ProfileMessage(n: displayName, av: -1), to: c.id)
+        if let image = avatarProvider?() {
+            Task { await self.uploadAvatar(image, to: c.id) }
         }
         registerPushIfNeeded()
         return c
@@ -2373,6 +2500,10 @@ struct Contact: Identifiable, Hashable, Codable {
     /// My receive mailbox for this peer (32B, base64url); polled and stamped as
     /// `rb` on every message I send them.
     var recvBox: String? = nil
+    /// Decrypted avatar stored by MediaStore (sealed at rest), and the relay
+    /// blob id it came from so the same avatar is not downloaded twice.
+    var avatarFile: String? = nil
+    var avatarBlob: String? = nil
 }
 
 struct ChatGroup: Identifiable, Hashable, Codable {

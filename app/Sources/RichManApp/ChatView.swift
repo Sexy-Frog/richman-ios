@@ -347,7 +347,7 @@ struct ChatView: View {
                 }
 
             VStack(spacing: 18) {
-                Avatar(name: contact.name, size: 76)
+                Avatar(contact: contact, size: 76)
                 Text(contact.name)
                     .font(.title3.weight(.bold))
                     .lineLimit(1)

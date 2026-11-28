@@ -126,6 +126,17 @@ final class AppServices {
         }
     }
 
+    /// CallKit decline/end happened before the offer was fetched. Send the
+    /// caller a content-free encrypted "call ended" so it does not ring forever.
+    @MainActor
+    func rejectUnfetchedCall(box: String?) {
+        guard let box, let store else { return }
+        if !store.relayReady, let factory = transportFactory() {
+            store.attachRelayFactory(factory, startPolling: false)
+        }
+        store.rejectUnfetchedCall(box: box)
+    }
+
     /// Direct HTTPS unless the user opted into the high-anonymity Tor path.
     /// In Tor mode a terminated/background launch cannot bootstrap Tor here;
     /// CallKit still rings and the offer is fetched once the app is opened.

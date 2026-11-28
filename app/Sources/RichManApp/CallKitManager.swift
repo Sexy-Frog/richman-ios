@@ -22,6 +22,7 @@ final class CallKitManager: NSObject {
     private var activeSystemCall = false
     private var generation = 0
     private var started = false
+    private var pendingBox: String?
 
     var isRinging: Bool { activeSystemCall }
 
@@ -62,6 +63,7 @@ final class CallKitManager: NSObject {
         AppServices.shared.calls?.setUsesSystemUI(false)
         guard activeSystemCall else { return }
         activeSystemCall = false
+        pendingBox = nil
         provider?.reportCall(
             with: callUUID,
             endedAt: Date(),
@@ -90,6 +92,7 @@ final class CallKitManager: NSObject {
         callUUID = UUID()
         generation += 1
         let thisGeneration = generation
+        pendingBox = box
 
         let update = CXCallUpdate()
         update.remoteHandle = CXHandle(type: .generic, value: "RichMan")
@@ -127,6 +130,7 @@ final class CallKitManager: NSObject {
                   self.generation == thisGeneration,
                   self.activeSystemCall else { return }
             if calls.phase == .idle || calls.phase == .ended {
+                AppServices.shared.rejectUnfetchedCall(box: self.pendingBox)
                 calls.endFromSystem()
             }
         }
@@ -180,11 +184,25 @@ extension CallKitManager: CXProviderDelegate {
 
     func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
         action.fulfill()
+        let answeredGeneration = generation
         AppServices.shared.calls?.acceptFromSystem()
+        // If the encrypted offer never arrives (offline / terminated before the
+        // fetch), do not leave the caller ringing forever.
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            guard self.generation == answeredGeneration,
+                  self.activeSystemCall,
+                  AppServices.shared.calls?.phase == .idle else { return }
+            AppServices.shared.rejectUnfetchedCall(box: self.pendingBox)
+            AppServices.shared.calls?.endFromSystem()
+        }
     }
 
     func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
         action.fulfill()
+        if AppServices.shared.calls?.phase == .idle {
+            AppServices.shared.rejectUnfetchedCall(box: pendingBox)
+        }
         AppServices.shared.calls?.endFromSystem()
     }
 

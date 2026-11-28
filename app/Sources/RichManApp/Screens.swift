@@ -216,7 +216,7 @@ private struct ChatPeekPopup: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            Avatar(name: contact.name, size: 44)
+            Avatar(contact: contact, size: 44)
             VStack(alignment: .leading, spacing: 2) {
                 Text(contact.name)
                     .font(.headline)
@@ -287,7 +287,7 @@ private struct ContactRow: View {
                     .frame(width: 40, height: 40)
                     .background(Brand.signalBlue, in: Circle())
             } else {
-                Avatar(name: contact.name)
+                Avatar(contact: contact)
             }
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
@@ -405,7 +405,7 @@ private struct FriendRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Avatar(name: contact.name)
+            Avatar(contact: contact)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(contact.name).font(.body.weight(.semibold))
@@ -478,6 +478,18 @@ struct Avatar: View {
     let name: String
     var image: UIImage? = nil
     var size: CGFloat = 40
+
+    init(name: String, image: UIImage? = nil, size: CGFloat = 40) {
+        self.name = name
+        self.image = image
+        self.size = size
+    }
+
+    init(contact: Contact, size: CGFloat = 40) {
+        self.name = contact.name
+        self.image = contact.avatarFile.flatMap { MediaStore.image(named: $0) }
+        self.size = size
+    }
 
     var body: some View {
         Group {

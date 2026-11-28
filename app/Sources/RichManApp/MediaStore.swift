@@ -72,17 +72,32 @@ enum MediaStore {
         PrivacyStorage.excludeFromBackup(url)
     }
 
+    private static let imageCache = NSCache<NSString, UIImage>()
+
     static func image(named name: String) -> UIImage? {
+        if let hit = imageCache.object(forKey: name as NSString) { return hit }
         let url = directory.appendingPathComponent(name)
         guard let raw = try? Data(contentsOf: url) else { return nil }
+        let image: UIImage?
         if MediaCipher.isSealed(raw) {
             guard let plain = MediaCipher.open(raw) else { return nil }
-            return UIImage(data: plain)
+            image = UIImage(data: plain)
+        } else {
+            image = UIImage(contentsOfFile: url.path)
         }
-        return UIImage(contentsOfFile: url.path)
+        if let image { imageCache.setObject(image, forKey: name as NSString) }
+        return image
+    }
+
+    static func remove(_ name: String) {
+        imageCache.removeObject(forKey: name as NSString)
+        try? FileManager.default.removeItem(
+            at: directory.appendingPathComponent(name)
+        )
     }
 
     static func clearAll() {
+        imageCache.removeAllObjects()
         guard let items = try? FileManager.default.contentsOfDirectory(
             at: directory, includingPropertiesForKeys: nil
         ) else {

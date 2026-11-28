@@ -57,6 +57,24 @@ public final class RelayClient {
         _ = try await postRaw("v1/send", body: body, contentType: Self.jsonType)
     }
 
+    /// Geocode an address through the relay (Nominatim). The query goes to the
+    /// relay, never directly to the geocoder; in Tor mode the relay's circuit
+    /// hides the client IP.
+    public func geocode(query: String) async throws -> [GeocodeResult] {
+        let body = try jsonBody(["q": query])
+        let resp = try await postRaw(
+            "v1/geocode", body: body, contentType: Self.jsonType
+        )
+        let obj = try jsonObject(resp.body)
+        guard let arr = obj["results"] as? [[String: Any]] else { return [] }
+        return arr.compactMap { item in
+            guard let name = item["name"] as? String,
+                  let lat = item["lat"] as? Double,
+                  let lon = item["lon"] as? Double else { return nil }
+            return GeocodeResult(name: name, lat: lat, lon: lon)
+        }
+    }
+
     /// Register this device's APNs token for one or more receive mailboxes.
     /// The token is sent over Tor; the relay stores it in memory only.
     /// `kind` is "alert" (normal notifications) or "voip" (PushKit ringing).
@@ -158,5 +176,19 @@ public final class RelayClient {
         let obj = try jsonObject(resp.body)
         guard let v = obj[key] as? String else { throw RelayError.badResponse("missing \(key)") }
         return v
+    }
+}
+
+/// One address search hit returned by the relay's geocoder.
+public struct GeocodeResult: Codable, Identifiable, Sendable, Equatable {
+    public var id: String { "\(lat),\(lon),\(name)" }
+    public let name: String
+    public let lat: Double
+    public let lon: Double
+
+    public init(name: String, lat: Double, lon: Double) {
+        self.name = name
+        self.lat = lat
+        self.lon = lon
     }
 }

@@ -182,6 +182,30 @@ final class MapProxy: @unchecked Sendable {
             return
         }
 
+        if path.hasPrefix("/v1/tile/") {
+            let parts = path.dropFirst("/v1/tile/".count).split(separator: "/")
+            guard parts.count == 3,
+                  let z = Int(parts[0]), let x = Int(parts[1]),
+                  let y = Int(parts[2]),
+                  (0...19).contains(z), x >= 0, y >= 0,
+                  x < (1 << z), y < (1 << z) else {
+                respond(client, status: 404, type: "text/plain", body: Data())
+                return
+            }
+            let key = "raster/\(z)/\(x)/\(y)"
+            if let hit = cached(key) {
+                respond(client, status: 200, type: "image/png", body: hit)
+                return
+            }
+            guard let data = fetchRasterTile(z: z, x: x, y: y) else {
+                respond(client, status: 503, type: "text/plain", body: Data())
+                return
+            }
+            store(data, for: key)
+            respond(client, status: 200, type: "image/png", body: data)
+            return
+        }
+
         guard path.hasPrefix("/v1/map/") else {
             respond(client, status: 404, type: "text/plain", body: Data())
             return
@@ -243,7 +267,7 @@ final class MapProxy: @unchecked Sendable {
         guard isRunning else { return }
         DispatchQueue.global(qos: .utility).async { [weak self] in
             guard let self else { return }
-            let baseZoom = max(8, min(14, Int(floor(zoom))))
+            let baseZoom = max(12, min(17, Int(floor(zoom))))
             for level in [baseZoom, baseZoom - 1, baseZoom - 2] where level >= 8 {
                 let (cx, cy) = Self.tile(
                     latitude: latitude, longitude: longitude, zoom: level
@@ -256,13 +280,15 @@ final class MapProxy: @unchecked Sendable {
                         let y = cy + dy
                         guard (0..<count).contains(x),
                               (0..<count).contains(y) else { continue }
-                        let path = "tiles/\(level)/\(x)/\(y).pbf"
-                        if self.cached(path) != nil { continue }
+                        let key = "raster/\(level)/\(x)/\(y)"
+                        if self.cached(key) != nil { continue }
                         self.prefetchWorkers.wait()
                         DispatchQueue.global(qos: .utility).async { [weak self] in
                             guard let self else { return }
-                            if let data = self.fetch(path) {
-                                self.store(data, for: path)
+                            if let data = self.fetchRasterTile(
+                                z: level, x: x, y: y
+                            ) {
+                                self.store(data, for: key)
                             }
                             self.prefetchWorkers.signal()
                         }
@@ -282,6 +308,20 @@ final class MapProxy: @unchecked Sendable {
         let lat = latitude * .pi / 180.0
         let y = Int(floor((1.0 - log(tan(lat) + 1.0 / cos(lat)) / .pi) / 2.0 * n))
         return (x, y)
+    }
+
+    private func fetchRasterTile(z: Int, x: Int, y: Int) -> Data? {
+        guard let transport else { return nil }
+        final class Box: @unchecked Sendable { var value: Data? }
+        let box = Box()
+        let semaphore = DispatchSemaphore(value: 0)
+        Task {
+            box.value = try? await RelayClient(transport: transport)
+                .getTile(z: z, x: x, y: y)
+            semaphore.signal()
+        }
+        _ = semaphore.wait(timeout: .now() + 45)
+        return box.value
     }
 
     /// Fetch one map resource through the relay. Blocking (the caller is a
@@ -360,7 +400,7 @@ final class MapProxy: @unchecked Sendable {
 
     private static func loadTemplate() -> Data? {
         guard let url = Bundle.main.url(
-            forResource: "map_style_ja", withExtension: "json"
+            forResource: "map_style_raster", withExtension: "json"
         ) else { return nil }
         return try? Data(contentsOf: url)
     }

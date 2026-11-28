@@ -56,7 +56,9 @@ struct RootView: View {
     var body: some View {
         ZStack {
             Group {
-                if lock.locked {
+                if lock.locked && calls.phase != .idle {
+                    CallOverlay()
+                } else if lock.locked {
                     LockScreenView(onWipe: performEmergencyAction)
                 } else if let gid = debugGroupId, let group = store.group(gid) {
                     NavigationStack { GroupChatView(group: group) }
@@ -264,7 +266,11 @@ struct RootView: View {
         }
         .fullScreenCover(
             isPresented: Binding(
-                get: { calls.phase != .idle && !calls.usesSystemUI },
+                get: {
+                    if lock.locked { return false }
+                    return calls.phase == .active
+                        || (calls.phase != .idle && !calls.usesSystemUI)
+                },
                 set: { presented in
                     // Do not tear the call down when the cover is hidden only
                     // because CallKit took over the UI.
@@ -307,6 +313,7 @@ struct RootView: View {
     /// works before this view exists; only the location probe hook is UI-local.
     private func wireCalls() {
         AppServices.shared.bootstrap()
+        store.avatarProvider = { [weak profile] in profile?.avatar }
         store.probeProvider = { [weak location] in
             guard let fix = location?.location else { return nil }
             return (

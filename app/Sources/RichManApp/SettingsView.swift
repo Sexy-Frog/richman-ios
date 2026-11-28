@@ -304,7 +304,7 @@ private struct DataSettingsView: View {
                 Section("ブロックしたユーザー") {
                     ForEach(store.blockedContacts) { contact in
                         HStack(spacing: 10) {
-                            Avatar(name: contact.name)
+                            Avatar(contact: contact)
                             Text(contact.name)
                             Spacer()
                             Button("解除") {
@@ -478,6 +478,7 @@ private struct ProfileEditSheet: View {
                     if profile.avatar != nil {
                         Button("写真を削除", role: .destructive) {
                             profile.removeAvatar()
+                            store.updateAvatar(nil)
                         }
                     }
                 }
@@ -487,7 +488,7 @@ private struct ProfileEditSheet: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                 } footer: {
-                    Text("アイコンと表示名はこの端末にのみ保存されます。")
+                    Text("アイコンと表示名は友だちに同期されます。")
                 }
 
                 if let error {
@@ -513,6 +514,7 @@ private struct ProfileEditSheet: View {
                        let image = UIImage(data: data) {
                         error = nil
                         profile.setAvatar(image)
+                        store.updateAvatar(profile.avatar)
                     } else {
                         error = "写真を読み込めませんでした。"
                     }

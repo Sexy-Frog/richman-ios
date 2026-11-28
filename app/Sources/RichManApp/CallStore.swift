@@ -186,6 +186,19 @@ final class CallStore: ObservableObject {
             activate()
 
         case MessageType.callEnd.rawValue:
+            // An empty id is the callee's "reject without having fetched the
+            // offer" signal (CallKit decline/end while the app was closed).
+            if signal.id.isEmpty {
+                guard peerId == self.peerId,
+                      phase == .calling || phase == .incoming || phase == .active
+                else { return }
+                if signal.why == "decline" {
+                    finish(error: "通話が拒否されました")
+                } else {
+                    finish()
+                }
+                return
+            }
             guard signal.id == callId, peerId == self.peerId else { return }
             if signal.why == "busy" {
                 finish(error: "通話中です")
@@ -301,7 +314,7 @@ final class CallStore: ObservableObject {
     private func armTimeout(_ message: String) {
         timeoutTask?.cancel()
         timeoutTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 45_000_000_000)
+            try? await Task.sleep(nanoseconds: 35_000_000_000)
             guard !Task.isCancelled, let self else { return }
             guard self.phase == .calling || self.phase == .incoming else { return }
             if !self.callId.isEmpty {

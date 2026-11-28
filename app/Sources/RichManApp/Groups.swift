@@ -62,7 +62,7 @@ struct CreateGroupView: View {
                         ForEach(store.contacts) { contact in
                             Button { toggle(contact.id) } label: {
                                 HStack(spacing: 12) {
-                                    Avatar(name: contact.name)
+                                    Avatar(contact: contact)
                                     Text(contact.name).foregroundStyle(RM.onSurface)
                                     Spacer()
                                     Image(
@@ -781,7 +781,7 @@ private struct AddMembersView: View {
                     ForEach(candidates) { contact in
                         Button { toggle(contact.id) } label: {
                             HStack(spacing: 12) {
-                                Avatar(name: contact.name)
+                                Avatar(contact: contact)
                                 Text(contact.name).foregroundStyle(RM.onSurface)
                                 Spacer()
                                 Image(
