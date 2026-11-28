@@ -187,12 +187,36 @@ jobs:
           done <<< "$RESERVED"
           echo "signed binary hygiene OK"
 
+      - name: Install distribution certificate and profile
+        env:
+          DIST_CERT_P12: ${{ secrets.DIST_CERT_P12 }}
+          DIST_CERT_PASSWORD: ${{ secrets.DIST_CERT_PASSWORD }}
+          DIST_PROFILE: ${{ secrets.DIST_PROFILE }}
+          DIST_PROFILE_UUID: ${{ secrets.DIST_PROFILE_UUID }}
+          KEYCHAIN_PASSWORD: ${{ secrets.DIST_KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN=build.keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          echo "$DIST_CERT_P12" | base64 -D > /tmp/dist.p12
+          security import /tmp/dist.p12 -k "$KEYCHAIN" \
+            -P "$DIST_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          EXISTING=$(security list-keychains -d user | tr -d '"' | tr '\n' ' ')
+          security list-keychains -d user -s "$KEYCHAIN" $EXISTING
+          security default-keychain -s "$KEYCHAIN"
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          echo "$DIST_PROFILE" | base64 -D > \
+            "$HOME/Library/MobileDevice/Provisioning Profiles/$DIST_PROFILE_UUID.mobileprovision"
+          rm -f /tmp/dist.p12
+
       - name: Export App Store IPA
         working-directory: app
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
           set -euo pipefail
           cat > ExportOptions.plist <<EOF
@@ -205,7 +229,12 @@ jobs:
             <key>teamID</key>
             <string>${APPLE_TEAM_ID}</string>
             <key>signingStyle</key>
-            <string>automatic</string>
+            <string>manual</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>works.kelvins.richman</key>
+              <string>RichMan App Store</string>
+            </dict>
             <key>uploadSymbols</key>
             <true/>
             <key>destination</key>
@@ -218,10 +247,7 @@ jobs:
             -archivePath build/RichMan.xcarchive \
             -exportPath build/export \
             -exportOptionsPlist ExportOptions.plist \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$ASC_KEY_PATH" \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+            OTHER_CODE_SIGN_FLAGS="--keychain build.keychain"
           IPA=$(find build/export -maxdepth 1 -name '*.ipa' | head -n1)
           test -n "$IPA"
           unzip -l "$IPA" > /tmp/ipa-contents.txt
