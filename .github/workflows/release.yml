@@ -167,6 +167,11 @@ jobs:
             https://*) echo "direct relay URL present" ;;
             *) echo "::error::direct relay URL missing in the signed archive"; exit 1 ;;
           esac
+          MODES=$(/usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$APP/Info.plist")
+          echo "$MODES" | grep -qx "voip" \
+            || { echo "::error::voip background mode missing"; exit 1; }
+          echo "$MODES" | grep -qx "audio" \
+            || { echo "::error::audio background mode missing"; exit 1; }
 
       - name: Verify signed binary hygiene
         working-directory: app
