@@ -142,6 +142,11 @@ jobs:
           # CFBundleVersion. The archive is unsigned, so patching is safe.
           APP="build/RichMan.xcarchive/Products/Applications/RichManCryptoApp.app"
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$APP/Info.plist"
+          # Xcode's plist processor has dropped these modes in the signed
+          # archive on some toolchains; CallKit needs voip and call audio needs
+          # audio. The archive is still unsigned here, so patching is safe.
+          plutil -replace UIBackgroundModes -json \
+            '["fetch","remote-notification","voip","audio"]' "$APP/Info.plist"
 
       - name: Verify archive contents
         working-directory: app
