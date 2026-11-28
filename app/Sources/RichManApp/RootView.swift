@@ -58,9 +58,7 @@ struct RootView: View {
     var body: some View {
         ZStack {
             Group {
-                if calls.phase != .idle {
-                    CallOverlay()
-                } else if lock.locked {
+                if lock.locked {
                     LockScreenView(onWipe: performEmergencyAction)
                 } else if let gid = debugGroupId, let group = store.group(gid) {
                     NavigationStack { GroupChatView(group: group) }
@@ -71,6 +69,12 @@ struct RootView: View {
                 } else {
                     OnboardingView()
                 }
+            }
+
+            if calls.phase != .idle {
+                CallOverlay()
+                    .environmentObject(calls)
+                    .zIndex(2)
             }
 
             if privacyCover || screenCaptured {
