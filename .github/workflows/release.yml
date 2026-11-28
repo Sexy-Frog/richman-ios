@@ -175,10 +175,11 @@ jobs:
           esac
           MODES=$(/usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$APP/Info.plist")
           echo "background modes: $MODES"
-          MODE_LIST=$(echo "$MODES" | tr ',' '\n' | tr -d '[:space:]')
-          echo "$MODE_LIST" | grep -qx "voip" \
+          echo "$MODES" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+            | grep -qx "voip" \
             || { echo "::error::voip background mode missing"; exit 1; }
-          echo "$MODE_LIST" | grep -qx "audio" \
+          echo "$MODES" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+            | grep -qx "audio" \
             || { echo "::error::audio background mode missing"; exit 1; }
 
       - name: Verify signed binary hygiene

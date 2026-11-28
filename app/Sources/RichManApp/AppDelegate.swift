@@ -19,8 +19,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         return true
     }
 
-    /// Content-free APNs token. It is sent to the relay over Tor so the relay can
-    /// wake this device with "new message" only (no sender/content).
+    /// Content-free APNs token. It is sent to the relay over the selected
+    /// transport (direct HTTPS by default) so the relay can wake this device
+    /// with "new message" only (no sender/content). Calls use a separate
+    /// PushKit token registered by CallKitManager.
     func application(
         _ application: UIApplication,
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data

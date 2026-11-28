@@ -82,6 +82,7 @@ final class CallStore: ObservableObject {
             self.negotiatedRate = 16_000
             self.send(CallSignal(t: MessageType.callOffer.rawValue,
                                  id: self.callId, sr: 16_000))
+            self.onFastPolling?(true, self.peerId)
             self.armTimeout("応答がありません")
         }
     }

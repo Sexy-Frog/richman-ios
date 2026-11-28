@@ -1509,7 +1509,9 @@ final class ChatStore: ObservableObject {
                 system: true
             )
         )
-        scheduleSave()
+        // The app may be suspended right after a background CallKit call ends;
+        // persist the call record immediately instead of debouncing.
+        persistNow()
     }
 
     private func ttlSystemLabel(_ seconds: Int) -> String {

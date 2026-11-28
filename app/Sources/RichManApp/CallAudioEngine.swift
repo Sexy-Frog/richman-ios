@@ -37,7 +37,7 @@ final class CallAudioEngine {
         try session.setCategory(
             .playAndRecord,
             mode: .voiceChat,
-            options: [.defaultToSpeaker, .allowBluetooth]
+            options: [.allowBluetooth]
         )
         try session.setPreferredSampleRate(format.sampleRate)
         try session.setActive(true)
