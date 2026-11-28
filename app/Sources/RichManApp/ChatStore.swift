@@ -554,6 +554,29 @@ final class ChatStore: ObservableObject {
     /// dispatch on the payload type.
     private func apply(_ opened: OpenedMessage) async {
         guard !isBlocked(opened.senderId) else { return }
+        // While the app is PIN-locked the chat state is intentionally empty.
+        // Call signalling and audio must still flow, using the contacts-only
+        // snapshot, otherwise a lock-screen call can never be answered.
+        if !loaded {
+            switch opened.type {
+            case .callOffer?, .callAnswer?, .callEnd?:
+                if let signal = try? JSONDecoder().decode(
+                    CallSignal.self, from: opened.payload
+                ) {
+                    onCallSignal?(opened.senderId, signal)
+                }
+                return
+            case .callAudio?:
+                if let audio = try? JSONDecoder().decode(
+                    CallAudio.self, from: opened.payload
+                ) {
+                    onCallAudio?(opened.senderId, audio)
+                }
+                return
+            default:
+                break
+            }
+        }
         if !contacts.contains(where: { $0.id == opened.senderId }) {
             // Only a text/first message or a profile hello may create a contact;
             // receipts from a stranger must not appear as a chat.
