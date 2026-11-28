@@ -165,9 +165,9 @@ private struct NotificationSettingsView: View {
     var body: some View {
         Form {
             Section {
-                Toggle("通知に本文を表示", isOn: $previewInNotifications)
+                Toggle("アプリ内の通知に本文を表示", isOn: $previewInNotifications)
             } footer: {
-                Text("オフの場合は「新しいメッセージ」だけを表示します。通知の許可は初回起動時に確認します。変更は iOS の「設定 > 通知 > RichMan」から行えます。")
+                Text("アプリが動いている間のローカル通知に本文を表示します。アプリを閉じている時のAPNs通知は、内容をサーバーに送らない設計のため「新しいメッセージ」のみ表示されます。")
             }
         }
         .navigationTitle("通知")

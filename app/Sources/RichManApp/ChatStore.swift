@@ -240,6 +240,21 @@ final class ChatStore: ObservableObject {
         registerPushIfNeeded(force: true)
     }
 
+    /// Remove this token from all relay mailboxes (account reset). An empty
+    /// box set is a valid registration request.
+    private func unregisterPush() {
+        guard let token = pushToken, let service = relayService() else { return }
+        Task {
+            do {
+                try await service.registerPush(token: token, boxes: [])
+                pushRegistered = false
+                lastRegisteredBoxes = []
+            } catch {
+                pushRegistered = false
+            }
+        }
+    }
+
     /// Re-register when the set of receive mailboxes changes (new contact,
     /// invite box claimed, new per-contact box). The relay keeps this mapping
     /// in memory, so a stale mapping means no notification while the app is
@@ -249,7 +264,7 @@ final class ChatStore: ObservableObject {
         let boxes = Set(
             contacts.filter { !$0.official }.compactMap(\.recvBox)
         ).union(pendingBoxes)
-        guard !boxes.isEmpty else { return }
+        if boxes.isEmpty && !force { return }
         if !force, boxes == lastRegisteredBoxes { return }
         Task {
             do {
@@ -1261,6 +1276,10 @@ final class ChatStore: ObservableObject {
     /// Settings → アカウントを消去 (empty name + onboarding). The old provider is
     /// discarded, so nothing from the previous account survives in memory.
     func recreateAccount(displayName newName: String) {
+        // Remove this device token from every old mailbox before the identity
+        // (and its receive boxes) is destroyed, otherwise old chats keep
+        // pushing notifications to the new account.
+        unregisterPush()
         pollTask?.cancel()
         pollTask = nil
         relayServiceInstance = nil
